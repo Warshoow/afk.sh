@@ -4,18 +4,33 @@ Boucle externe qui enchaîne `/implement` sur les tickets `ready-for-agent`.
 Un ticket = une session Claude neuve = une PR. Aucun LLM dans l'orchestrateur :
 il ordonne, il lance, il vérifie, il pousse, il étiquette.
 
-Se branche sur le workflow [mattpocock/skills](https://github.com/mattpocock/skills) :
+Se branche sur le workflow [mattpocock/skills](https://github.com/mattpocock/skills).
+
+**Une fois par projet**, jamais à refaire :
 
 ```
-/wayfinder ou /to-spec  →  /to-tickets  →  /triage  →  ./afk.sh  →  tu merges
-                            (issues +      (label     (N sessions
-                             Blocked by)    ready-      headless)
-                                            for-agent)
+/setup-matt-pocock-skills   →   /afk-setup
+ (docs/agents/, les labels        (.afk.env : la commande qui dit
+  de triage, la mémoire            « ce ticket est fini » ici)
+  de projet)
 ```
+
+**À chaque lot de travail** :
+
+```
+/grill-with-docs  →  /to-tickets  →  /triage  →  ./afk.sh  →  tu merges
+ (clarifier ce      (issues +       (label      (N sessions
+  qu'il y a          Blocked by)     ready-      headless)
+  à faire)                           for-agent)
+```
+
+Entre `/triage` et `tu merges`, tu dors.
 
 ## Prérequis
 
 - Repo configuré par `/setup-matt-pocock-skills`, tracker **GitHub** (`docs/agents/issue-tracker.md`).
+- Un `.afk.env` à la racine, écrit par `/afk-setup` (voir [Config par projet](#config-par-projet)).
+  Sans lui, la porte de vérification reste celle d'un monorepo pnpm — fausse partout ailleurs.
 - `claude`, `gh`, `git`, `timeout` dans le PATH. Working tree propre.
 - `gh auth login` fait : le token sert aussi à pousser, sans passphrase.
 - Les skills mattpocock installés dans le `CLAUDE_CONFIG_DIR` utilisé par le script
@@ -182,6 +197,13 @@ Verify: pnpm turbo typecheck --filter=@hexa-zero/backend
 Le script la lit et l'utilise à la place de `VERIFY_CMD` — pour ce ticket seulement.
 La ligne est exécutée telle quelle : les tickets font partie de la surface de confiance,
 au même titre que le `bypassPermissions` de la session.
+
+Ça fait trois niveaux, du plus général au plus précis — **le plus précis gagne** :
+
+```
+défaut du script  →  .afk.env du repo  →  ligne Verify: du ticket
+(monorepo pnpm)      (ce projet)           (ce ticket)
+```
 
 C'est aussi la réponse au risque symétrique du taux de vert : **100 % de vert ne veut rien
 dire si la porte ne vérifie rien.** Sur un ticket d'aspect, « vert » signifie « ça compile ».
