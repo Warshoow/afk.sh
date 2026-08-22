@@ -57,6 +57,31 @@ et tu relis au réveil.
 | `STACK_ON_OPEN_PR` | `1` | empiler sur un bloqueur hors run dont la PR est ouverte, au lieu de geler |
 | `ALLOW_REVIEW` | `0` | relancer un ticket déjà `in-review` (il a déjà une PR ouverte) |
 
+## Config par projet
+
+Les défauts du tableau ci-dessus sont taillés pour un monorepo pnpm. Un repo Python,
+PHP ou Rust n'a pas la même définition de « fini » — et même sur un repo npm,
+`npm test` ouvre souvent un watcher qui ne rend jamais la main (`vitest` sans `run`) :
+le ticket meurt alors sur `TIMEOUT`, pour une raison qui n'a rien à voir avec lui.
+
+Un repo déclare donc sa porte dans un `.afk.env` à sa racine, versionné à côté du code :
+
+```bash
+# .afk.env — ownhomemap
+# `pnpm test` = vitest en watch : il ne rend jamais la main. C'est test:run qu'il faut.
+VERIFY_CMD="${VERIFY_CMD:-pnpm lint && pnpm test:run}"
+```
+
+Il est sourcé après les arguments : **ligne de commande > `.afk.env` > défaut du
+script**, d'où le `${VAR:-...}`. N'y mettre que ce qui diffère.
+
+C'est du shell du repo, exécuté tel quel — même surface de confiance que les lignes
+`Verify:` d'un ticket.
+
+Le skill `/afk-setup` lit le repo (scripts, workflows CI, `CLAUDE.md`), éprouve la
+commande proposée, et écrit ce fichier. Une fois par projet, après
+`/setup-matt-pocock-skills` et avant le premier run.
+
 ## Parallélisme
 
 `-j N` lance N tickets à la fois. **Un ticket = un worktree git** (`.afk/wt/<n>`) :

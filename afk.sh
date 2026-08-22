@@ -102,6 +102,18 @@ while (( $# )); do
   esac
 done
 
+# ─── Config du projet ─────────────────────────────────────────────────────────
+# Les défauts ci-dessous sont taillés pour un monorepo pnpm. Un repo Python, PHP ou
+# Rust n'a pas la même définition de "fini" — et même sur un repo npm, `npm test`
+# ouvre souvent un watcher qui ne rend jamais la main (vitest sans `run`) : le ticket
+# meurt alors sur TIMEOUT, pour une raison qui n'a rien à voir avec son contenu.
+# Le projet déclare donc lui-même sa porte, dans un fichier versionné à côté de son
+# code — là où vit la vraie définition de "fini", pas dans la ligne de commande.
+# Sourcé APRÈS les arguments : la ligne de commande garde le dernier mot.
+# Même surface de confiance que les lignes "Verify:" d'un ticket : c'est du shell du
+# repo, exécuté tel quel.
+[[ -f .afk.env ]] && { echo "· config du projet : .afk.env"; source ./.afk.env; }
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 # Les skills mattpocock doivent exister DANS la session headless : même config dir
