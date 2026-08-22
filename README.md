@@ -78,9 +78,14 @@ script**, d'où le `${VAR:-...}`. N'y mettre que ce qui diffère.
 C'est du shell du repo, exécuté tel quel — même surface de confiance que les lignes
 `Verify:` d'un ticket.
 
-Le skill `/afk-setup` lit le repo (scripts, workflows CI, `CLAUDE.md`), éprouve la
-commande proposée, et écrit ce fichier. Une fois par projet, après
-`/setup-matt-pocock-skills` et avant le premier run.
+Le skill `/afk-setup` (dans [`skills/afk-setup/`](skills/afk-setup/SKILL.md)) lit le
+repo — scripts, workflows CI, `CLAUDE.md` —, éprouve la commande proposée puis écrit
+ce fichier. Une fois par projet, après `/setup-matt-pocock-skills` et avant le premier
+run. Pour l'installer :
+
+```bash
+ln -s "$PWD/skills/afk-setup" ~/.claude/skills/afk-setup   # ou ton CLAUDE_CONFIG_DIR
+```
 
 ## Parallélisme
 
