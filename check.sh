@@ -143,4 +143,27 @@ git update-ref refs/remotes/origin/main refs/heads/main
 [[ "$(deepest_branch B origin/main)" == "B" ]] || { echo "FAIL deepest ref distant"; exit 1; }
 popd >/dev/null
 
+# ── peak_context ──────────────────────────────────────────────────────────────
+# Le contexte d'une requête = frais + écrit au cache + lu au cache ; on garde le max
+# sur la session. Deux pièges valent ce test : "input_tokens" ne doit pas être compté
+# à l'intérieur de "cache_read_input_tokens" (le guillemet ouvrant les sépare), et une
+# regex passée en argument à une fonction awk s'évalue en booléen — le parseur rendait
+# 3 au lieu de 139988 avant qu'on la passe en chaîne.
+ctx_fixture() {
+  cat <<'EOF'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"message":{"role":"assistant","usage":{"input_tokens":4,"cache_creation_input_tokens":20000,"cache_read_input_tokens":0,"output_tokens":120}}}
+{"message":{"role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":1000,"cache_read_input_tokens":98000,"output_tokens":300}}}
+{"message":{"role":"assistant","usage":{"input_tokens":1,"cache_creation_input_tokens":500,"cache_read_input_tokens":50000,"output_tokens":80}}}
+EOF
+}
+got=$(ctx_fixture | peak_context)
+[[ "$got" == "99002" ]] || { echo "FAIL peak_context : '$got' au lieu de 99002"; exit 1; }
+# Le pic n'est pas le dernier tour : une session peut redescendre après un compactage.
+[[ "$(ctx_fixture | tail -1 | peak_context)" == "50501" ]] || { echo "FAIL peak_context tour seul"; exit 1; }
+# Un transcript sans usage (session morte avant la première réponse) ne rend rien,
+# et surtout pas 0 : la colonne du bilan doit afficher "—", pas "0k".
+[[ -z "$(printf '{"type":"user"}\n' | peak_context)" ]] || { echo "FAIL peak_context vide"; exit 1; }
+[[ -z "$(printf '' | peak_context)" ]] || { echo "FAIL peak_context stdin vide"; exit 1; }
+
 echo "ok"

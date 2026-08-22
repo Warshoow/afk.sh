@@ -80,6 +80,31 @@ deepest_branch() {
   echo "$last"
 }
 
+# Contexte maximal atteint par une session, depuis son transcript JSONL sur stdin.
+# Une session neuve garantit un départ propre, pas une arrivée propre : avec une
+# fenêtre de 1M rien ne compacte, et la session grossit jusqu'à finir le ticket.
+# C'est donc le thermomètre du découpage — un ticket qui frôle la fenêtre était trop
+# gros, et ça se voit avant que la qualité ne se dégrade.
+# Le contexte d'une requête = frais + écrit au cache + lu au cache ; on garde le max.
+# Rien à parser en JSON : les trois clés sont cherchées telles quelles, le guillemet
+# ouvrant suffit à distinguer "input_tokens" de "cache_read_input_tokens".
+peak_context() {
+  awk '
+    function num(line, re,   m) {
+      if (match(line, re)) { m = substr(line, RSTART, RLENGTH); gsub(/[^0-9]/, "", m); return m + 0 }
+      return 0
+    }
+    index($0, "\"usage\"") == 0 { next }
+    {
+      t = num($0, "\"input_tokens\":[0-9]+") \
+        + num($0, "\"cache_creation_input_tokens\":[0-9]+") \
+        + num($0, "\"cache_read_input_tokens\":[0-9]+")
+      if (t > max) max = t
+    }
+    END { if (max) print max }
+  '
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourcé par check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "pas un repo git"; exit 1; }
@@ -835,25 +860,37 @@ integration_check() {
 
 # ─── Bilan ────────────────────────────────────────────────────────────────────
 
+# Transcripts de ce run pour un ticket. Claude Code les range sous
+# $CLAUDE_CONFIG_DIR/projects/<cwd de la session, / et . remplacés par ->.
+ctx_of() {
+  local t="$1" d
+  d="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$WORKTREE_DIR/$t" | sed 's#[/.]#-#g')"
+  [[ -d "$d" ]] || return 0
+  find "$d" -maxdepth 1 -name '*.jsonl' -newer "$RUN_MARKER" -exec cat {} + 2>/dev/null |
+    peak_context
+}
+
 write_summary() {
   local f="$AFK_DIR/summary.md" t
   {
     printf '# Run afk — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
-    printf '| Ticket | Résultat | PR | Essai | Durée | Titre |\n|---|---|---|---|---|---|\n'
+    printf '| Ticket | Résultat | PR | Essai | Contexte | Durée | Titre |\n|---|---|---|---|---|---|---|\n'
     for t in "${TICKETS[@]}"; do
-      local res pr att d
+      local res pr att d ctx
       res=$(sget "$t" result); pr=$(sget "$t" pr); att=$(sget "$t" attempt)
       d=$(sget "$t" dur); d=${d:+$(fmt_dur "$d")}; d=${d:-—}
+      ctx=$(ctx_of "$t"); ctx=${ctx:+$(( ctx / 1000 ))k}; ctx=${ctx:-—}
       [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
       [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
       [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
-      printf '| #%s | %s | %s | %s | %s | %s |\n' \
-        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$d" "${TITLE[$t]:-}"
+      printf '| #%s | %s | %s | %s | %s | %s | %s |\n' \
+        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$ctx" "$d" "${TITLE[$t]:-}"
     done
     printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
       "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " (conflits : ${INTEG_CONFLICTS[*]})" )"
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
+    printf -- '- contexte : le pic de la session ; au-delà de ~200k le ticket était trop gros.\n'
     printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.log` (session),\n'
     printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI).\n'
   } > "$f"
@@ -873,6 +910,9 @@ fi
 
 CI_FAILFAST=""; KNOWN_LABELS=""
 mkdir -p "$AFK_DIR"; printf '*\n' > "$AFK_DIR/.gitignore"
+# Les transcripts s'accumulent d'un run à l'autre dans le même dossier : ce marqueur
+# sert à ne relire que ceux de ce run-ci.
+RUN_MARKER="$AFK_DIR/.runstart"; : > "$RUN_MARKER"
 
 echo "${#TICKETS[@]} ticket(s) : ${TICKETS[*]}"
 echo "base : ${BASE_REF} → PR sur ${BASE_BRANCH}   labels : ${LABEL} → ${LABEL_REVIEW} / ${LABEL_KO}"

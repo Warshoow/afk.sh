@@ -175,11 +175,28 @@ Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
 | `<n>-setup.log` | l'install du worktree |
 | `<n>-ci.txt` | la sortie de `gh pr checks` |
 | `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `attempt`) |
-| `summary.md` | le tableau du run : résultat, PR, essai, CI, intégration |
+| `summary.md` | le tableau du run : résultat, PR, essai, **contexte max**, CI, intégration |
 
 En série, la trace sort aussi à l'écran en direct. En parallèle elle est mise de côté
 et déversée d'un bloc quand le ticket finit, sinon les sorties s'entrelacent ; une
 ligne `… en cours : #48 (3m12) #50 (1m04)` toutes les deux minutes dit qui travaille.
+
+## Le contexte comme thermomètre du découpage
+
+Une session neuve garantit un départ propre, pas une arrivée propre. Avec une fenêtre
+de 1M, rien ne compacte : la session grossit jusqu'à finir le ticket. Mesuré sur
+hexa-zero — même run, mêmes règles :
+
+| ticket | tours | contexte max |
+|---|---|---|
+| #43 | 64 | 140k |
+| #49 | 208 | 289k |
+| #50 | 214 | 312k |
+
+`summary.md` porte donc une colonne **contexte**, lue dans le transcript de la session.
+C'est la même information que « vert au 1er essai », prise en amont : un ticket qui
+frôle la fenêtre était trop gros, et ça se voit **avant** que la qualité ne s'en
+ressente.
 
 ## Porte de vérification par ticket
 
