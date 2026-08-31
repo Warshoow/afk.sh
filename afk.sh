@@ -1020,6 +1020,8 @@ RUN_MARKER="$AFK_DIR/.runstart"; : > "$RUN_MARKER"
 echo "${#TICKETS[@]} ticket(s) : ${TICKETS[*]}"
 echo "base : ${BASE_REF} → PR sur ${BASE_BRANCH}   labels : ${LABEL} → ${LABEL_REVIEW} / ${LABEL_KO}"
 echo "vérification : ${VERIFY_CMD}"
+[[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
+  echo "  · intégration : ${INTEGRATION_VERIFY_CMD}"
 echo -n "parallélisme : ${JOBS} session(s)"
 (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && echo -n "   vérifications sérialisées (ressources partagées)"
 echo
