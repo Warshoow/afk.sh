@@ -538,7 +538,18 @@ worker() {
 
   if [[ -n "$SETUP_CMD" ]]; then
     echo "  → dépendances (${SETUP_CMD})"
-    if ! locked install bash -c "$SETUP_CMD" > "$AFK_DIR/$ticket-setup.log" 2>&1; then
+    # `AFK_TICKET` / `AFK_WORKTREE` sont exportés pour que `SETUP_CMD` puisse ISOLER ce
+    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17) : plusieurs
+    # worktrees partageaient une base de test fixée en dur dans un `.env.test` versionné,
+    # donc chaque `migrate()`/`rollback()` d'un voisin cassait la suite d'ici — et le ticket
+    # courant était noté rouge pour la migration d'un autre.
+    #
+    # C'est le projet qui sait de quoi il doit s'isoler (une base, un port, un bucket), pas
+    # afk : il enchaîne son propre script devant `SETUP_CMD` dans son `.afk.env` et lit ces
+    # deux variables. `SETUP_CMD` tourne déjà dans le worktree et sous le verrou `install`,
+    # donc sérialisé — deux créations de base ne se croisent pas.
+    if ! AFK_TICKET="$ticket" AFK_WORKTREE="$wt" \
+         locked install bash -c "$SETUP_CMD" > "$AFK_DIR/$ticket-setup.log" 2>&1; then
       echo "  ✗ installation des dépendances échouée — ${AFK_DIR##*/}/${ticket}-setup.log"
       st "result=ko"; st "reason=setup"; return
     fi
@@ -839,8 +850,10 @@ integration_check() {
     fi
   done
 
-  [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && locked install bash -c "$SETUP_CMD" ) \
-    > "$AFK_DIR/integration-setup.log" 2>&1
+  # `_integration` comme numéro de ticket : la passe rejoue `VERIFY_CMD`, donc elle migre
+  # comme un worker et doit s'isoler pareil (cf. `AFK_TICKET` dans le worker).
+  [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_integration AFK_WORKTREE="$wt" \
+    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/integration-setup.log" 2>&1
 
   echo "  → vérification de l'ensemble"
   if ( cd "$wt" && locked verify bash -c "$VERIFY_CMD" ) > "$AFK_DIR/integration-verify.txt" 2>&1; then
@@ -902,7 +915,11 @@ write_summary() {
 if (( ${#ARGV[@]} )); then
   TICKETS=("${ARGV[@]}")
 else
-  mapfile -t TICKETS < <(gh issue list --label "$LABEL" --state open \
+  # --limit explicite : `gh issue list` plafonne à 30 SANS le dire, et rend les plus
+  # RÉCENTS. Sur un dépôt à plus de 30 tickets ouverts, le run partait donc sur une
+  # tranche arbitraire, et les tickets tombés hors tranche apparaissaient comme des
+  # « bloqueurs ouverts hors run » — un gel silencieux, pas une erreur.
+  mapfile -t TICKETS < <(gh issue list --label "$LABEL" --state open --limit 500 \
     --json number -q '.[].number' | sort -n)
 fi
 

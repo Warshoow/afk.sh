@@ -65,7 +65,7 @@ et tu relis au réveil.
 | `BASE_BRANCH` | branche par défaut du remote | |
 | `JOBS` | `1` | sessions simultanées ; `auto` = `nproc/4` borné à 4 |
 | `VERIFY_LOCK` | `1` | sérialise les vérifications quand `JOBS > 1` |
-| `SETUP_CMD` | déduit du lockfile | amorçage d'un worktree (`pnpm install --frozen-lockfile`) |
+| `SETUP_CMD` | déduit du lockfile | amorçage d'un worktree (`pnpm install --frozen-lockfile`) — reçoit `AFK_TICKET` et `AFK_WORKTREE` |
 | `SEED_GLOBS` | `.env`, `apps/*/.env`, … | fichiers gitignorés recopiés dans chaque worktree |
 | `KEEP_WORKTREES` | `0` | garder les worktreees verts aussi (les rouges le sont toujours) |
 | `CHECKPOINT_EVERY` | `0` | pause pour relire les PRs ; `0` = jamais |
@@ -92,6 +92,42 @@ script**, d'où le `${VAR:-...}`. N'y mettre que ce qui diffère.
 
 C'est du shell du repo, exécuté tel quel — même surface de confiance que les lignes
 `Verify:` d'un ticket.
+
+### Isoler un worktree de ses voisins
+
+Deux worktrees en parallèle sont deux copies du code, pas deux copies de ce qui vit
+**autour** : une base de test, un port, un bucket. Si le repo fixe le nom de sa base de
+test en dur dans un fichier versionné, les deux suites la migrent et la rollbackent en même
+temps — et le ticket courant est noté rouge pour la migration d'un voisin. C'est arrivé, et
+le symptôme n'accuse jamais le vrai coupable (`unable to release database lock`, ou un
+`Schema file "…033_…" is missing` qui vient d'un fichier absent de CETTE branche).
+
+`SETUP_CMD` tourne déjà **dans** le worktree et **sous le verrou `install`**, donc sérialisé.
+Il reçoit de quoi se distinguer :
+
+| variable | valeur |
+|---|---|
+| `AFK_TICKET` | le numéro du ticket, ou `_integration` pour la passe finale |
+| `AFK_WORKTREE` | le chemin absolu du worktree |
+
+Au projet d'en faire ce qu'il veut — c'est lui qui sait de quoi il doit s'isoler :
+
+```bash
+# .afk.env
+SETUP_CMD="${SETUP_CMD:-scripts/afk-worktree-setup.sh && pnpm install --frozen-lockfile --prefer-offline}"
+```
+
+```bash
+# scripts/afk-worktree-setup.sh — une base de test par worktree
+[ -n "$AFK_TICKET" ] || exit 0          # lancé hors afk : rien à isoler
+db="myapp_test_${AFK_TICKET#_}"
+echo "DB_DATABASE=$db" > apps/backend/.env.test.local
+dropdb --if-exists "$db" && createdb "$db"
+```
+
+Rien n'est détruit à la sortie : une base vide par numéro de ticket, recréée au prochain
+run du même ticket. Si ça devient gênant, c'est un `dropdb` dans un `TEARDOWN_CMD` qui
+n'existe pas encore.
 
 Le skill `/afk-setup` (dans [`skills/afk-setup/`](skills/afk-setup/SKILL.md)) lit le
 repo — scripts, workflows CI, `CLAUDE.md` —, éprouve la commande proposée puis écrit
