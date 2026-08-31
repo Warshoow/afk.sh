@@ -105,6 +105,34 @@ peak_context() {
   '
 }
 
+# Numéros pris deux fois. Reçoit des chemins sur stdin (les fichiers AJOUTÉS par les
+# branches d'un run) et rend une ligne par collision : même répertoire, même préfixe
+# numérique de tête, plusieurs fichiers différents.
+#
+# Ça n'a l'air de rien et c'est un angle mort entier : un ADR `0018-…`, une migration
+# `1768621000034_…` — le numéro est un espace de noms PARTAGÉ, et chaque worktree part de
+# la base sans voir ses voisins, donc chaque agent prend le numéro libre qu'il voit et il
+# a raison. Les noms de fichiers diffèrent → git ne voit aucun conflit ; ça compile ; les
+# tests passent. Aucune porte ne peut le dire, seule la combinaison des branches peut.
+clashing_numbers() {
+  sort -u | awk '
+    {
+      n = split($0, p, "/"); file = p[n]
+      dir = substr($0, 1, length($0) - length(file))
+      if (match(file, /^[0-9]+/)) {
+        key = dir "|" substr(file, RSTART, RLENGTH)
+        if (!(key in g)) { g[key] = file; c[key] = 1 }
+        else { g[key] = g[key] "  " file; c[key]++ }
+      }
+    }
+    END {
+      for (k in g) if (c[k] > 1) {
+        split(k, kk, "|")
+        printf "%s* dans %s : %s\n", kk[2], (kk[1] == "" ? "./" : kk[1]), g[k]
+      }
+    }' | sort
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourcé par check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "pas un repo git"; exit 1; }
@@ -184,6 +212,17 @@ VERIFY_LOCK="${VERIFY_LOCK:-1}"
 
 # La vérification. Externe à l'agent : c'est toi qui notes sa copie, pas lui.
 VERIFY_CMD="${VERIFY_CMD:-pnpm typecheck && pnpm test && pnpm lint}"
+
+# La porte de la passe d'intégration. Par défaut la même, mais séparable — parce que c'est
+# le seul verdict du run qui doit être digne de confiance, et qu'un cache de build peut le
+# rendre creux : un outil qui hache les fichiers SUIVIS PAR GIT ne voit pas les fichiers
+# générés et gitignorés, donc un worktree qui ne les a pas produit la même empreinte que
+# l'arbre principal qui les a → cache hit, logs rejoués, rien d'exécuté. La porte affiche
+# un ✓ sans avoir compilé une ligne, et ce faux vert voyage d'un worktree à l'autre quand
+# le cache est partagé. Un projet peut donc demander ici la forme non cachée
+# (`turbo … --force`, `pytest -p no:cacheprovider`, …), qu'on ne veut pas payer à chaque
+# ticket mais qu'on veut une fois, sur la combinaison.
+INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-$VERIFY_CMD}"
 
 # Chemins qui comptent comme "décision capturée". Un monorepo multi-contextes range
 # ses glossaires et ses ADR par app, pas seulement à la racine.
@@ -611,6 +650,12 @@ worker() {
       # il sort en draft et ne compte pas comme un vert au premier essai.
       suspect=$(( crashed || netted ))
       pr_body="Closes #${ticket}"$'\n\n'"Vérifié localement par afk : \`${verify}\`"
+      # Le périmètre d'un ticket est une PRÉDICTION : un ticket étiqueté sur une app peut
+      # très bien en toucher deux (une clé partagée emporte tout ce qui indexe dessus), et
+      # sa ligne `Verify:` a été taillée avant qu'on le sache. Quand la porte locale est
+      # réduite, c'est la CI qui est la seule porte complète — le relecteur doit le lire
+      # sur la PR, pas le déduire du corps du ticket.
+      [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale réduite** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre en plus n'a été vérifié QUE par la CI de cette PR." 
       (( crashed )) && pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (code ${rc}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Log : \`.afk/${ticket}-${attempt}.log\`."
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ L'agent n'a pas commité lui-même : l'orchestrateur a rattrapé l'arbre de travail."
 
@@ -826,13 +871,21 @@ ci_phase() {
 # que ni l'un ni l'autre n'annonçait. On merge tout dans un worktree jetable et on
 # repasse la porte. On ne touche à aucune PR : on rapporte.
 
-INTEG_CONFLICTS=(); INTEG_VERDICT="—"
+INTEG_CONFLICTS=(); INTEG_MERGED=(); INTEG_VERDICT="—"
+
+# Les fichiers ajoutés par les branches du run, passés au parseur `clashing_numbers`.
+numbering_clashes() {
+  local t
+  for t in "${OK[@]}"; do
+    git diff --name-only --diff-filter=A "$BASE_REF...${BRANCH_OF[$t]}" 2>/dev/null
+  done | clashing_numbers
+}
 
 integration_check() {
   { (( ${#OK[@]} < 2 )) || [[ "$INTEGRATION" != "1" ]]; } && return 0
   echo; echo "═══ Intégration (${#OK[@]} branches vertes) ═══"
 
-  local wt="$WORKTREE_DIR/_integration" t b
+  local wt="$WORKTREE_DIR/_integration" t b clashes
   git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
   git worktree add -q -B afk-integration "$wt" "$BASE_REF" || {
     echo "  ✗ worktree d'intégration impossible"; return 0; }
@@ -840,30 +893,59 @@ integration_check() {
 
   for t in "${OK[@]}"; do
     b="${BRANCH_OF[$t]}"
-    if git -C "$wt" merge -q --no-edit "$b" 2>/dev/null; then
+    if git -C "$wt" merge -q --no-edit "$b" 2>"$AFK_DIR/integration-merge.err"; then
       echo "  merge ${b} ✓"
+      INTEG_MERGED+=("$b")
     else
       local files; files=$(git -C "$wt" diff --name-only --diff-filter=U | tr '\n' ' ')
       git -C "$wt" merge --abort 2>/dev/null
-      echo "  merge ${b} ✗ CONFLIT — ${files}"
+      # Sans fichier en conflit, le merge a été REFUSÉ (arbre sale, base absente) — ce
+      # n'est pas la même information qu'un vrai recouvrement, et l'écrire « CONFLIT »
+      # envoie chercher au mauvais endroit.
+      if [[ -n "$files" ]]; then
+        echo "  merge ${b} ✗ CONFLIT — ${files}"
+      else
+        echo "  merge ${b} ✗ REFUSÉ — $(head -n 1 "$AFK_DIR/integration-merge.err")"
+      fi
       INTEG_CONFLICTS+=("$b")
     fi
   done
 
-  # `_integration` comme numéro de ticket : la passe rejoue `VERIFY_CMD`, donc elle migre
+  # Les collisions de numéro se lisent sur les branches, pas sur l'arbre mergé : deux
+  # fichiers de noms différents y coexistent sans rien dire.
+  clashes=$(numbering_clashes)
+  if [[ -n "$clashes" ]]; then
+    echo "  ⚠  numéros pris deux fois (aucune porte ne le verra) :"
+    sed 's/^/       /' <<<"$clashes"
+  fi
+
+  # `_integration` comme numéro de ticket : la passe rejoue la porte, donc elle migre
   # comme un worker et doit s'isoler pareil (cf. `AFK_TICKET` dans le worker).
   [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_integration AFK_WORKTREE="$wt" \
     locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/integration-setup.log" 2>&1
 
   echo "  → vérification de l'ensemble"
-  if ( cd "$wt" && locked verify bash -c "$VERIFY_CMD" ) > "$AFK_DIR/integration-verify.txt" 2>&1; then
-    INTEG_VERDICT="vert"; echo "  ✓ l'ensemble compile"
+  [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
+    echo "     porte d'intégration : ${INTEGRATION_VERIFY_CMD}"
+  local ok=0
+  ( cd "$wt" && locked verify bash -c "$INTEGRATION_VERIFY_CMD" ) \
+    > "$AFK_DIR/integration-verify.txt" 2>&1 && ok=1
+
+  # Le verdict PORTE SON PÉRIMÈTRE. « L'ensemble compile » après une branche écartée au
+  # merge se lit au bilan comme « toutes les branches se combinent », ce qui est
+  # précisément la question à laquelle la passe existe pour répondre.
+  local scope="" n=${#INTEG_MERGED[@]} m=${#OK[@]}
+  (( ${#INTEG_CONFLICTS[@]} )) && scope=" — PARTIEL : ${n}/${m} branches, sans ${INTEG_CONFLICTS[*]}"
+  if (( ok )); then
+    INTEG_VERDICT="vert"; echo "  ✓ l'ensemble compile${scope}"
   else
-    INTEG_VERDICT="rouge"; echo "  ✗ rouge à l'intégration — .afk/integration-verify.txt"
+    INTEG_VERDICT="rouge"; echo "  ✗ rouge à l'intégration${scope} — .afk/integration-verify.txt"
     tail -n 10 "$AFK_DIR/integration-verify.txt" | sed 's/^/     /'
   fi
+  (( ${#INTEG_CONFLICTS[@]} )) && INTEG_VERDICT="$INTEG_VERDICT (partiel : ${n}/${m})"
+  [[ -n "$clashes" ]] && INTEG_VERDICT="$INTEG_VERDICT + numéros en double"
 
-  if [[ "$KEEP_WORKTREES" != "1" && "$INTEG_VERDICT" == "vert" && ${#INTEG_CONFLICTS[@]} -eq 0 ]]; then
+  if [[ "$KEEP_WORKTREES" != "1" && "$ok" == "1" && ${#INTEG_CONFLICTS[@]} -eq 0 && -z "$clashes" ]]; then
     git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"
     git branch -qD afk-integration 2>/dev/null
   else
@@ -897,11 +979,15 @@ write_summary() {
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
       [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
       [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
+      [[ -n "${VERIFY[$t]:-}" && "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && res="$res ⚠"
       printf '| #%s | %s | %s | %s | %s | %s | %s |\n' \
         "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$ctx" "$d" "${TITLE[$t]:-}"
     done
     printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
-      "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " (conflits : ${INTEG_CONFLICTS[*]})" )"
+      "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — écartées au merge : ${INTEG_CONFLICTS[*]} ; mergées : ${INTEG_MERGED[*]}" )"
+    printf -- '- porte : %s%s\n' "$VERIFY_CMD" \
+      "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
+    printf -- '- les tickets marqués ⚠ ont eu une porte locale RÉDUITE (ligne `Verify:`) : seule leur CI a joué la porte complète.\n'
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
     printf -- '- contexte : le pic de la session ; au-delà de ~200k le ticket était trop gros.\n'
     printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.log` (session),\n'

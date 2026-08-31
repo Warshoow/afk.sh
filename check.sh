@@ -166,4 +166,37 @@ got=$(ctx_fixture | peak_context)
 [[ -z "$(printf '{"type":"user"}\n' | peak_context)" ]] || { echo "FAIL peak_context vide"; exit 1; }
 [[ -z "$(printf '' | peak_context)" ]] || { echo "FAIL peak_context stdin vide"; exit 1; }
 
+# ─── clashing_numbers ─────────────────────────────────────────────────────────
+# Le cas réel qui a motivé le parseur : sur un lot de 8 tickets, trois avaient pris
+# `docs/adr/0018-…` et deux la migration `…034_…`. Aucun conflit git, ça compilait, les
+# tests passaient.
+clash_fixture() {
+  cat <<'EOF'
+docs/adr/0018-la-borne-d-un-pas-de-tir-est-en-metres.md
+docs/adr/0018-un-palier-de-badge-acquis-ne-se-retire-pas.md
+docs/adr/0018-les-critiques-sortent-du-detail-par-leur-propre-route.md
+docs/adr/0017-les-objets-de-la-map-deviennent-une-donnee.md
+apps/backend/database/migrations/1768621000034_officiel_remplace_mis_en_avant.ts
+apps/backend/database/migrations/1768621000034_badge_tiers_land_on_1_5_25_50.ts
+apps/backend/database/migrations/1768621000033_create_map_objects_table.ts
+apps/backend/resources/map-objects/plot/center.png
+apps/mobile/components/ui/PagedFooter.tsx
+EOF
+}
+got=$(clash_fixture | clashing_numbers)
+[[ $(wc -l <<<"$got") == 2 ]] || { echo "FAIL clashing_numbers : 2 collisions attendues"; printf '%s\n' "$got"; exit 1; }
+grep -q '^0018\* dans docs/adr/ ' <<<"$got" || { echo "FAIL clashing_numbers ADR"; exit 1; }
+grep -q '^1768621000034\* dans apps/backend/database/migrations/ ' <<<"$got" || { echo "FAIL clashing_numbers migration"; exit 1; }
+# Un numéro libre ne se signale pas, et un fichier sans préfixe numérique n'entre pas.
+grep -q '0017' <<<"$got" && { echo "FAIL clashing_numbers faux positif 0017"; exit 1; }
+grep -qi 'pagedfooter\|center.png' <<<"$got" && { echo "FAIL clashing_numbers sans préfixe"; exit 1; }
+# Le même chemin listé deux fois (deux branches qui ajoutent le MÊME fichier) n'est pas
+# une collision : c'est un merge, et il se résout tout seul.
+[[ -z "$(printf 'docs/adr/0018-a.md\ndocs/adr/0018-a.md\n' | clashing_numbers)" ]] ||
+  { echo "FAIL clashing_numbers doublon strict"; exit 1; }
+# Racine du dépôt : pas de répertoire, la ligne doit rester lisible.
+printf '0001-x.md\n0001-y.md\n' | clashing_numbers | grep -q 'dans \./' ||
+  { echo "FAIL clashing_numbers racine"; exit 1; }
+[[ -z "$(printf '' | clashing_numbers)" ]] || { echo "FAIL clashing_numbers stdin vide"; exit 1; }
+
 echo "ok"

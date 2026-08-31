@@ -56,6 +56,7 @@ et tu relis au réveil.
 | Env | Défaut | |
 |---|---|---|
 | `VERIFY_CMD` | `pnpm typecheck && pnpm test && pnpm lint` | la définition de "fini", surchargeable par ticket |
+| `INTEGRATION_VERIFY_CMD` | `$VERIFY_CMD` | porte de la passe d'intégration — y mettre la forme **non cachée** (`turbo … --force`) |
 | `MAX_ATTEMPTS` | `2` | 1 essai + 1 reprise, en session neuve |
 | `TIMEOUT` | `45m` | borne un run (`--max-turns` n'existe plus en 2.1.x), surchargeable par ticket |
 | `CI_TIMEOUT` | `15m` | attente de la CI après ouverture de PR ; `0` = ne pas consulter |
@@ -92,6 +93,28 @@ script**, d'où le `${VAR:-...}`. N'y mettre que ce qui diffère.
 
 C'est du shell du repo, exécuté tel quel — même surface de confiance que les lignes
 `Verify:` d'un ticket.
+
+### La porte de l'intégration se sépare de celle des tickets
+
+Un cache de build peut rendre une porte creuse. Turbo, par exemple, hache les fichiers
+**suivis par git** : un fichier généré et gitignoré n'entre pas dans la clé, donc un worktree
+qui ne l'a pas produit **la même empreinte** que l'arbre principal qui l'a → cache hit, logs
+rejoués, rien d'exécuté. La porte affiche `$ tsc --noEmit` et un ✓ sans avoir compilé une
+ligne, et si le cache est partagé entre worktrees le faux vert voyage. Sur un run réel, huit
+tickets ont été verts sur un défaut que seule la passe d'intégration a vu — elle présentait la
+première combinaison de contenus jamais vue, donc un cache miss, donc une exécution.
+
+**`Cached: n cached` est une ligne de sécurité, pas une statistique de performance.**
+
+`INTEGRATION_VERIFY_CMD` permet de payer la forme honnête **une fois**, sur la combinaison,
+sans l'imposer à chaque ticket :
+
+```bash
+# .afk.env
+INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-pnpm exec turbo typecheck lint --force && pnpm test}"
+```
+
+La passe annonce sa porte quand elle diffère, et le résumé consigne les deux.
 
 ### Isoler un worktree de ses voisins
 
