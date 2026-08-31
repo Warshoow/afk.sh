@@ -1117,9 +1117,10 @@ echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relan
   echo "  CI rouge (${#CI_RED[@]}) : ${CI_RED[*]}  → repassés en ${LABEL_KO}"
 (( ${#CI_UNKNOWN[@]} )) &&
   echo "  CI non concluante (${#CI_UNKNOWN[@]}) : ${CI_UNKNOWN[*]}"
-(( ${#INTEG_CONFLICTS[@]} )) &&
-  echo "  intégration : conflit sur ${INTEG_CONFLICTS[*]}  → à résoudre à la main avant merge"
-[[ "$INTEG_VERDICT" != "—" ]] && echo "  intégration : ${INTEG_VERDICT}"
+# Une seule ligne « intégration » : le verdict porte déjà son périmètre, une seconde ligne
+# du même nom juste au-dessus se lisait comme deux verdicts contradictoires.
+[[ "$INTEG_VERDICT" != "—" ]] &&
+  echo "  intégration : ${INTEG_VERDICT}$( (( ${#INTEG_CONFLICTS[@]} )) && echo "  → conflit sur ${INTEG_CONFLICTS[*]}, à résoudre à la main avant merge" )"
 (( ${#OK[@]} + ${#KO[@]} > 0 )) &&
   echo "  vert au 1er essai : ${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))"
 write_summary
