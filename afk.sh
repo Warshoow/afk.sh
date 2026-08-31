@@ -989,7 +989,8 @@ write_summary() {
       "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
     printf -- '- les tickets marqués ⚠ ont eu une porte locale RÉDUITE (ligne `Verify:`) : seule leur CI a joué la porte complète.\n'
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
-    printf -- '- contexte : le pic de la session ; au-delà de ~200k le ticket était trop gros.\n'
+    printf -- '- contexte : le pic de la session. Il mesure la TAILLE du travail, pas sa qualité —\n'
+    printf -- '  un pic haut sur un ticket bien cadré reste vert. À lire avec le périmètre livré.\n'
     printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.log` (session),\n'
     printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI).\n'
   } > "$f"
