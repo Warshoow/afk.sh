@@ -75,6 +75,14 @@ Un worktree vert est jeté, un rouge est gardé : c'est l'artefact de debug.
 `set -uo pipefail`, **sans `-e`** : un échec de worker est un résultat, pas une raison
 d'arrêter le run.
 
+### Le prompt
+
+`build_prompt` reçoit `head0` — le HEAD d'AVANT la session — et pas `HEAD` :
+`inherited_note` s'en sert pour lister ce que les bloqueurs ont livré
+(`git diff --name-only "$BASE_REF...$head0"`). À l'essai 2, `HEAD` porte déjà le travail
+de l'agent, qui n'a rien à apprendre de lui-même. Le faux `claude` du harness recopie
+son prompt dans `$T/prompt-<n>.txt` : le prompt est testable comme le reste.
+
 ### Duplication assumée
 
 Le bloc `DRY_RUN` refait le calcul de base/absorption de `launch()` (les branches du run
@@ -100,6 +108,18 @@ Les quatre runs du harness sont indépendants et ordonnés : parallèle (DAG en 
 filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, et empilement
 sur une PR ouverte hors run. Les numéros de ticket portent leur scénario (voir l'en-tête
 du fichier) — réutiliser un numéro existant pour autre chose casse les assertions.
+
+## Les deux journaux
+
+- `CHANGELOG.md` — une entrée par changement de **comportement observable**, pas par
+  commit. À compléter en même temps que le changement, pas après.
+- `docs/propositions.md` — une entrée par idée proposée, avec son verdict et le
+  raisonnement, **y compris les refus** : une idée retenue laisse un commentaire dans le
+  code, une idée refusée ne laisse rien et revient. Écarter une proposition sans l'y
+  écrire, c'est accepter de refaire le raisonnement.
+
+Le pourquoi d'un choix déjà implémenté reste dans le commentaire à côté du code — ces
+deux fichiers ne le dupliquent pas, ils y renvoient.
 
 ## Surface de confiance
 

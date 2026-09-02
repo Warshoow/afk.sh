@@ -352,8 +352,37 @@ relabel() {   # ticket, label retiré, label ajouté
 # Court par construction. Si un ticket a besoin de plus pour être compris seul,
 # c'est le découpage qui est mauvais, pas le prompt qui est trop maigre.
 
+# Ce que les bloqueurs ont déjà livré. Le worktree part de LEUR branche (cf. launch),
+# donc leur travail est déjà sur le disque ici — mais rien ne le dit à l'agent, qui
+# démarre en session neuve. Deux dégâts, tous les deux vus : il refait un travail déjà
+# fait (le ticket « absorbé » brûle ses deux essais à le redécouvrir seul), et il
+# renomme au passage un contrat typé qu'il vient d'hériter, parce qu'il n'a pas lu
+# l'ADR que son prédécesseur venait d'écrire pour lui.
+# Aucun fichier à produire, aucun format à imposer à l'agent : le prédécesseur commite
+# déjà ses décisions (voir la consigne CONTEXT.md/ADR ci-dessous), et le DAG sert de
+# filtre — la base ne contient que les ancêtres de ce ticket, rien d'autre du run.
+# L'argument est le HEAD d'AVANT la session : à l'essai 2, HEAD porte déjà le travail
+# de l'agent, qui n'a rien à apprendre de lui-même.
+inherited_note() {   # committish hérité
+  local files mem n
+  files=$(git diff --name-only "$BASE_REF...$1" 2>/dev/null)
+  [[ -z "$files" ]] && return 0
+  n=$(wc -l <<<"$files")
+
+  printf '\n--- HÉRITÉ DE TES BLOQUEURS ---\n'
+  printf 'Ta base porte déjà leur travail (%d fichier(s)). Si un critère de ton ticket y\n' "$n"
+  printf 'est déjà satisfait, tu le signales et tu ne le réécris pas.\n'
+  mem=$(grep -E "$MEMORY_RE" <<<"$files")
+  [[ -n "$mem" ]] &&
+    printf '\nLeurs décisions, à lire AVANT de coder :\n%s\n' "$(sed 's|^|  - |' <<<"$mem")"
+  printf '\nFichiers déjà touchés :\n%s\n' "$(head -n 30 <<<"$files" | sed 's|^|  - |')"
+  (( n > 30 )) &&
+    printf '  … et %d autres : git diff --name-only %s...%s\n' "$(( n - 30 ))" "$BASE_REF" "$1"
+  return 0
+}
+
 build_prompt() {
-  local ticket="$1" attempt="$2" verify="$3"
+  local ticket="$1" attempt="$2" verify="$3" inherited="$4"
 
   cat <<EOF
 /implement le ticket GitHub #${ticket}.
@@ -378,6 +407,8 @@ Session neuve, aucun historique.
 - D'autres tickets tournent peut-être en parallèle dans d'autres worktrees. Tu ne
   regardes qu'ici, tu ne touches à aucune autre branche.
 EOF
+
+  inherited_note "$inherited"
 
   if [[ "$attempt" -gt 1 ]]; then
     cat <<EOF
@@ -602,7 +633,7 @@ worker() {
 
     # Jamais --resume : reprendre une session qui vient d'échouer, c'est repartir
     # du contexte pollué qui a échoué.
-    timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify")" \
+    timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
       --permission-mode bypassPermissions \
       > "$AFK_DIR/$ticket-$attempt.log" 2>&1
     rc=$?; crashed=0; netted=0

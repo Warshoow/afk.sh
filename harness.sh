@@ -82,6 +82,7 @@ cat > "$T/bin/claude" <<'X'
 #!/usr/bin/env bash
 p=""; for a in "$@"; do [[ ${prev:-} == -p ]] && p=$a; prev=$a; done
 n=$(grep -o '#[0-9]\+' <<<"$p" | head -1 | tr -d '#')
+printf '%s\n' "$p" >> "$HARNESS/prompt-$n.txt"   # le prompt est testable, comme le reste
 case "$n" in
   9|13) exit 0 ;;                      # sort proprement sans rien produire
   20) sleep 987654 ;;                  # ne finit jamais : cible de l'interruption
@@ -154,6 +155,16 @@ grep -qE '\| 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&
 [[ -d "$T/repo/.afk/wt/7" && ! -d "$T/repo/.afk/wt/1" ]] &&
   echo "  ✓ worktree gardé sur échec, jeté sur succès" ||
   { echo "  ✗ mauvaise gestion des worktrees"; fail=1; }
+
+# #4 part de feat/3, qui contient feat/1 : il doit hériter des ADR des DEUX ancêtres,
+# et #1, qui n'a aucun bloqueur, ne doit pas voir la section du tout.
+grep -qE '^  - docs/adr/0001-x\.md$' "$T/prompt-4.txt" 2>/dev/null &&
+  grep -qE '^  - docs/adr/0003-x\.md$' "$T/prompt-4.txt" &&
+  echo "  ✓ les décisions des ancêtres sont dans le prompt" ||
+  { echo "  ✗ prompt sans les décisions héritées"; fail=1; }
+[[ -f "$T/prompt-1.txt" ]] && ! grep -q 'HÉRITÉ' "$T/prompt-1.txt" &&
+  echo "  ✓ sans bloqueur, rien d'hérité" ||
+  { echo "  ✗ section héritée sur un ticket sans bloqueur"; fail=1; }
 
 
 # ─── Second run : absorbé, Timeout:, in-review, faux vs vrai "aucun commit" ───
