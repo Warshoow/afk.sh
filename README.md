@@ -34,7 +34,7 @@ Entre `/triage` et `tu merges`, tu dors.
 - `claude`, `gh`, `git`, `timeout` dans le PATH. Working tree propre.
 - `gh auth login` fait : le token sert aussi à pousser, sans passphrase.
 - Les skills mattpocock installés dans le `CLAUDE_CONFIG_DIR` utilisé par le script
-  (défaut `~/.claude-perso`) — sinon `/implement` n'existe pas dans la session headless.
+  (défaut `~/.claude`) — sinon `/implement` n'existe pas dans la session headless.
 
 ## Usage
 

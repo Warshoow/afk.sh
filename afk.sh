@@ -173,14 +173,14 @@ done
 # que ta session interactive, sinon /implement n'est pas résolu. On prend le premier
 # répertoire qui contient réellement le plugin, au lieu d'un défaut en dur : dans un
 # devcontainer, le HOME du conteneur n'est pas celui où la config de l'hôte est montée
-# ($HOME=/home/node, config sur /home/<user>/.claude-pro).
-CLAUDE_CONFIG_CANDIDATES=("$HOME"/.claude-perso "$HOME"/.claude-pro "$HOME"/.claude /home/*/.claude-p*)
+# ($HOME=/home/node, config sur /home/<user>/.claude).
+CLAUDE_CONFIG_CANDIDATES=("$HOME"/.claude /home/*/.claude)
 if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
   for d in "${CLAUDE_CONFIG_CANDIDATES[@]}"; do
     [[ -d "$d/plugins/cache/mattpocock" ]] && { CLAUDE_CONFIG_DIR="$d"; break; }
   done
 fi
-export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude-perso}"
+export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 essai + 1 reprise, en session neuve
 TIMEOUT="${TIMEOUT:-45m}"                # garde-fou : borne un run (pas de --max-turns en 2.1.x)
@@ -275,7 +275,7 @@ grep -qi 'github' docs/agents/issue-tracker.md || {
 [[ -d "$CLAUDE_CONFIG_DIR/plugins/cache/mattpocock" ]] || {
   echo "plugin mattpocock introuvable dans $CLAUDE_CONFIG_DIR — /implement ne sera pas résolu"
   echo "  cherché dans : ${CLAUDE_CONFIG_CANDIDATES[*]}"
-  echo "  force-le : CLAUDE_CONFIG_DIR=/chemin/vers/.claude-xxx $0 …"; exit 1; }
+  echo "  force-le : CLAUDE_CONFIG_DIR=/chemin/vers/.claude $0 …"; exit 1; }
 
 # Mémoire de projet : racine mono-contexte, ou carte + contextes par app.
 memory_present() {
