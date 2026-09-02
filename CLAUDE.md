@@ -104,10 +104,11 @@ tombe dans le `exit 0` final et rend une chaîne vide, ce qui se manifeste très
 cause. Même chose pour un nouveau comportement d'agent : il se simule par un cas dans le
 faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
-Les quatre runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
-filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, et empilement
-sur une PR ouverte hors run. Les numéros de ticket portent leur scénario (voir l'en-tête
-du fichier) — réutiliser un numéro existant pour autre chose casse les assertions.
+Les cinq runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
+filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, empilement
+sur une PR ouverte hors run, et deux bloqueurs directs indépendants (base + absorption,
+double héritage). Les numéros de ticket portent leur scénario (voir l'en-tête du fichier)
+— réutiliser un numéro existant pour autre chose casse les assertions.
 
 ## Les deux journaux
 

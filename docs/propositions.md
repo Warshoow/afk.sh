@@ -40,6 +40,16 @@ forme d'une section du prompt (`inherited_note`) construite d'un
 `git diff --name-only "$BASE_REF...$head0"`, filtrée par `MEMORY_RE` pour la liste
 « à lire avant de coder ». Aucun format imposé à l'agent, aucun fichier à produire.
 
+Corollaire, et c'est la raison de ne pas passer par un fichier : plusieurs bloqueurs
+directs se fusionnent tout seuls. `launch()` prend la branche dominante comme base et
+**merge les autres par-dessus** dans le worktree, donc `head0` porte le travail de tous
+les bloqueurs et le diff les couvre tous. Un `.discovery.md` recopié aurait posé la
+question de l'ordre d'écriture et du dernier qui gagne ; un merge git ne la pose pas —
+et si deux frères se recouvrent vraiment, le merge échoue et le dépendant est gelé
+plutôt que lancé sur une moitié du travail. Le cinquième run du harness couvre ce cas
+(deux frères indépendants, un dépendant commun) : le losange du premier run ne
+l'atteignait pas, sa base contenant toujours déjà l'autre branche.
+
 ## Rapatriement des logs d'échec sur l'issue GitHub — déjà fait
 
 *2026-09-02*

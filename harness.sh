@@ -232,6 +232,30 @@ grep -qE 'pr create .*--base feat/99' "$T/gh.log" &&
   echo "  ✓ PR ciblée sur la branche du bloqueur" ||
   { echo "  ✗ PR mal ciblée"; fail=1; }
 
+# ─── Cinquième run : deux bloqueurs directs indépendants ─────────────────────
+# Le losange du premier run a toujours une branche dominante, donc `deepest_branch`
+# trouve une base qui contient déjà l'autre et rien n'est mergé par-dessus. Ici aucune
+# des deux ne contient l'autre : elle retombe sur la dernière, l'autre est absorbée par
+# le worktree, et le dépendant doit hériter des DEUX mémoires — pas seulement de celle
+# de sa base.
+printf '## Blocked by\n\nNone\n'         > "$T/fix/14.body"
+printf '## Blocked by\n\nNone\n'         > "$T/fix/15.body"
+printf '## Blocked by\n\n- #14\n- #15\n' > "$T/fix/16.body"
+
+echo
+out5=$(JOBS=2 bash "$AFK" 14 15 16 2>&1) || true
+printf '%s\n' "$out5" > "$T/run5.log"
+
+grep -qE '▸ #16 démarré  \(base feat/15, absorbe feat/14\)' "$T/run5.log" &&
+  echo "  ✓ frères indépendants : l'un sert de base, l'autre est absorbé" ||
+  { echo "  ✗ absorption d'un frère indépendant ratée"; fail=1; }
+grep -qE '^  - docs/adr/00014-x\.md$' "$T/prompt-16.txt" 2>/dev/null &&
+  grep -qE '^  - docs/adr/00015-x\.md$' "$T/prompt-16.txt" &&
+  echo "  ✓ les deux mémoires héritées, pas seulement celle de la base" ||
+  { echo "  ✗ mémoire d'un seul bloqueur héritée"; fail=1; }
+grep -qE 'vert   \(3\) : 14 15 16' "$T/run5.log" &&
+  echo "  ✓ les trois verts" || { echo "  ✗ le dépendant n'est pas parti"; fail=1; }
+
 echo
 (( fail )) && { echo "ÉCHEC — trace : $T/run.log"; trap - EXIT; exit 1; }
 echo "ok"
