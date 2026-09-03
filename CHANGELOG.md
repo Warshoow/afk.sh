@@ -21,6 +21,13 @@ proposées est dans [docs/propositions.md](docs/propositions.md).
 - Un ticket peut déclarer son modèle et son niveau de réflexion, comme il déclare
   déjà sa porte et son budget de temps : lignes `Model:` et `Effort:` de son corps
   (`MODEL` / `EFFORT` pour le réglage global).
+- `RUNS.md` dans le dépôt d'afk : une ligne par run, ajoutée automatiquement à la fin.
+  `.afk/summary.md` étant écrasé au run suivant, aucun historique ne survivait nulle
+  part ; celui-ci traverse les runs **et** les projets, le dépôt d'afk étant monté dans
+  chacun. `AFK_HOME` dit où il s'écrit.
+- `docs/defauts.md` : le registre des défauts d'afk constatés pendant un run, numéroté
+  et écrit par `/afk-debrief`. `afk.sh` citait déjà « défaut 17 » sans que ce numéro
+  pointe sur quoi que ce soit.
 - Deux skills encadrent le run, là où il faut du jugement et où le script n'en a pas :
   `/afk-preflight` relit le lot avant de lancer (ce qui sera gelé, ce qu'aucune porte
   ne peut vérifier, ce qui ne tient pas dans son budget), `/afk-debrief` dépouille le

@@ -76,6 +76,7 @@ et tu relis au réveil.
 | `SETUP_CMD` | déduit du lockfile | amorçage d'un worktree (`pnpm install --frozen-lockfile`) — reçoit `AFK_TICKET` et `AFK_WORKTREE` |
 | `SEED_GLOBS` | `.env`, `apps/*/.env`, … | fichiers gitignorés recopiés dans chaque worktree |
 | `KEEP_WORKTREES` | `0` | garder les worktreees verts aussi (les rouges le sont toujours) |
+| `AFK_HOME` | le dossier du script | où s'écrit `RUNS.md` — à détourner si le dépôt d'afk est monté en lecture seule |
 | `CHECKPOINT_EVERY` | `0` | pause pour relire les PRs ; `0` = jamais |
 | `STACK_ON_OPEN_PR` | `1` | empiler sur un bloqueur hors run dont la PR est ouverte, au lieu de geler |
 | `ALLOW_REVIEW` | `0` | relancer un ticket déjà `in-review` (il a déjà une PR ouverte) |
@@ -266,6 +267,18 @@ Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
 | `<n>-ci.txt` | la sortie de `gh pr checks` |
 | `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `attempt`, `session`, `cost`, `model`) |
 | `summary.md` | le tableau du run : résultat, PR, essai, modèle, **contexte max**, coût, CI, intégration |
+
+**`.afk/` est écrasé au run suivant.** Ce qui doit survivre vit dans le dépôt d'afk
+lui-même — monté dans chacun de tes projets, donc commun à tous :
+
+| Fichier | Contenu | Écrit par |
+|---|---|---|
+| `RUNS.md` | une ligne par run : date, projet, verts/drafts/rouges/gelés, 1er essai, modèle, coût, durée, intégration | `afk.sh`, à la fin de chaque run |
+| `docs/defauts.md` | les défauts **d'afk** constatés en vrai pendant un run, numérotés | `/afk-debrief`, ou à la main |
+
+Le chemin est celui du script (`AFK_HOME`), pas celui du projet : que tu lances `afk.sh`
+depuis un devcontainer où il est monté ou depuis l'extérieur, il écrit au même endroit.
+Dépôt monté en lecture seule → rien n'est journalisé, et ce n'est pas une erreur de run.
 
 En série, la trace sort aussi à l'écran en direct. En parallèle elle est mise de côté
 et déversée d'un bloc quand le ticket finit, sinon les sorties s'entrelacent ; une

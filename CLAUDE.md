@@ -130,17 +130,32 @@ sur une PR ouverte hors run, et deux bloqueurs directs indépendants (base + abs
 double héritage). Les numéros de ticket portent leur scénario (voir l'en-tête du fichier)
 — réutiliser un numéro existant pour autre chose casse les assertions.
 
-## Les deux journaux
+## Les journaux
 
-- `CHANGELOG.md` — une entrée par changement de **comportement observable**, pas par
-  commit. À compléter en même temps que le changement, pas après.
-- `docs/propositions.md` — une entrée par idée proposée, avec son verdict et le
-  raisonnement, **y compris les refus** : une idée retenue laisse un commentaire dans le
-  code, une idée refusée ne laisse rien et revient. Écarter une proposition sans l'y
-  écrire, c'est accepter de refaire le raisonnement.
+Écrits à la main, une entrée par événement, jamais une par commit — `git log` fait déjà
+ça, et mieux :
+
+- `CHANGELOG.md` — un changement de **comportement observable**. À compléter en même
+  temps que le changement, pas après.
+- `docs/propositions.md` — une idée proposée, avec son verdict et le raisonnement,
+  **y compris les refus** : une idée retenue laisse un commentaire dans le code, une
+  idée refusée ne laisse rien et revient. Écarter une proposition sans l'y écrire,
+  c'est accepter de refaire le raisonnement.
+- `docs/defauts.md` — un défaut d'afk constaté **en vrai pendant un run**, numéroté.
+  Un commentaire du code peut y renvoyer (`défaut 17`). N'y va que ce qui aurait cassé
+  de la même façon sur n'importe quel dépôt : les problèmes du projet travaillé se
+  corrigent là-bas. Écrit par `/afk-debrief` ou à la main.
+
+Écrit par la machine :
+
+- `RUNS.md` — une ligne par run, ajoutée par `append_run_log` à la toute fin. Les
+  faits, pas un jugement. Il vit dans `$AFK_HOME`
+  (le dépôt du script, pas le projet travaillé) parce que c'est le seul endroit monté
+  dans tous les projets, et parce que `.afk/summary.md` est écrasé au run suivant.
+  `harness.sh` détourne `AFK_HOME` : sans ça ses runs de test s'y ajouteraient.
 
 Le pourquoi d'un choix déjà implémenté reste dans le commentaire à côté du code — ces
-deux fichiers ne le dupliquent pas, ils y renvoient.
+fichiers ne le dupliquent pas, ils y renvoient.
 
 ## Surface de confiance
 

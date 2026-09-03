@@ -1,6 +1,6 @@
 ---
 name: afk-debrief
-description: "Dépouille un run afk terminé — lit .afk/summary.md et les traces, classe chaque non-vert par cause (porte fausse, ticket trop gros, vrai échec), propose quoi corriger et quoi relancer. À lancer au réveil, avant de merger. Déclencheurs : /afk-debrief, « dépouille le run », « qu'est-ce qui a raté cette nuit ? », « pourquoi #48 est rouge ? »."
+description: "Dépouille un run afk terminé — lit .afk/summary.md et les traces, classe chaque non-vert par cause (porte fausse, ticket trop gros, vrai échec), propose quoi corriger et quoi relancer, et consigne les défauts d'afk lui-même dans son docs/defauts.md. À lancer au réveil, avant de merger. Déclencheurs : /afk-debrief, « dépouille le run », « qu'est-ce qui a raté cette nuit ? », « pourquoi #48 est rouge ? »."
 ---
 
 # /afk-debrief
@@ -118,7 +118,39 @@ qui le fait, pas ce skill.
 **Propose, attends validation, ne réétiquette rien d'office.** Un ticket remis en
 `ready-for-agent` repart la nuit suivante : c'est une décision de run.
 
-## 7 — Nettoyage
+## 7 — Consigner ce qui est un défaut d'afk
+
+Le dépôt d'afk est monté dans chaque projet : c'est le seul endroit qui traverse les
+runs **et** les projets. `RUNS.md` y reçoit déjà les faits de chaque run, ajoutés par
+`afk.sh`. Ce qui demande un jugement va dans `docs/defauts.md`, et c'est toi qui l'y
+mets.
+
+Le chemin est celui du script, pas celui du projet :
+
+```bash
+d=$(dirname "$(readlink -f "$(command -v afk.sh || echo ./afk.sh)")")
+tail -40 "$d/docs/defauts.md"      # le format, et le dernier numéro pris
+```
+
+**Le tri est tout le travail.** N'y écris que ce qui aurait cassé **de la même façon sur
+n'importe quel dépôt** : l'orchestrateur, les worktrees, la porte, le prompt, le
+protocole parent/enfant. Un test instable, un `.afk.env` mal réglé, un ticket mal
+découpé sont des problèmes **du projet** — ils se corrigent là-bas et n'ont rien à faire
+dans ce registre.
+
+Un défaut d'afk se reconnaît à une chose : la trace accuse le mauvais coupable. Un
+ticket sain noté rouge, un gel sans bloqueur réel, un vert qui n'a rien compilé, un
+ticket qui brûle ses essais pour une raison qui n'est pas la sienne.
+
+Numéro suivant, verdict dans le titre (**corrigé** si tu as déjà la correction,
+**ouvert** sinon), et trois paragraphes : ce qu'on a vu, la cause, ce qu'on en a fait.
+Puis **montre l'entrée écrite**. Contrairement aux tickets et aux PR, tu n'attends pas
+validation pour celle-ci : un défaut qu'on ne consigne pas se retrouve, et se
+rediagnostique en entier.
+
+Rien à consigner est le cas normal. Ne remplis pas le registre pour le remplir.
+
+## 8 — Nettoyage
 
 Les worktrees rouges sont gardés exprès. Une fois le ticket compris :
 
@@ -136,3 +168,5 @@ Ne les supprime pas avant d'avoir conclu — ils contiennent l'état exact de l'
 - Il ne réétiquette ni ne ferme aucun ticket sans validation.
 - Il ne conclut pas d'un rouge que le ticket était mauvais : la moitié des rouges sont
   des portes, pas des tickets.
+- Il n'écrit pas dans `docs/defauts.md` les problèmes du projet travaillé : ce registre
+  ne concerne qu'afk, il est lu depuis tous les projets.

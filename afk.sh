@@ -270,6 +270,13 @@ INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-$VERIFY_CMD}"
 MEMORY_RE="${MEMORY_RE:-^(CONTEXT(-MAP)?\.md|(apps|packages)/[^/]+/CONTEXT\.md|docs/adr/|(apps|packages)/[^/]+/docs/adr/)}"
 
 REPO_ROOT="$PWD"
+# Le dépôt d'afk lui-même, qui n'est PAS le dépôt travaillé : le script est monté dans
+# les devcontainers et lancé depuis n'importe quel projet. `$PWD` est le projet,
+# `$AFK_HOME` est afk — le seul endroit qui survive d'un projet à l'autre, et donc le
+# seul où un journal puisse s'accumuler. `readlink -f` parce que le script est souvent
+# atteint par un lien. Surchargeable : harness.sh le détourne pour ne pas écrire dans
+# le vrai dépôt pendant ses tests.
+AFK_HOME="${AFK_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)}"
 AFK_DIR="$REPO_ROOT/.afk"                 # logs et worktrees, auto-ignorés
 WORKTREE_DIR="${WORKTREE_DIR:-$AFK_DIR/wt}"
 KEEP_WORKTREES="${KEEP_WORKTREES:-0}"    # les worktrees des échecs sont gardés d'office
@@ -671,8 +678,8 @@ worker() {
   if [[ -n "$SETUP_CMD" ]]; then
     echo "  → dépendances (${SETUP_CMD})"
     # `AFK_TICKET` / `AFK_WORKTREE` sont exportés pour que `SETUP_CMD` puisse ISOLER ce
-    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17) : plusieurs
-    # worktrees partageaient une base de test fixée en dur dans un `.env.test` versionné,
+    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17, docs/defauts.md) :
+    # plusieurs worktrees partageaient une base de test fixée en dur dans un `.env.test` versionné,
     # donc chaque `migrate()`/`rollback()` d'un voisin cassait la suite d'ici — et le ticket
     # courant était noté rouge pour la migration d'un autre.
     #
@@ -1070,6 +1077,40 @@ ctx_of() {
     peak_context
 }
 
+# Une ligne par run dans le dépôt d'afk. `.afk/summary.md` est ÉCRASÉ au run suivant :
+# sans ce journal, aucun historique n'existe nulle part, et le taux de vert d'une nuit
+# ne se compare à rien. Il traverse les projets, ce dépôt étant monté dans chacun.
+# Aucun LLM : ce sont des faits, pas un jugement — le jugement est dans /afk-debrief,
+# qui écrit les défauts d'afk lui-même dans docs/defauts.md.
+append_run_log() {
+  local f="$AFK_HOME/RUNS.md" t models total
+  # Dépôt monté en lecture seule : on ne journalise pas, ce n'est pas une erreur de run.
+  [[ -w "$AFK_HOME" ]] || return 0
+
+  models=$(for t in "${TICKETS[@]}"; do sget "$t" model; done | tr ' ' '\n' | awk 'NF' |
+    sort -u | paste -sd' ' -)
+  total=$(for t in "${TICKETS[@]}"; do sget "$t" cost; done | awk '{s+=$1} END{if(s) printf "$%.2f", s}')
+
+  [[ -f "$f" ]] || {
+    printf '# Journal des runs\n\n'
+    printf "Une ligne par run d'\`afk.sh\`, ajoutée automatiquement à la fin. \`.afk/summary.md\`\n"
+    printf "est écrasé au run suivant : c'est ici, et seulement ici, que l'historique survit — et\n"
+    printf "il traverse les projets, ce dépôt étant monté dans chacun.\n\n"
+    printf "Les faits seulement. Ce qui demande un jugement va dans\n"
+    printf '[docs/defauts.md](docs/defauts.md), écrit par `/afk-debrief`.\n\n'
+    printf '| Date | Projet | Tickets | Vert | Draft | Rouge | Gelé | Absorbé | 1er essai | Modèle | Coût | Durée | Intégration |\n'
+    printf '|---|---|---|---|---|---|---|---|---|---|---|---|---|\n'
+  } > "$f"
+
+  # Un seul printf, une seule ligne courte : deux runs lancés depuis deux projets
+  # peuvent l'ajouter en même temps sans se marcher dessus.
+  printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+    "$(date +%Y-%m-%d\ %H:%M)" "${REPO_ROOT##*/}" "${#TICKETS[@]}" \
+    "${#OK[@]}" "${#DRAFT[@]}" "${#KO[@]}" "${#SKIP[@]}" "${#ABSORBED[@]}" \
+    "${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))" "${models:-—}" "${total:-—}" \
+    "$(fmt_dur $SECONDS)" "$INTEG_VERDICT" >> "$f"
+}
+
 write_summary() {
   local f="$AFK_DIR/summary.md" t
   {
@@ -1254,6 +1295,7 @@ echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relan
 (( ${#OK[@]} + ${#KO[@]} > 0 )) &&
   echo "  vert au 1er essai : ${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))"
 write_summary
+append_run_log
 
 echo
 echo "Sous ~50% de vert au premier essai, le problème est dans /to-tickets, pas ici."

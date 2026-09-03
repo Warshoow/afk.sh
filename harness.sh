@@ -123,7 +123,9 @@ git checkout -qb feat/99 && echo 99 > from99.txt && git add -A && git commit -qm
 git push -q origin feat/99 && git checkout -q master && git branch -qD feat/99
 
 # ─── Exécution ────────────────────────────────────────────────────────────────
-export HARNESS="$T" PATH="$T/bin:$PATH" CLAUDE_CONFIG_DIR="$T/cfg"
+# AFK_HOME détourné : sans ça, chaque exécution du harness ajouterait ses lignes au
+# RUNS.md du vrai dépôt.
+export HARNESS="$T" PATH="$T/bin:$PATH" CLAUDE_CONFIG_DIR="$T/cfg" AFK_HOME="$T"
 export VERIFY_CMD='! test -f BROKEN' SETUP_CMD='' CI_TIMEOUT=1m
 out=$(JOBS=3 bash "$AFK" 1 2 3 4 5 6 7 8 2>&1) || true
 printf '%s\n' "$out" > "$T/run.log"
@@ -165,6 +167,12 @@ grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé écrit" || { echo "  ✗ résumé absent ou faux"; fail=1; }
 grep -qE '\| 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ durées consignées" || { echo "  ✗ durées manquantes"; fail=1; }
+# Le journal traverse les runs et les projets : c'est le seul historique qui survive à
+# l'écrasement de .afk/summary.md.
+grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| repo \| 8 \| 5 \| 2 \| 1 \| 2 \| 0 \| 3/6 \| sonnet-5 \| \$3\.50 \|' "$T/RUNS.md" &&
+  echo "  ✓ le run est consigné dans RUNS.md" ||
+  { echo "  ✗ run absent du journal"; sed -n '$p' "$T/RUNS.md" 2>/dev/null; fail=1; }
+
 [[ -d "$T/repo/.afk/wt/7" && ! -d "$T/repo/.afk/wt/1" ]] &&
   echo "  ✓ worktree gardé sur échec, jeté sur succès" ||
   { echo "  ✗ mauvaise gestion des worktrees"; fail=1; }
@@ -207,6 +215,9 @@ grep -qE 'edit issue edit 13 .*--add-label ready-for-human' "$T/gh.log" &&
 grep -qE 'pr create .*--head feat/9( |$)' "$T/gh.log" &&
   { echo "  ✗ un absorbé ne doit pas ouvrir de PR"; fail=1; } ||
   echo "  ✓ aucun PR pour un absorbé"
+[[ "$(grep -c '^| 20' "$T/RUNS.md")" == 2 ]] &&
+  echo "  ✓ un second run s'ajoute au journal, il ne l'écrase pas" ||
+  { echo "  ✗ journal écrasé ou non ajouté"; fail=1; }
 grep -qE '^\| #9 \| absorbé \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé : absorbé" || { echo "  ✗ résumé sans absorbé"; fail=1; }
 grep -qE -- '--model sonnet' "$T/args-12.txt" && grep -qE -- '--effort high' "$T/args-12.txt" &&
