@@ -53,11 +53,11 @@ got=$(blocked_refs <<<'## Blocked by
 None — can start immediately' | tr '\n' ' ')
 [[ -z "$got" ]] || { echo "FAIL 'None' : '$got'"; exit 1; }
 
-# ─── verify_override ──────────────────────────────────────────────────────────
+# ─── meta_line : Verify ───────────────────────────────────────────────────────
 # Une porte de monorepo sur un ticket d'app est une contradiction : le ticket doit
 # pouvoir restreindre sa propre vérification.
 
-got=$(verify_override <<'EOF'
+got=$(meta_line Verify <<'EOF'
 ## What to build
 
 Verify: pnpm turbo typecheck --filter=@hexa-zero/backend
@@ -67,24 +67,24 @@ EOF
 )
 [[ "$got" == "pnpm turbo typecheck --filter=@hexa-zero/backend" ]] || { echo "FAIL Verify: simple : '$got'"; exit 1; }
 
-got=$(verify_override <<<'- `Verify`: pnpm lint')
+got=$(meta_line Verify <<<'- `Verify`: pnpm lint')
 [[ "$got" == "pnpm lint" ]] || { echo "FAIL Verify: puce + backticks : '$got'"; exit 1; }
 
-got=$(verify_override <<<'verify:   npm test   ')
+got=$(meta_line Verify <<<'verify:   npm test   ')
 [[ "$got" == "npm test" ]] || { echo "FAIL Verify: casse et espaces : '$got'"; exit 1; }
 
-got=$(verify_override <<<'Rien à déclarer ici.')
+got=$(meta_line Verify <<<'Rien à déclarer ici.')
 [[ -z "$got" ]] || { echo "FAIL Verify: absent : '$got'"; exit 1; }
 
-got=$(verify_override <<<'Verify:')
+got=$(meta_line Verify <<<'Verify:')
 [[ -z "$got" ]] || { echo "FAIL Verify: vide : '$got'"; exit 1; }
 
-# ─── timeout_override ─────────────────────────────────────────────────────────
+# ─── meta_line : Timeout ──────────────────────────────────────────────────────
 # TIMEOUT est global, la taille d'un ticket ne l'est pas. Une valeur mal formée doit
 # être ignorée plutôt que transmise : timeout(1) refuserait de lancer la session, et
 # un ticket mal rédigé coûterait un run entier.
 
-got=$(timeout_override <<'EOF'
+got=$(meta_line Timeout "$RE_TIMEOUT" <<'EOF'
 ## What to build
 
 Timeout: 90m
@@ -94,27 +94,63 @@ EOF
 )
 [[ "$got" == "90m" ]] || { echo "FAIL Timeout: simple : '$got'"; exit 1; }
 
-got=$(timeout_override <<<'- `Timeout`: 2h')
+got=$(meta_line Timeout "$RE_TIMEOUT" <<<'- `Timeout`: 2h')
 [[ "$got" == "2h" ]] || { echo "FAIL Timeout: puce + backticks : '$got'"; exit 1; }
 
-got=$(timeout_override <<<'timeout:   3600   ')
+got=$(meta_line Timeout "$RE_TIMEOUT" <<<'timeout:   3600   ')
 [[ "$got" == "3600" ]] || { echo "FAIL Timeout: casse et espaces : '$got'"; exit 1; }
 
-got=$(timeout_override <<<'Rien à déclarer ici.')
+got=$(meta_line Timeout "$RE_TIMEOUT" <<<'Rien à déclarer ici.')
 [[ -z "$got" ]] || { echo "FAIL Timeout: absent : '$got'"; exit 1; }
 
-got=$(timeout_override <<<'Timeout: quand ce sera fini')
+got=$(meta_line Timeout "$RE_TIMEOUT" <<<'Timeout: quand ce sera fini')
 [[ -z "$got" ]] || { echo "FAIL Timeout: mal formé doit être ignoré : '$got'"; exit 1; }
 
-got=$(timeout_override <<<'Timeout: 90m si tout va bien')
+got=$(meta_line Timeout "$RE_TIMEOUT" <<<'Timeout: 90m si tout va bien')
 [[ -z "$got" ]] || { echo "FAIL Timeout: durée noyée dans une phrase : '$got'"; exit 1; }
 
 # gh rend les corps de ticket en CRLF : sans strip, la durée sortirait avec un \r et
 # timeout(1) refuserait de démarrer.
-got=$(printf 'Timeout: 90m\r\n' | timeout_override)
+got=$(printf 'Timeout: 90m\r\n' | meta_line Timeout "$RE_TIMEOUT")
 [[ "$got" == "90m" ]] || { echo "FAIL Timeout: CRLF : '$got'"; exit 1; }
-got=$(printf 'Verify: pnpm lint\r\n' | verify_override)
+got=$(printf 'Verify: pnpm lint\r\n' | meta_line Verify)
 [[ "$got" == "pnpm lint" ]] || { echo "FAIL Verify: CRLF : '$got'"; exit 1; }
+
+# ─── meta_line : Model et Effort ──────────────────────────────────────────────
+# Mêmes règles, motifs plus étroits : ce qui part en argument de claude(1) ne doit
+# jamais être autre chose qu'un nom de modèle ou un des niveaux d'effort connus.
+
+got=$(meta_line Model "$RE_MODEL" <<<'Model: sonnet')
+[[ "$got" == "sonnet" ]] || { echo "FAIL Model: alias : '$got'"; exit 1; }
+
+got=$(meta_line Model "$RE_MODEL" <<<'- `Model`: claude-opus-5')
+[[ "$got" == "claude-opus-5" ]] || { echo "FAIL Model: nom complet : '$got'"; exit 1; }
+
+got=$(meta_line Model "$RE_MODEL" <<<'Model: sonnet ; rm -rf /')
+[[ -z "$got" ]] || { echo "FAIL Model: valeur qui n'est pas un nom : '$got'"; exit 1; }
+
+got=$(meta_line Effort "$RE_EFFORT" <<<'> **Effort**: high')
+[[ "$got" == "high" ]] || { echo "FAIL Effort: gras dans une citation : '$got'"; exit 1; }
+
+got=$(meta_line Effort "$RE_EFFORT" <<<'Effort: beaucoup')
+[[ -z "$got" ]] || { echo "FAIL Effort: hors de l'ensemble connu : '$got'"; exit 1; }
+
+# ─── jval / jmodels ───────────────────────────────────────────────────────────
+# Ce que la session raconte d'elle-même, lu sans jq dans un fichier qui contient aussi
+# sa sortie d'erreur. Le piège : "result" est du texte libre écrit par l'agent, il peut
+# contenir n'importe quelle clé — les clés visées le précèdent toutes, le premier match
+# est le bon.
+j='{"session_id":"42ce-8d","total_cost_usd":0.233,"is_error":false,"subtype":"error_during_execution",'
+j+='"modelUsage":{"claude-opus-5[1m]":{"canonicalModel":"claude-opus-5"},"x":{"canonicalModel":"claude-sonnet-5"}},'
+j+='"result":"jai fini, \"is_error\":true"}'
+
+[[ "$(jval session_id     <<<"$j")" == "42ce-8d"                 ]] || { echo "FAIL jval session_id"; exit 1; }
+[[ "$(jval total_cost_usd <<<"$j")" == "0.233"                   ]] || { echo "FAIL jval coût"; exit 1; }
+[[ "$(jval is_error       <<<"$j")" == "false"                   ]] || { echo "FAIL jval is_error avalé par result"; exit 1; }
+[[ "$(jval subtype        <<<"$j")" == "error_during_execution"  ]] || { echo "FAIL jval subtype"; exit 1; }
+[[ -z "$(jval absente     <<<"$j")"                              ]] || { echo "FAIL jval clé absente"; exit 1; }
+[[ "$(jmodels <<<"$j")" == "opus-5 sonnet-5" ]] || { echo "FAIL jmodels : '$(jmodels <<<"$j")'"; exit 1; }
+[[ -z "$(jmodels <<<'session tuée avant la fin')" ]] || { echo "FAIL jmodels sur sortie tronquée"; exit 1; }
 
 # ─── deepest_branch ───────────────────────────────────────────────────────────
 # La base d'une PR empilée doit être le bloqueur topologiquement le plus profond.

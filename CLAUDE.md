@@ -9,6 +9,12 @@ des sessions `claude -p "/implement le ticket #N"` sur les tickets `ready-for-ag
 repo GitHub configuré par `/setup-matt-pocock-skills`. Le README décrit le comportement
 utilisateur ; ce fichier décrit les invariants internes.
 
+`skills/` contient trois skills qui encadrent le run sans jamais entrer dedans :
+`afk-setup` (écrire le `.afk.env`), `afk-preflight` (relire le lot avant de lancer),
+`afk-debrief` (dépouiller le run au réveil). Ils proposent, ils n'agissent pas — un
+skill qui lancerait `afk.sh` ou réétiquetterait un ticket remettrait du LLM dans la
+boucle par la porte de derrière.
+
 Le code et les commentaires sont en français — s'y tenir.
 
 ## Commandes
@@ -33,9 +39,12 @@ worker, worktrees, phases CI/intégration). Il a trouvé trois bugs à sa premi�
 
 `afk.sh` se coupe en deux à la ligne `[[ -n "${AFK_LIB:-}" ]] && return 0` :
 
-- **au-dessus** : les cinq parseurs purs (`label_for`, `blocked_refs`, `verify_override`,
-  `timeout_override`, `deepest_branch`). `check.sh` fait `AFK_LIB=1 source ./afk.sh` pour
-  les tester seuls. Ils ne doivent lire aucune globale et ne rien écrire.
+- **au-dessus** : les parseurs purs (`label_for`, `blocked_refs`, `meta_line`,
+  `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`). `check.sh`
+  fait `AFK_LIB=1 source ./afk.sh` pour les tester seuls. Ils ne doivent lire aucune
+  globale et ne rien écrire. Les motifs de validation des surcharges (`RE_TIMEOUT`,
+  `RE_MODEL`, `RE_EFFORT`) sont là aussi, pour que `check.sh` teste ceux qui servent
+  vraiment plutôt qu'une copie.
 - **en dessous** : config, garde-fous, et la boucle. Rien de tout ça n'est testable par
   `check.sh` — ça passe par `harness.sh`.
 
@@ -60,7 +69,8 @@ dépose des lignes `clé=valeur` dans `.afk/<n>.status`, le parent les relit ave
 Toute nouvelle information remontée par un worker passe par là.
 
 Clés : `result` (`ok` | `ko` | `absorbed`), `branch`, `base`, `base_ref`, `attempt`,
-`pr`, `draft`, `reason`, `dur`. `draft` est un drapeau posé sur un `ok`, pas un résultat.
+`pr`, `draft`, `reason`, `dur`, `session`, `cost`, `model`. `draft` est un drapeau posé
+sur un `ok`, pas un résultat.
 
 `reap` traduit ces statuts en tableaux du parent (`OK` `KO` `SKIP` `DRAFT` `ABSORBED`
 `BRANCH_OF` `FIRST_TRY`), qui alimentent ensuite `ci_phase`, `integration_check` et le bilan.
@@ -74,6 +84,16 @@ Un worktree vert est jeté, un rouge est gardé : c'est l'artefact de debug.
 
 `set -uo pipefail`, **sans `-e`** : un échec de worker est un résultat, pas une raison
 d'arrêter le run.
+
+### La session
+
+`claude -p … --output-format json`, jamais `--resume` : la sortie est un objet, pas un
+log. `jval` y lit `subtype` (la panne se NOMME au lieu de rendre un code), `session_id`
+(le bilan en fait un `claude --resume` pour les rouges, dont le worktree est gardé),
+`total_cost_usd` (cumulé sur les essais du ticket) ; `jmodels` lit le modèle réellement
+utilisé, seule façon de voir un repli `FALLBACK_MODEL`. Ajouter un drapeau de session
+implique de le passer par `copts` — et de vérifier que le faux `claude` du harness rend
+toujours un objet lisible, sinon chaque session passe pour muette.
 
 ### Le prompt
 

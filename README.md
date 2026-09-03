@@ -18,13 +18,17 @@ Se branche sur le workflow [mattpocock/skills](https://github.com/mattpocock/ski
 **À chaque lot de travail** :
 
 ```
-/grill-with-docs  →  /to-tickets  →  /triage  →  ./afk.sh  →  tu merges
- (clarifier ce      (issues +       (label      (N sessions
-  qu'il y a          Blocked by)     ready-      headless)
-  à faire)                           for-agent)
+/grill-with-docs  →  /to-tickets  →  /triage  →  /afk-preflight
+ (clarifier ce      (issues +        (label       (relire le lot :
+  qu'il y a          Blocked by)      ready-       ce qui ferait
+  à faire)                            for-agent)   perdre la nuit)
+
+        →  ./afk.sh  →  /afk-debrief  →  tu merges
+           (N sessions    (classer les
+            headless)      non-verts)
 ```
 
-Entre `/triage` et `tu merges`, tu dors.
+Entre `/afk-preflight` et `/afk-debrief`, tu dors.
 
 ## Prérequis
 
@@ -60,6 +64,9 @@ et tu relis au réveil.
 | `MAX_ATTEMPTS` | `2` | 1 essai + 1 reprise, en session neuve |
 | `TIMEOUT` | `45m` | borne un run (`--max-turns` n'existe plus en 2.1.x), surchargeable par ticket |
 | `CI_TIMEOUT` | `15m` | attente de la CI après ouverture de PR ; `0` = ne pas consulter |
+| `MODEL` | vide | modèle des sessions ; vide = le défaut de `claude`, surchargeable par ticket |
+| `EFFORT` | vide | niveau de réflexion (`low`…`max`) ; vide = le défaut, surchargeable par ticket |
+| `FALLBACK_MODEL` | `sonnet` | modèle de repli quand le principal est indisponible ; vide = pas de repli |
 | `INTEGRATION` | `1` | passe d'intégration des branches vertes en fin de run ; `0` = sauter |
 | `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | lus dans `docs/agents/triage-labels.md` | |
 | `MEMORY_RE` | racine + `apps/*` + `packages/*` | chemins qui comptent comme "décision capturée" |
@@ -161,6 +168,29 @@ run. Pour l'installer :
 ln -s "$PWD/skills/afk-setup" ~/.claude/skills/afk-setup   # ou ton CLAUDE_CONFIG_DIR
 ```
 
+## Les deux skills du run
+
+`afk.sh` n'a aucun LLM : il ordonne, lance, vérifie, pousse, étiquette. Le jugement est
+avant et après, dans une session interactive.
+
+[`/afk-preflight`](skills/afk-preflight/SKILL.md) — **entre `/triage` et le run.** Lit
+le plan (`./afk.sh -n`) et le corps des tickets, et dit ce qui va coûter la nuit : un
+ticket gelé par un bloqueur déjà mergé mais non fermé, un critère d'acceptation
+qu'aucune porte ne peut voir, une refonte sans `Timeout:`, deux tickets de la même vague
+sur les mêmes fichiers, un ticket mécanique qui n'a pas besoin du modèle des refontes.
+Il propose les corrections, il ne les applique pas et ne lance pas le run.
+
+[`/afk-debrief`](skills/afk-debrief/SKILL.md) — **au réveil, avant de merger.** Lit
+`.afk/summary.md` et les traces, et classe chaque non-vert par cause : porte fausse,
+worktree mal amorcé, ticket trop gros, vrai échec. Il sait distinguer un rouge dû au
+ticket d'un rouge dû à l'environnement, et propose quoi remettre en `ready-for-agent`
+pour la nuit suivante.
+
+```bash
+ln -s "$PWD/skills/afk-preflight" ~/.claude/skills/afk-preflight
+ln -s "$PWD/skills/afk-debrief"   ~/.claude/skills/afk-debrief
+```
+
 ## Parallélisme
 
 `-j N` lance N tickets à la fois. **Un ticket = un worktree git** (`.afk/wt/<n>`) :
@@ -209,6 +239,7 @@ sorti dans ton arbre, `-n` te le dit avant de lancer quoi que ce soit.
 3. **Session neuve** : `claude -p "/implement le ticket #N …"`, jamais `--resume`.
    Reprendre une session qui vient d'échouer, c'est repartir du contexte qui a échoué.
    La reprise reçoit les 60 dernières lignes de l'échec, dans une session vierge.
+   `--resume` reste offert à un humain sur un ticket rouge, à la fin du bilan.
 4. **Vérification externe.** C'est le script qui note la copie, pas l'agent.
    Zéro commit produit → la porte est passée **sur la base** pour trancher : rouge,
    c'est un échec ; verte, le ticket est **absorbé** (voir plus bas).
@@ -229,12 +260,12 @@ Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
 | Fichier | Contenu |
 |---|---|
 | `<n>.out` | la trace de l'orchestrateur pour ce ticket — ce que tu lis d'abord |
-| `<n>-<essai>.log` | la session Claude complète |
+| `<n>-<essai>.json` | ce que la session raconte d'elle-même : panne, coût, modèle, `session_id` |
 | `<n>-verify.txt` / `<n>-fail.txt` | la sortie de la porte, dernier échec conservé |
 | `<n>-setup.log` | l'install du worktree |
 | `<n>-ci.txt` | la sortie de `gh pr checks` |
-| `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `attempt`) |
-| `summary.md` | le tableau du run : résultat, PR, essai, **contexte max**, CI, intégration |
+| `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `attempt`, `session`, `cost`, `model`) |
+| `summary.md` | le tableau du run : résultat, PR, essai, modèle, **contexte max**, coût, CI, intégration |
 
 En série, la trace sort aussi à l'écran en direct. En parallèle elle est mise de côté
 et déversée d'un bloc quand le ticket finit, sinon les sorties s'entrelacent ; une
@@ -296,6 +327,37 @@ Timeout: 90m
 
 Le format est celui de `timeout(1)` (`90m`, `2h`, `3600`). Une valeur d'une autre forme
 est ignorée : passée telle quelle, elle empêcherait la session de démarrer.
+
+## Modèle et effort par ticket
+
+Même endroit, même parseur, pour la même raison : le réglage global a été choisi pour le
+ticket moyen, et une correction de typo n'a pas besoin du modèle d'une refonte.
+
+```
+Model: sonnet
+Effort: high
+```
+
+`Model:` accepte un alias (`opus`, `sonnet`, `haiku`) ou un nom complet ; `Effort:` un des
+niveaux de `claude` (`low`, `medium`, `high`, `xhigh`, `max`). Sans ces lignes, `MODEL` et
+`EFFORT` s'appliquent ; sans eux, les défauts de `claude`.
+
+Le bilan donne le modèle qui a **réellement** tourné : `FALLBACK_MODEL` bascule sur un
+modèle de secours quand le principal est indisponible — sans ça, une nuit entière peut
+changer de modèle sans le dire. C'est ce repli qui évite qu'une indisponibilité passagère
+brûle les deux essais d'un ticket en quelques secondes et vide la file.
+
+## Reprendre une session ratée
+
+Un ticket rendu à `ready-for-human` garde son worktree **et** sa session. Le bilan donne
+la commande pour y rentrer :
+
+```
+(cd .afk/wt/48 && claude --resume 42ce8dfe-…)
+```
+
+C'est le seul moyen de demander à l'agent pourquoi il a pris ce chemin-là — un log ne le
+dira jamais.
 
 ## Quand un ticket n'a plus rien à faire
 

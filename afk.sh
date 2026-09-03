@@ -34,27 +34,38 @@ blocked_refs() {
     grep -o '#[0-9]\+' | tr -d '#' || true   # "aucun bloqueur" n'est pas une erreur
 }
 
-# Vérification propre à un ticket : une ligne "Verify: <cmd>" dans son corps, sur
-# stdin. Sans elle, la porte globale VERIFY_CMD s'applique. C'est la seule façon
-# pour un ticket d'app de ne pas être gardé par un typecheck de monorepo entier,
-# et pour un ticket d'aspect d'exiger autre chose qu'une compilation.
-verify_override() {
-  sed -n -E 's/^[[:space:]>*+-]*`?[Vv]erify`?[[:space:]]*:[[:space:]]*//p' |
-    sed -E 's/`//g; s/[[:space:]]+$//' | awk 'NF{print; exit}'
-}
+# Surcharge propre à un ticket : la première ligne "<Champ>: <valeur>" de son corps, sur
+# stdin. Un seul parseur pour les quatre champs — ils ne diffèrent que par le nom et par
+# ce qu'on accepte comme valeur.
+#
+# Ils existent tous pour la même raison : le réglage global a été taillé pour le ticket
+# moyen, et celui qui écrit le ticket est le seul à savoir avant qu'il ne tourne que
+# celui-ci n'est pas moyen.
+#   Verify:  la porte. Sans elle, VERIFY_CMD. C'est la seule façon pour un ticket d'app
+#            de ne pas être gardé par un typecheck de monorepo entier, et pour un ticket
+#            d'aspect d'exiger autre chose qu'une compilation.
+#   Timeout: le budget de temps, au format de timeout(1). Une refonte (migration +
+#            formule + gardes + tests + docs) ne rentre pas dans le gabarit d'un ticket
+#            moyen et se fait couper au milieu.
+#   Model:   le modèle. Une correction de typo n'a pas besoin du modèle d'une refonte.
+#   Effort:  le niveau de réflexion, parmi ceux que claude(1) accepte.
+#
+# Une valeur qui ne passe pas son motif est IGNORÉE plutôt que passée telle quelle à
+# claude(1) ou timeout(1), qui refuseraient alors de lancer la session — un ticket mal
+# rédigé ne doit pas coûter un run.
+#
+# Les motifs vivent ici, pas dans les appels : check.sh source ce fichier et teste donc
+# ceux qu'afk.sh emploie vraiment. Un motif recopié dans le test ne vérifierait que lui-même.
+RE_TIMEOUT='[0-9]+(\.[0-9]+)?[smhd]?'          # le format de timeout(1)
+RE_MODEL='[A-Za-z0-9][A-Za-z0-9._-]*'          # pas une liste de noms connus : elle serait
+                                               # périmée au prochain modèle. Interdit juste
+                                               # ce qui n'est pas un nom (espaces, métacaractères).
+RE_EFFORT='(low|medium|high|xhigh|max)'        # l'ensemble fermé que claude(1) accepte
 
-# Budget de temps propre à un ticket : une ligne "Timeout: <durée>" dans son corps,
-# sur stdin. Symétrique de "Verify:", et pour la même raison : TIMEOUT est global
-# alors que la taille d'un ticket ne l'est pas — une refonte (migration + formule +
-# gardes + tests + docs) ne rentre pas dans le gabarit d'un ticket moyen, et celui
-# qui écrit le ticket est le seul à le savoir avant qu'il ne tourne.
-# Format = celui de timeout(1) : un nombre, suffixe s/m/h/d optionnel. Une valeur
-# d'une autre forme est ignorée plutôt que passée à timeout(1), qui refuserait alors
-# de lancer la session — un ticket mal rédigé ne doit pas coûter un run.
-timeout_override() {
-  sed -n -E 's/^[[:space:]>*+-]*`?[Tt]imeout`?[[:space:]]*:[[:space:]]*//p' |
+meta_line() {   # $1 = nom du champ, $2 = motif de validation (défaut : n'importe quoi)
+  sed -n -E "s/^[[:space:]>*+-]*[\`*]*$1[\`*]*[[:space:]]*:[[:space:]]*//Ip" |
     sed -E 's/`//g; s/[[:space:]]+$//' | awk 'NF{print; exit}' |
-    grep -Ex '[0-9]+(\.[0-9]+)?[smhd]?' || true   # absent ou mal formé : pas une erreur
+    grep -Ex -- "${2:-.+}" || true   # absent ou mal formé : pas une erreur
 }
 
 # Base d'une PR empilée : parmi les branches des bloqueurs déjà livrés, celle qui
@@ -103,6 +114,23 @@ peak_context() {
     }
     END { if (max) print max }
   '
+}
+
+# Un champ de l'objet rendu par `claude -p --output-format json`, sur stdin. Pas de jq :
+# une seule clé cherchée telle quelle, comme peak_context — et la sortie d'erreur de la
+# session atterrit dans le même fichier, donc un parseur JSON strict refuserait de le
+# lire. Les clés visées (session_id, subtype, is_error, total_cost_usd) précèdent toutes
+# le champ "result", qui est du texte libre : le premier match est le bon.
+jval() {   # nom de la clé
+  grep -o "\"$1\":\"\?[^,\"}]*" | head -1 | cut -d: -f2- | tr -d '"'
+}
+
+# Les modèles réellement utilisés par la session — une entrée "canonicalModel" par
+# modèle dans modelUsage. C'est ce qui rend FALLBACK_MODEL visible : un repli change le
+# modèle sans rien dire, et une nuit entière peut basculer sur le secours.
+jmodels() {
+  grep -o '"canonicalModel":"[^"]*"' | cut -d'"' -f4 | sed 's/^claude-//' | sort -u |
+    paste -sd' ' -
 }
 
 # Numéros pris deux fois. Reçoit des chemins sur stdin (les fichiers AJOUTÉS par les
@@ -188,6 +216,19 @@ TIMEOUT="${TIMEOUT:-45m}"                # garde-fou : borne un run (pas de --ma
 CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # attente de la CI ; 0 = ne pas consulter
 INTEGRATION="${INTEGRATION:-1}"          # passe d'intégration des branches vertes en fin de run
 CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-0}"  # 0 = jamais de pause. C'est un outil non surveillé.
+
+# Le modèle et le niveau de réflexion des sessions. Vides = les défauts de claude(1).
+# Surchargeables par ticket : lignes "Model:" et "Effort:" du corps.
+MODEL="${MODEL:-}"
+EFFORT="${EFFORT:-}"
+
+# Un run AFK n'a personne devant lui. Sans repli, une indisponibilité passagère du
+# modèle sort la session en erreur, le ticket brûle ses deux essais en quelques
+# secondes et part en ready-for-human — pour une raison qui n'a rien à voir avec lui,
+# et la file entière y passe. --fallback-model ne marche qu'avec --print, donc
+# exactement ici. Le repli est visible : le bilan donne le modèle qui a réellement
+# tourné, ticket par ticket. Vide = pas de repli.
+FALLBACK_MODEL="${FALLBACK_MODEL:-sonnet}"
 
 # Un bloqueur livré à la main — PR ouverte, pas encore mergée — n'est ni "dans le run"
 # ni "fermé" : il gelait ses dépendants jusqu'à son merge, alors que sa branche est
@@ -427,7 +468,7 @@ EOF
 # Une passe de lecture avant tout lancement : métadonnées en cache (le worker n'a
 # plus besoin de l'API), bloqueurs classés en "dans ce run" et "dehors et ouvert".
 
-declare -A DEPS=() EXT=() TITLE=() VERIFY=() TMO=()
+declare -A DEPS=() EXT=() TITLE=() VERIFY=() TMO=() MDL=() EFF=()
 EXT_FETCH=(); DROPPED=()
 
 in_run() { local n="$1" t; for t in "${TICKETS[@]}"; do [[ "$t" == "$n" ]] && return 0; done; return 1; }
@@ -459,10 +500,16 @@ plan_run() {
     printf '%s' "${TITLE[$t]}"   > "$AFK_DIR/$t.title"
     gh issue view "$t" --json labels -q '.labels[].name' 2>/dev/null | tr '\n' ' ' > "$AFK_DIR/$t.labels"
 
-    VERIFY[$t]=$(verify_override <<<"$body"); VERIFY[$t]="${VERIFY[$t]:-$VERIFY_CMD}"
+    VERIFY[$t]=$(meta_line Verify <<<"$body"); VERIFY[$t]="${VERIFY[$t]:-$VERIFY_CMD}"
     printf '%s' "${VERIFY[$t]}"  > "$AFK_DIR/$t.verify"
-    TMO[$t]=$(timeout_override <<<"$body"); TMO[$t]="${TMO[$t]:-$TIMEOUT}"
+    TMO[$t]=$(meta_line Timeout "$RE_TIMEOUT" <<<"$body"); TMO[$t]="${TMO[$t]:-$TIMEOUT}"
     printf '%s' "${TMO[$t]}"     > "$AFK_DIR/$t.timeout"
+    # Un nom de modèle bien formé mais faux fait échouer la session tout de suite, comme
+    # une ligne "Verify:" qui ne compile pas : même surface de confiance.
+    MDL[$t]=$(meta_line Model "$RE_MODEL" <<<"$body"); MDL[$t]="${MDL[$t]:-$MODEL}"
+    printf '%s' "${MDL[$t]}"     > "$AFK_DIR/$t.model"
+    EFF[$t]=$(meta_line Effort "$RE_EFFORT" <<<"$body"); EFF[$t]="${EFF[$t]:-$EFFORT}"
+    printf '%s' "${EFF[$t]}"     > "$AFK_DIR/$t.effort"
 
     # Déjà livré, PR ouverte : le relancer ouvrirait une seconde PR sur la même
     # branche. Le retirer de la liste vaut mieux que de le découvrir au gh pr create.
@@ -585,7 +632,9 @@ finish() {
 worker() {
   local ticket="$1" base="$2" wt="$3"
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
-  local title labels verify tmo head0 rc crashed netted attempt
+  local title labels verify tmo mdl eff head0 rc crashed netted attempt
+  local out sid why c cost=0
+  local -a copts
   local suspect pr_url pr_num pr_body
 
   st() { printf '%s\n' "$*" >> "$sf"; }
@@ -595,12 +644,25 @@ worker() {
   labels=$(cat "$AFK_DIR/$ticket.labels")
   verify=$(cat "$AFK_DIR/$ticket.verify")
   tmo=$(cat "$AFK_DIR/$ticket.timeout" 2>/dev/null); tmo="${tmo:-$TIMEOUT}"
+  mdl=$(cat "$AFK_DIR/$ticket.model" 2>/dev/null)
+  eff=$(cat "$AFK_DIR/$ticket.effort" 2>/dev/null)
   st "result=ko"; st "branch=$branch"; st "base=$base"
+
+  # Les drapeaux de la session. --output-format json parce que le code de retour ne
+  # dit pas POURQUOI une session s'est arrêtée, et que le bilan a besoin du coût, du
+  # modèle réellement utilisé et de l'identifiant de session pour qu'un ticket rouge
+  # se reprenne à la main (claude --resume) au lieu de se relire dans un log.
+  copts=(--permission-mode bypassPermissions --output-format json)
+  [[ -n "$mdl" ]] && copts+=(--model "$mdl")
+  [[ -n "$eff" ]] && copts+=(--effort "$eff")
+  [[ -n "$FALLBACK_MODEL" ]] && copts+=(--fallback-model "$FALLBACK_MODEL")
 
   echo "  worktree    : ${wt#$REPO_ROOT/}"
   echo "  base        : ${base}"
   [[ "$verify" != "$VERIFY_CMD" ]] && echo "  vérification: ${verify}   (Verify: du ticket)"
   [[ "$tmo" != "$TIMEOUT" ]] && echo "  budget      : ${tmo}   (Timeout: du ticket)"
+  [[ -n "$mdl" ]] && echo "  modèle      : ${mdl}"
+  [[ -n "$eff" ]] && echo "  effort      : ${eff}"
   local seeded; seeded=$(cat "$AFK_DIR/$ticket-seed.n" 2>/dev/null || echo 0)
   (( seeded )) && echo "  semé        : ${seeded} fichier(s) ignoré(s) recopié(s) depuis l'arbre principal"
 
@@ -633,13 +695,25 @@ worker() {
 
     # Jamais --resume : reprendre une session qui vient d'échouer, c'est repartir
     # du contexte pollué qui a échoué.
+    out="$AFK_DIR/$ticket-$attempt.json"
     timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
-      --permission-mode bypassPermissions \
-      > "$AFK_DIR/$ticket-$attempt.log" 2>&1
+      "${copts[@]}" > "$out" 2>&1
     rc=$?; crashed=0; netted=0
+
+    # Ce que la session raconte d'elle-même. `subtype` nomme la panne
+    # (error_during_execution, error_max_turns…) là où le code de retour ne donne qu'un
+    # chiffre ; `session_id` la rend reprenable à la main ; le coût s'additionne sur les
+    # essais, le modèle est celui du dernier — c'est lui qui a produit la branche.
+    sid=$(jval session_id < "$out"); why=$(jval subtype < "$out")
+    st "session=$sid"; st "model=$(jmodels < "$out")"
+    # Rien lu = rien à dire : une session tuée avant d'écrire son objet doit laisser le
+    # coût VIDE au bilan, pas un "0,0000 $" qui se lirait comme une session gratuite.
+    c=$(jval total_cost_usd < "$out")
+    [[ -n "$c" ]] && { cost=$(awk -v a="$cost" -v b="$c" 'BEGIN{printf "%.4f", a+b}'); st "cost=$cost"; }
+
     (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — le ticket peut porter sa propre ligne \"Timeout:\""; crashed=1; }
     (( rc != 0 && rc != 124 )) && {
-      echo "  ⚠  claude a rendu ${rc} — session terminée anormalement, voir ${AFK_DIR##*/}/${ticket}-${attempt}.log"
+      echo "  ⚠  session terminée anormalement (${why:-code ${rc}}) — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
       crashed=1; }
 
     # Filet : /implement doit commiter, mais on ne perd pas le travail s'il oublie.
@@ -687,7 +761,7 @@ worker() {
       # réduite, c'est la CI qui est la seule porte complète — le relecteur doit le lire
       # sur la PR, pas le déduire du corps du ticket.
       [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale réduite** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre en plus n'a été vérifié QUE par la CI de cette PR." 
-      (( crashed )) && pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (code ${rc}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Log : \`.afk/${ticket}-${attempt}.log\`."
+      (( crashed )) && pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (${why:-code ${rc}}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Session : \`.afk/${ticket}-${attempt}.json\`."
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ L'agent n'a pas commité lui-même : l'orchestrateur a rattrapé l'arbre de travail."
 
       if ! git push -qu origin "$branch" 2>"$AFK_DIR/$ticket-push.txt"; then
@@ -1000,19 +1074,22 @@ write_summary() {
   local f="$AFK_DIR/summary.md" t
   {
     printf '# Run afk — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
-    printf '| Ticket | Résultat | PR | Essai | Contexte | Durée | Titre |\n|---|---|---|---|---|---|---|\n'
+    printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Titre |\n'
+    printf '|---|---|---|---|---|---|---|---|---|\n'
     for t in "${TICKETS[@]}"; do
-      local res pr att d ctx
+      local res pr att d ctx mdl cost
       res=$(sget "$t" result); pr=$(sget "$t" pr); att=$(sget "$t" attempt)
       d=$(sget "$t" dur); d=${d:+$(fmt_dur "$d")}; d=${d:-—}
       ctx=$(ctx_of "$t"); ctx=${ctx:+$(( ctx / 1000 ))k}; ctx=${ctx:-—}
+      mdl=$(sget "$t" model); mdl=${mdl:-—}
+      cost=$(sget "$t" cost); cost=${cost:+\$$cost}; cost=${cost:-—}
       [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
       [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
       [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
       [[ -n "${VERIFY[$t]:-}" && "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && res="$res ⚠"
-      printf '| #%s | %s | %s | %s | %s | %s | %s |\n' \
-        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$ctx" "$d" "${TITLE[$t]:-}"
+      printf '| #%s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$mdl" "$ctx" "$cost" "$d" "${TITLE[$t]:-}"
     done
     printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
       "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — écartées au merge : ${INTEG_CONFLICTS[*]} ; mergées : ${INTEG_MERGED[*]}" )"
@@ -1022,7 +1099,25 @@ write_summary() {
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
     printf -- '- contexte : le pic de la session. Il mesure la TAILLE du travail, pas sa qualité —\n'
     printf -- '  un pic haut sur un ticket bien cadré reste vert. À lire avec le périmètre livré.\n'
-    printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.log` (session),\n'
+    printf -- '- modèle : celui qui a réellement tourné. Un autre que le modèle demandé = un repli\n'
+    printf -- '  (`FALLBACK_MODEL=%s`) a joué, le modèle voulu était indisponible.\n' "${FALLBACK_MODEL:-aucun}"
+    printf -- '- coût : prix catalogue cumulé sur les essais du ticket, tel que rendu par la session.\n'
+
+    # Un ticket rendu à un humain se relit aujourd'hui dans un fichier. La session qui l'a
+    # produit existe toujours et son worktree est gardé : on donne de quoi y RENTRER, et
+    # lui demander ce qu'un log ne dira jamais — pourquoi il a pris ce chemin-là.
+    # Les rouges seulement : `claude --resume` cherche la session dans le répertoire où
+    # elle a tourné, et le worktree d'un vert est jeté.
+    local sid resumable=0
+    for t in "${TICKETS[@]}"; do
+      [[ " ${KO[*]} " == *" $t "* ]] || continue
+      sid=$(sget "$t" session); [[ -n "$sid" ]] || continue
+      (( resumable++ == 0 )) && printf '\nReprendre une session à la main :\n\n'
+      printf -- '- #%s : `(cd %s/%s && claude --resume %s)`\n' \
+        "$t" "${WORKTREE_DIR#$REPO_ROOT/}" "$t" "$sid"
+    done
+
+    printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.json` (session),\n'
     printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI).\n'
   } > "$f"
   echo "  résumé : .afk/summary.md"
@@ -1052,6 +1147,7 @@ RUN_MARKER="$AFK_DIR/.runstart"; : > "$RUN_MARKER"
 echo "${#TICKETS[@]} ticket(s) : ${TICKETS[*]}"
 echo "base : ${BASE_REF} → PR sur ${BASE_BRANCH}   labels : ${LABEL} → ${LABEL_REVIEW} / ${LABEL_KO}"
 echo "vérification : ${VERIFY_CMD}"
+echo "modèle : ${MODEL:-défaut de claude}${EFFORT:+ · effort ${EFFORT}}${FALLBACK_MODEL:+ · repli ${FALLBACK_MODEL}}"
 [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
   echo "  · intégration : ${INTEGRATION_VERIFY_CMD}"
 echo -n "parallélisme : ${JOBS} session(s)"
@@ -1108,6 +1204,8 @@ if [[ "$DRY_RUN" == "1" ]]; then
       (( ${#absorb[@]} )) && printf '          absorbe : %s\n' "${absorb[*]}"
       [[ "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && printf '          Verify: %s\n' "${VERIFY[$t]}"
       [[ "${TMO[$t]}"    != "$TIMEOUT"    ]] && printf '          Timeout: %s\n' "${TMO[$t]}"
+      [[ "${MDL[$t]}"    != "$MODEL"      ]] && printf '          Model: %s\n' "${MDL[$t]}"
+      [[ "${EFF[$t]}"    != "$EFFORT"     ]] && printf '          Effort: %s\n' "${EFF[$t]}"
       LIVERED[$t]=1
     done
     remaining=("${next[@]}"); local_wave=$(( local_wave + 1 ))

@@ -35,12 +35,12 @@ printf '## Blocked by\n\n- #7\n'       > "$T/fix/8.body"
 #  9 : l'agent ne produit rien, la base est verte  → absorbé (ni rouge, ni ready-for-human)
 # 10 : bloqué par 9                                → ne gèle pas, part sur la base de 9
 # 11 : déjà in-review                              → retiré de la liste
-# 12 : Timeout: 90m dans le corps                  → budget propre au ticket
+# 12 : Timeout:/Model:/Effort: dans le corps       → surcharges propres au ticket
 # 13 : l'agent ne produit rien, sa porte est rouge → vrai échec, ko
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/9.body"
 printf '## Blocked by\n\n- #9\n'                    > "$T/fix/10.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/11.body"
-printf 'Timeout: 90m\n\n## Blocked by\n\nNone\n'   > "$T/fix/12.body"
+printf 'Timeout: 90m\nModel: sonnet\n**Effort**: high\n\n## Blocked by\n\nNone\n' > "$T/fix/12.body"
 printf 'Verify: false\n\n## Blocked by\n\nNone\n'  > "$T/fix/13.body"
 printf 'in-review\n'                                 > "$T/fix/11.labels"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
@@ -83,14 +83,23 @@ cat > "$T/bin/claude" <<'X'
 p=""; for a in "$@"; do [[ ${prev:-} == -p ]] && p=$a; prev=$a; done
 n=$(grep -o '#[0-9]\+' <<<"$p" | head -1 | tr -d '#')
 printf '%s\n' "$p" >> "$HARNESS/prompt-$n.txt"   # le prompt est testable, comme le reste
+printf '%s\n' "$*" >> "$HARNESS/args-$n.txt"     # les drapeaux passés à claude aussi
+
+# L'objet de `claude -p --output-format json`, sur stdout : afk y lit la panne, le coût,
+# le modèle réellement utilisé et l'identifiant de session. Une sortie vide ou libre
+# ferait passer chaque session pour muette.
+res() { printf '{"session_id":"sess-%s","total_cost_usd":0.5,"is_error":%s,"subtype":"%s",' \
+          "$n" "${2:-false}" "${1:-success}"
+        printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},"result":"fini"}\n'; }
 case "$n" in
-  9|13) exit 0 ;;                      # sort proprement sans rien produire
+  9|13) res; exit 0 ;;                 # sort proprement sans rien produire
   20) sleep 987654 ;;                  # ne finit jamais : cible de l'interruption
-  2) echo "j'écris et je ne commite pas" > work-$n.txt; exit 0 ;;
-  6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"; exit 1 ;;
-  7) touch BROKEN; git add -A; git commit -qm "feat(#7): casse"; exit 0 ;;
+  2) echo "j'écris et je ne commite pas" > work-$n.txt; res; exit 0 ;;
+  6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"
+     res error_during_execution true; exit 1 ;;
+  7) touch BROKEN; git add -A; git commit -qm "feat(#7): casse"; res; exit 0 ;;
   *) echo x > work-$n.txt; mkdir -p docs/adr; echo "adr $n" > "docs/adr/000$n-x.md"
-     git add -A; git commit -qm "feat(#$n): ok"; exit 0 ;;
+     git add -A; git commit -qm "feat(#$n): ok"; res; exit 0 ;;
 esac
 X
 chmod +x "$T/bin/gh" "$T/bin/claude"
@@ -147,6 +156,10 @@ want "2 drafts"                                   'draft  \(2\) : 2 6'
 want "1 rouge"                                    'rouge  \(1\) : 7'
 want "2 gelés"                                    'gelé   \(2\) : 5 8'
 want "drafts exclus du 1er essai"                 'vert au 1er essai : 3/6'
+want "session plantée nommée, pas un code"        'session terminée anormalement \(error_during_execution\)'
+
+grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-model sonnet' "$T/args-1.txt" &&
+  echo "  ✓ session lancée en JSON, avec repli" || { echo "  ✗ drapeaux de session manquants"; fail=1; }
 
 grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé écrit" || { echo "  ✗ résumé absent ou faux"; fail=1; }
@@ -182,6 +195,8 @@ want2 "ticket vidé par son prédécesseur"          '≡ absorbé'
 want2 "absorbé compté à part"                     'absorbé \(1\) : 9'
 want2 "absorbé ne gèle pas son dépendant"         'PR #910 sur master'
 want2 "Timeout: du ticket honoré"                 'budget      : 90m   \(Timeout: du ticket\)'
+want2 "Model: du ticket honoré"                   'modèle      : sonnet'
+want2 "Effort: du ticket honoré"                  'effort      : high'
 want2 "aucun commit + base rouge reste un échec"  "rouge  \(1\) : 13"
 want2 "absorbé hors du vert au 1er essai"         'vert au 1er essai : 2/3'
 
@@ -194,6 +209,16 @@ grep -qE 'pr create .*--head feat/9( |$)' "$T/gh.log" &&
   echo "  ✓ aucun PR pour un absorbé"
 grep -qE '^\| #9 \| absorbé \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé : absorbé" || { echo "  ✗ résumé sans absorbé"; fail=1; }
+grep -qE -- '--model sonnet' "$T/args-12.txt" && grep -qE -- '--effort high' "$T/args-12.txt" &&
+  echo "  ✓ Model:/Effort: transmis à claude" || { echo "  ✗ surcharges non transmises"; fail=1; }
+# Deux essais à 0,5 : le coût est celui du TICKET, pas de sa dernière session.
+grep -qE '^\| #13 \|.*\| sonnet-5 \|.*\| \$1\.0000 \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : modèle réel et coût cumulé" || { echo "  ✗ modèle ou coût absent du résumé"; fail=1; }
+grep -qF 'claude --resume sess-13' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ un rouge se reprend à la main" || { echo "  ✗ pas de reprise proposée sur un rouge"; fail=1; }
+grep -qF 'claude --resume sess-12' "$T/repo/.afk/summary.md" &&
+  { echo "  ✗ reprise proposée sur un vert (worktree jeté)"; fail=1; } ||
+  echo "  ✓ aucune reprise proposée sur un vert"
 
 # ─── Troisième run : interruption ─────────────────────────────────────────────
 # drop_worktree ne tournait que dans reap : un orchestrateur tué laissait derrière lui

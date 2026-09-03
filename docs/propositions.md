@@ -14,6 +14,97 @@ Format : titre, verdict, raisonnement. Verdicts employés : **retenu**, **déjà
 
 ---
 
+## Le jugement autour du run, pas dedans — retenu
+
+*2026-09-03*
+
+Proposé : deux skills, `/afk-preflight` avant le run et `/afk-debrief` après.
+
+L'orchestrateur n'a volontairement aucun LLM : ordonner, lancer, vérifier, pousser,
+étiqueter ne demandent aucun jugement. Mais deux moments en demandent, et ils tombent
+tous les deux **hors** de la boucle :
+
+- avant : un ticket dont les critères ne sont vérifiables par aucune porte, ou qui sera
+  gelé par un bloqueur déjà mergé mais non fermé, coûte `MAX_ATTEMPTS × TIMEOUT` de
+  nuit — et celle de ses dépendants. `./afk.sh -n` donne déjà toute la mécanique
+  (vagues, bases, gels, porte effective) ; ce qui manquait, c'est la relecture du
+  *contenu*, que le script ne peut pas faire.
+- après : un rouge ne dit pas de qui c'est la faute. Porte fausse, worktree mal amorcé,
+  modèle indisponible, ticket trop gros, vrai échec — cinq causes, cinq fichiers
+  différents à lire, cinq suites différentes.
+
+Retenu sous forme de skills et pas de code : les deux sortent un jugement et des
+propositions, jamais une action. Aucun des deux ne lance `afk.sh`, ne réétiquette ni ne
+merge — sinon c'est du LLM dans la boucle, par la porte de derrière.
+
+## Ce que la session raconte d'elle-même (`--output-format json`) — retenu
+
+*2026-09-03*
+
+Proposé : lancer les sessions en `--output-format json` plutôt qu'en texte, et lire
+l'objet rendu.
+
+Trois choses en sortent qu'aucune lecture de log ne donnait :
+
+- `subtype` **nomme** la panne (`error_during_execution`, `error_max_turns`) là où le
+  code de retour donnait un chiffre. C'est la différence entre « claude a rendu 1 » et
+  une cause.
+- `session_id` rend la session reprenable. Le worktree d'un rouge était déjà gardé et
+  la session existait déjà : il ne manquait que l'identifiant pour y rentrer. Le bilan
+  en fait un `(cd .afk/wt/<n> && claude --resume <id>)` — pour les rouges seulement,
+  `--resume` cherchant la session dans le répertoire où elle a tourné, et le worktree
+  d'un vert étant jeté.
+- `total_cost_usd` et `canonicalModel` donnent le prix et le modèle réel du ticket.
+
+Prix : `.afk/<n>-<essai>.log` devient un objet et n'est plus lisible à l'œil. Assumé —
+le log de session n'était pas ce qu'on lisait pour diagnostiquer (c'est `<n>-fail.txt`),
+et ce qu'il contenait est mieux servi par un `--resume`. La variante qui gardait les
+deux (`stream-json` + un awk qui sépare le texte de l'objet final) a été écartée : elle
+ajoute un parseur pour conserver un fichier que personne n'ouvre.
+
+`jval` et `jmodels` lisent par `grep`, sans jq : la sortie d'erreur de la session
+atterrit dans le même fichier, un parseur JSON strict refuserait de le lire — et `jq`
+n'est pas dans les binaires exigés au démarrage.
+
+## Modèle de repli quand le principal est indisponible — retenu
+
+*2026-09-03*
+
+Proposé : `--fallback-model`.
+
+Un run AFK n'a personne devant lui. Sans repli, une indisponibilité passagère du modèle
+sort la session en erreur, le ticket brûle ses deux essais en quelques secondes et part
+en `ready-for-human` pour une raison qui n'a rien à voir avec lui — puis le suivant, et
+la file entière y passe. Le drapeau ne marche qu'avec `--print`, donc exactement ici.
+
+Le risque du repli, c'est qu'il est silencieux : une nuit peut changer de modèle sans
+le dire, et le taux de vert du lendemain se lit alors sur une base fausse. C'est pour
+ça, et pas pour le coût, que le bilan a gagné une colonne « modèle » — le repli n'est
+acceptable qu'à condition d'être visible. Même famille que le `gh issue list` plafonné
+à 30 sans le dire, ou que le cache de build qui rend un ✓ sans compiler.
+
+## Modèle et effort par ticket — retenu
+
+*2026-09-03*
+
+Proposé : lignes `Model:` et `Effort:` dans le corps d'un ticket.
+
+Même argument que `Verify:` et `Timeout:`, et c'est la raison de le retenir : le
+réglage global est taillé pour le ticket moyen, et celui qui écrit le ticket est le
+seul à savoir avant qu'il ne tourne que celui-ci n'est pas moyen. Une correction de
+typo n'a pas besoin du modèle d'une refonte.
+
+Les quatre lignes ne différant que par leur nom et par ce qu'elles acceptent comme
+valeur, les deux parseurs existants ont été remplacés par un seul (`meta_line`) — deux
+champs de plus n'ont donc coûté aucune fonction. Leurs motifs de validation vivent à
+côté de lui (`RE_TIMEOUT`, `RE_MODEL`, `RE_EFFORT`) et sont sourcés par `check.sh` :
+un motif recopié dans le test ne vérifierait que lui-même.
+
+`RE_MODEL` n'est pas une liste de noms connus — elle serait périmée au prochain modèle.
+Il interdit seulement ce qui n'est pas un nom. Un nom bien formé mais faux fait échouer
+la session tout de suite, exactement comme une ligne `Verify:` qui ne compile pas :
+c'est la même surface de confiance.
+
 ## Journal de découvertes entre tickets d'une même lignée — retenu, autrement
 
 *2026-09-02*

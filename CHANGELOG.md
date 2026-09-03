@@ -6,6 +6,32 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-03
+
+### Ajouté
+
+- Le bilan donne, par ticket, le **modèle qui a réellement tourné** et le **coût**
+  cumulé sur ses essais. Les sessions tournent avec un modèle de repli
+  (`FALLBACK_MODEL=sonnet`) : sans lui, une indisponibilité passagère du modèle brûle
+  les deux essais d'un ticket en quelques secondes et vide la file — un run AFK n'a
+  personne devant lui pour le voir.
+- Un ticket rouge se reprend à la main : le bilan donne son
+  `(cd .afk/wt/<n> && claude --resume <id>)`. Son worktree était déjà gardé, sa
+  session aussi — il manquait de quoi y rentrer.
+- Un ticket peut déclarer son modèle et son niveau de réflexion, comme il déclare
+  déjà sa porte et son budget de temps : lignes `Model:` et `Effort:` de son corps
+  (`MODEL` / `EFFORT` pour le réglage global).
+- Deux skills encadrent le run, là où il faut du jugement et où le script n'en a pas :
+  `/afk-preflight` relit le lot avant de lancer (ce qui sera gelé, ce qu'aucune porte
+  ne peut vérifier, ce qui ne tient pas dans son budget), `/afk-debrief` dépouille le
+  run au réveil et classe chaque non-vert par cause.
+
+### Corrigé
+
+- Une session qui s'arrête mal **nomme** sa panne (`error_during_execution`,
+  `error_max_turns`, …) au lieu de rendre un code. Les sessions sortent en JSON
+  (`--output-format json`), donc `.afk/<n>-<essai>.log` devient `.afk/<n>-<essai>.json`.
+
 ## 2026-09-02
 
 ### Ajouté
