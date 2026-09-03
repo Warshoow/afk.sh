@@ -729,3 +729,105 @@ session, ni label changé, ni comptage dans les rouges. Sa ligne du bilan repren
 raison du remote lue dans `<n>-push.txt`, son worktree est gardé comme celui d'un rouge
 et sa session reste reprenable. Ses dépendants gèlent quand même — sa branche n'est pas
 sur le remote, ils n'ont rien sur quoi s'empiler.
+
+## 33 — La ligne `Verify:` n'est pas validée, et la prose part au `bash -c` — corrigé
+
+*2026-09-04 · jarvis-project · #40 → #54*
+
+Constaté au `afk -n` et reproduit à la main, **avant** de lancer : le run n'a pas eu lieu.
+
+**Ce qu'on a vu.** Les quinze tickets du lot écrivent leur porte comme on l'écrit dans un
+ticket bien rédigé — la commande en `code`, puis ce qu'elle ne couvre pas, en français :
+
+```
+**Verify:** `ruff check jarvis/ && python -m pytest tests/ -q`, plus un test neuf par point :
+```
+
+`meta_line Verify` en tire :
+
+```
+** ruff check jarvis/ && python -m pytest tests/ -q, plus un test neuf par point :
+```
+
+et c'est ça qui devient la porte. Joué comme afk le joue :
+
+```
+$ bash -c "** ruff check jarvis/ && python -m pytest tests/ -q, plus un test neuf par point :"
+bash: line 1: c2.sh: command not found
+rc=127
+```
+
+`**` a globé sur le cwd et bash a tenté d'exécuter le fichier trouvé.
+
+**La cause.** `meta_line` prend un motif de validation en `$2`, et les quatre champs ne
+l'emploient pas pareil : `Timeout`, `Model` et `Effort` en passent un (`RE_TIMEOUT`,
+`RE_MODEL`, `RE_EFFORT`), `Verify` n'en passe aucun — donc le motif par défaut, `.+`.
+Tout ce qui suit le `:` est accepté tel quel. Le commentaire au-dessus de la fonction
+énonce pourtant déjà la règle : « Une valeur qui ne passe pas son motif est IGNORÉE
+plutôt que passée telle quelle à claude(1) ou timeout(1) ». `Verify` est le seul des
+quatre à ne pas l'appliquer, et le seul dont la valeur soit exécutée.
+
+Le `**` vient du gras markdown : le premier `sed` mange `[[:space:]>*+-]*` avant le nom du
+champ, mais les deux astérisques fermants sont **après** le `:`, donc hors de sa portée.
+
+**L'impact.** Quinze tickets rouges aux deux essais, en quelques secondes chacun, pour une
+raison qui n'a rien à voir avec leur contenu — et le `VERIFY_CMD` du `.afk.env`, écrit
+exprès pour ce dépôt, n'est jamais joué une seule fois. Une nuit entière, un lot entier.
+Le mode `-n` affiche la valeur extraite, `** ruff check …` : elle est lisible avant de
+lancer, mais elle se lit comme un artefact d'affichage, pas comme la commande qui va
+tourner.
+
+**La piste.** Donner à `Verify` un motif comme aux trois autres : n'accepter la valeur que
+si elle est **entièrement** un seul span backtick (`` `cmd` ``), sinon retomber sur
+`VERIFY_CMD`. Une ligne de prose n'est alors plus une porte, c'est une note pour l'agent —
+ce qu'elle est. Sur ce lot, les quinze retombent sur `ruff check jarvis/ && python -m
+pytest tests/ -q`, qui est la bonne porte.
+
+L'autre bord — réécrire les corps de tickets en commande nue — coûte plus et ne protège
+pas le ticket bien rédigé suivant, sur ce dépôt ou sur un autre.
+
+**Ce qu'on en a fait (2026-09-04).** `meta_line` nettoie la valeur avant de la valider :
+le gras qui suit le `:` — hors de portée du premier `sed`, qui ne mange que ce qui précède
+le nom du champ — puis, si la valeur **commence** par un span backtick, on ne garde que
+lui. La prose qui suit est une note pour l'agent, pas une porte. La forme nue du README
+(`Verify: pnpm test`) reste acceptée telle quelle : l'imposer aurait cassé tous les
+tickets déjà écrits.
+
+Et `Verify` reçoit enfin son motif, `RE_VERIFY`, comme les trois autres champs : la valeur
+est refusée si elle finit par `:`. C'est la forme d'une phrase d'introduction, et c'est
+exactement celle qui a fini au `bash -c`. Un ticket refusé retombe sur `VERIFY_CMD`.
+
+## 34 — Sans CI déclarée, tout ticket à `Verify:` sort « vert non prouvé » — corrigé
+
+*2026-09-04 · jarvis-project · #40 → #54*
+
+**Ce qu'on a vu.** Le lot déclare quinze `Verify:`, et le dépôt ne déclare aucun workflow
+GitHub. `UNPROVEN` se remplit sur `CI non concluante ET "${VERIFY[$t]}" != "$VERIFY_CMD"` :
+les deux termes sont vrais pour les quinze. Tout ce qui serait vert sortirait « vert non
+prouvé », et chaque ligne du bilan porterait le `⚠`.
+
+**La cause.** La comparaison est une égalité de chaînes avec le réglage global, et elle sert
+de proxy pour « porte **réduite** ». Un `Verify:` qui ajoute à la porte complète au lieu de
+la réduire est classé pareil. Sur un dépôt sans CI, le second terme du `ET` est vrai en
+permanence : il ne filtre plus rien.
+
+**L'impact.** La colonne ne distingue plus rien de ce pour quoi elle a été ajoutée (défaut
+30) : quinze lignes marquées identiques, et le vrai « vert non prouvé » s'y noierait. Pas de
+dégât sur le code, du bruit sur le seul document qu'on lit au réveil.
+
+**La piste.** Le défaut 33 corrigé, les quinze retombent sur `VERIFY_CMD` et la colonne se
+vide d'elle-même — c'est probablement tout ce qu'il faut. Reste que sur un dépôt sans
+workflow, `CI_TIMEOUT=0` dans le `.afk.env` dit déjà « ne pas consulter » : le classement
+pourrait le lire comme « pas de CI attendue » plutôt que comme « CI non concluante », et ne
+pas marquer non prouvé ce que personne n'attendait.
+
+**Ce qu'on en a fait (2026-09-04).** « Aucune CI déclarée » sort de `CI_UNKNOWN` pour son
+propre tableau, `CI_NONE`. La première est une propriété du **dépôt**, vraie pour tous les
+tickets de tous les runs ; la seconde est un verdict qui manque sur ce ticket-là. Seule la
+seconde peut rendre un ticket « vert non prouvé ». Quand le run entier n'a aucune CI, le
+bilan le dit **une fois**, en nommant les tickets à porte réduite — le dire quinze fois
+n'apprend rien au quinzième que le premier n'ait déjà dit.
+
+Le premier terme du `ET` reste une égalité de chaînes avec `VERIFY_CMD` : elle ne
+distingue pas une porte réduite d'une porte élargie. Rien ne le permet sans exécuter les
+deux, ce qui est le prix qu'on refuse justement de payer.

@@ -43,8 +43,9 @@ worker, worktrees, phases CI/intégration). Il a trouvé trois bugs à sa premi�
   `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`). `check.sh`
   fait `AFK_LIB=1 source ./afk.sh` pour les tester seuls. Ils ne doivent lire aucune
   globale et ne rien écrire. Les motifs de validation des surcharges (`RE_TIMEOUT`,
-  `RE_MODEL`, `RE_EFFORT`) sont là aussi, pour que `check.sh` teste ceux qui servent
-  vraiment plutôt qu'une copie.
+  `RE_MODEL`, `RE_EFFORT`, `RE_VERIFY`) sont là aussi, pour que `check.sh` teste ceux qui
+  servent vraiment plutôt qu'une copie. **Les quatre champs passent un motif** : `Verify`
+  était le seul à ne pas le faire, et le seul dont la valeur soit exécutée.
 - **en dessous** : config, garde-fous, et la boucle. Rien de tout ça n'est testable par
   `check.sh` — ça passe par `harness.sh`.
 
@@ -132,18 +133,19 @@ tombe dans le `exit 0` final et rend une chaîne vide, ce qui se manifeste très
 cause. Même chose pour un nouveau comportement d'agent : il se simule par un cas dans le
 faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
-Les sept runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
+Les huit runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
 filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, empilement
 sur une PR ouverte hors run, deux bloqueurs directs indépendants (base + absorption,
 double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
-futur, et porte réduite avec CI muette. Les numéros de ticket portent leur scénario
+futur, dépôt sans CI, et porte réduite avec CI qui ne conclut pas. Les numéros de ticket
+portent leur scénario
 (voir l'en-tête du fichier) — réutiliser un numéro existant pour autre chose casse les
 assertions.
 
 Le remote nu porte un hook `update` qui refuse `feat/17` : c'est ainsi qu'on simule un
 `git push` rejeté sans réseau. Et le faux `gh pr checks` obéit à `NO_CHECKS` (le dépôt
-n'a pas de CI) et `NO_CHECKS_ONCE` (la CI existe mais n'est pas encore enregistrée) —
-les deux situations que `--watch` rendait par la même phrase.
+n'a pas de CI), `NO_CHECKS_ONCE` (la CI existe mais n'est pas encore enregistrée) et
+`HANG_CI` (elle tourne encore) — trois situations que `--watch` rendait par deux phrases.
 
 ## Les journaux
 

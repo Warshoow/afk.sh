@@ -68,6 +68,12 @@ timeout 180 bash -c '<la commande de la ligne Verify:>'; echo "rc=$?"
 `rc=124` = elle ne rend jamais la main (`vitest` sans `--run`, `jest --watch`) : le
 ticket mourra sur `TIMEOUT` pour une raison qui n'a rien à voir avec lui.
 
+Éprouve la commande que le script va **réellement** jouer, pas celle que le ticket a
+l'air d'écrire : `./afk.sh -n` l'imprime, extraite. Deux formes passent — la commande
+nue, et la commande en `code` suivie de prose, dont seul le span compte. Une valeur qui
+finit par `:` est ignorée et le ticket retombe sur `VERIFY_CMD` ; si le `-n` n'affiche
+aucune ligne `Verify:` là où le ticket en écrit une, c'est ça.
+
 ## 6 — Rendre le verdict
 
 Un tableau, un ticket par ligne : **part tel quel** / **à corriger** / **à sortir du

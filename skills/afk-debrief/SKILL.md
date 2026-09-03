@@ -36,6 +36,7 @@ tous les rouges à la fois :
 | **« tickets du run cités dans la doc mergée »** | une phrase peut être au futur sur ce qui est livré depuis dix minutes. Aucun conflit git, aucune porte : relire les lignes citées |
 | **colonne « Modèle » ≠ le modèle demandé** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
 | **colonne « Contexte » proche de la fenêtre** | ticket trop gros, même vert. C'est le thermomètre du découpage, pas une note de qualité |
+| **« aucune CI sur ce dépôt »** | la porte locale est la seule qui ait joué du run entier. Si elle était réduite sur certains tickets, ceux-là n'ont eu aucune porte complète — la ligne les nomme |
 
 Et une mise en garde : **un taux de vert de 100 % ne veut rien dire si la porte ne
 vérifie rien.** Les tickets marqués `⚠` ont eu une porte locale rétrécie par leur ligne

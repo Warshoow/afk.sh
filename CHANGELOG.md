@@ -6,6 +6,28 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-04 (2)
+
+Deux défauts vus au `-n` d'un lot de quinze tickets, **avant** de lancer : le run n'a pas
+eu lieu.
+
+### Corrigé
+
+- Une ligne `Verify:` écrite comme dans un ticket bien rédigé — la commande en `code`,
+  puis en français ce qu'elle ne couvre pas — partait **en entier** au `bash -c`, gras
+  markdown compris, où le `**` globait sur le cwd. Quinze tickets rouges aux deux essais
+  pour une raison qui n'avait rien à voir avec eux, et le `VERIFY_CMD` du `.afk.env`
+  jamais joué une fois. `meta_line` mange le gras qui suit le `:` et, quand la valeur
+  commence par un span backtick, ne garde que lui. La forme nue du README reste acceptée
+  (défaut 33).
+- `Verify` reçoit son motif de validation, `RE_VERIFY`, comme `Timeout`, `Model` et
+  `Effort` : une valeur qui finit par `:` est une phrase d'introduction, pas une
+  commande — elle est ignorée et le ticket retombe sur `VERIFY_CMD` (défaut 33).
+- « Aucune CI déclarée » ne vaut plus « CI non concluante ». La première est une
+  propriété du dépôt : sur un dépôt sans workflow, elle marquait « vert non prouvé »
+  tout ticket portant un `Verify:`. Le bilan le dit maintenant une fois pour le run, en
+  nommant les tickets à porte réduite (défaut 34).
+
 ## 2026-09-04
 
 Neuf défauts consignés dans [docs/defauts.md](docs/defauts.md) après un usage intensif

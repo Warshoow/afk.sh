@@ -79,6 +79,24 @@ got=$(meta_line Verify <<<'Rien à déclarer ici.')
 got=$(meta_line Verify <<<'Verify:')
 [[ -z "$got" ]] || { echo "FAIL Verify: vide : '$got'"; exit 1; }
 
+# La forme d'un ticket bien rédigé : la commande en `code`, puis en français ce qu'elle
+# ne couvre pas. La ligne entière partait au `bash -c`, où le `**` globait sur le cwd et
+# bash tentait d'exécuter le fichier trouvé — quinze tickets rouges en quelques secondes.
+got=$(meta_line Verify "$RE_VERIFY" <<<'**Verify:** `ruff check jarvis/ && python -m pytest tests/ -q`, plus un test neuf par point :')
+[[ "$got" == "ruff check jarvis/ && python -m pytest tests/ -q" ]] ||
+  { echo "FAIL Verify: gras + span + prose : '$got'"; exit 1; }
+
+got=$(meta_line Verify "$RE_VERIFY" <<<'**Verify:** ruff check')
+[[ "$got" == "ruff check" ]] || { echo "FAIL Verify: gras fermant après le : '$got'"; exit 1; }
+
+# Une commande ne finit pas par « : » — c'est la forme d'une phrase d'introduction.
+got=$(meta_line Verify "$RE_VERIFY" <<<'Verify: lancer les tests, puis :')
+[[ -z "$got" ]] || { echo "FAIL Verify: prose acceptée : '$got'"; exit 1; }
+
+# La forme nue reste celle du README : pas de backtick, pas de gras, rien à nettoyer.
+got=$(meta_line Verify "$RE_VERIFY" <<<'Verify: pnpm test')
+[[ "$got" == "pnpm test" ]] || { echo "FAIL Verify: forme nue : '$got'"; exit 1; }
+
 # ─── meta_line : Timeout ──────────────────────────────────────────────────────
 # TIMEOUT est global, la taille d'un ticket ne l'est pas. Une valeur mal formée doit
 # être ignorée plutôt que transmise : timeout(1) refuserait de lancer la session, et

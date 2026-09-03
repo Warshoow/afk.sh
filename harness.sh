@@ -52,6 +52,9 @@ printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
 # 21 : porte réduite + CI muette        → « vert » sans qu'aucune porte complète ait joué
 for n in 17 18 19; do printf '## Blocked by\n\nNone\n' > "$T/fix/$n.body"; done
 printf 'Verify: true\n\n## Blocked by\n\nNone\n'      > "$T/fix/21.body"
+# 22 : la porte écrite comme dans un ticket bien rédigé — la commande en `code`, puis en
+# français ce qu'elle ne couvre pas. La ligne entière partait au `bash -c`.
+printf '**Verify:** `true`, plus un test neuf par point :\n\n## Blocked by\n\nNone\n' > "$T/fix/22.body"
 
 cat > "$T/bin/gh" <<'X'
 #!/usr/bin/env bash
@@ -85,6 +88,7 @@ case "$1" in
            #                   ~4 s après `gh pr create`) — afk doit réessayer.
            checks) [[ "$3" == --help ]] && { echo "  --fail-fast"; exit 0; }
                    nc() { echo "no checks reported on the 'feat/x' branch"; exit 1; }
+                   [[ -n "${HANG_CI:-}" ]] && sleep 987   # la CI tourne encore : timeout
                    [[ -n "${NO_CHECKS:-}" ]] && nc
                    [[ -n "${NO_CHECKS_ONCE:-}" && ! -f "$HARNESS/ci-$3" ]] && { touch "$HARNESS/ci-$3"; nc; }
                    exit 0 ;;
@@ -354,16 +358,31 @@ grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
   echo "  ✓ .status : la première ligne ne dit plus « ko » sur un vert" ||
   { echo "  ✗ .status : result=ko en tête"; head -n 1 "$T/repo/.afk/18.status"; fail=1; }
 
-# ─── Septième run : vert, porte réduite, CI muette ───────────────────────────
-# Les trois faits étaient imprimés séparément ; croisés, ils disent qu'aucune porte
-# complète n'a jamais tourné sur ce ticket.
+# ─── Septième run : dépôt sans CI ────────────────────────────────────────────
+# « Aucune CI déclarée » est une propriété du DÉPÔT : le dire ticket par ticket
+# marquerait « non prouvé » tout le lot, et le vrai non-prouvé s'y noierait.
 echo
 out7=$(NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
 printf '%s\n' "$out7" > "$T/run7.log"
-grep -qE 'vert non prouvé \(1\) : 21' <<<"$out7" &&
-  echo "  ✓ porte réduite + CI muette = vert non prouvé" ||
+grep -qE 'aucune CI sur ce dépôt.*RÉDUITE sur 21' <<<"$out7" &&
+  echo "  ✓ dépôt sans CI : une ligne pour le run, pas une par ticket" ||
+  { echo "  ✗ l'absence de CI est rapportée ticket par ticket"; fail=1; }
+grep -qE 'vert   \(1\) : 21' <<<"$out7" &&
+  echo "  ✓ et le ticket reste vert" || { echo "  ✗ vert non prouvé pour rien"; fail=1; }
+
+# ─── Huitième run : porte réduite + CI qui ne conclut pas ────────────────────
+# Là, c'est un verdict qui MANQUE : la seule porte complète de ce ticket est celle qui
+# n'a rien rendu. Et sa ligne `Verify:` est écrite en markdown, comme dans un vrai ticket.
+echo
+out8=$(HANG_CI=1 CI_TIMEOUT=2 JOBS=1 bash "$AFK" 22 2>&1) || true
+printf '%s\n' "$out8" > "$T/run8.log"
+grep -qE 'vérification: true   \(Verify: du ticket\)' <<<"$out8" &&
+  echo "  ✓ la porte est extraite du span, pas de la ligne entière" ||
+  { echo "  ✗ la prose du ticket est partie au bash -c"; fail=1; }
+grep -qE 'vert non prouvé \(1\) : 22' <<<"$out8" &&
+  echo "  ✓ porte réduite + CI non concluante = vert non prouvé" ||
   { echo "  ✗ le vert non prouvé est encore compté vert"; fail=1; }
-grep -qE 'vert   \(0\) : —' <<<"$out7" &&
+grep -qE 'vert   \(0\) : —' <<<"$out8" &&
   echo "  ✓ et il sort de la colonne « vert »" || { echo "  ✗ compté deux fois"; fail=1; }
 
 echo

@@ -326,6 +326,18 @@ Le script la lit et l'utilise à la place de `VERIFY_CMD` — pour ce ticket seu
 La ligne est exécutée telle quelle : les tickets font partie de la surface de confiance,
 au même titre que le `bypassPermissions` de la session.
 
+Deux formes sont acceptées, la nue ci-dessus et la commande en `code`. Quand la valeur
+**commence** par un span backtick, seul ce span est la porte — ce qui suit est une note
+pour l'agent :
+
+```
+**Verify:** `ruff check jarvis/ && pytest tests/ -q`, plus un test neuf par critère
+```
+
+Une valeur qui finit par `:` est une phrase d'introduction, pas une commande : elle est
+ignorée et le ticket retombe sur `VERIFY_CMD`. Même règle que `Timeout:`, `Model:` et
+`Effort:` — un ticket mal rédigé ne doit pas coûter un run.
+
 Ça fait trois niveaux, du plus général au plus précis — **le plus précis gagne** :
 
 ```
@@ -422,7 +434,9 @@ Deux résultats sortent de la colonne `vert` sans être des échecs :
 
 - **vert non prouvé** — le ticket avait une ligne `Verify:` (porte locale réduite) **et**
   sa CI n'a pas conclu. Sa seule porte complète est celle qui n'a rendu aucun verdict :
-  personne n'a vérifié ce que la porte réduite ne couvre pas.
+  personne n'a vérifié ce que la porte réduite ne couvre pas. Un dépôt **sans** CI ne
+  compte pas : ce n'est pas un verdict qui manque, c'est une propriété du dépôt, et le
+  bilan la dit une fois pour le run au lieu d'une fois par ticket.
 - **poussée refusée** — la branche est complète, verte et commitée en local, mais le
   remote a refusé le `git push` (jeton sans la portée `workflow` sur un ticket qui touche
   `.github/workflows/`, branche déjà présente). Aucune session n'est relancée — le second

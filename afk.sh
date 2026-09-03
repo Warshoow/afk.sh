@@ -61,10 +61,22 @@ RE_MODEL='[A-Za-z0-9][A-Za-z0-9._-]*'          # pas une liste de noms connus : 
                                                # périmée au prochain modèle. Interdit juste
                                                # ce qui n'est pas un nom (espaces, métacaractères).
 RE_EFFORT='(low|medium|high|xhigh|max)'        # l'ensemble fermé que claude(1) accepte
+RE_VERIFY='.*[^:[:space:]]'                    # une commande ne finit pas par « : ». C'est
+                                               # la forme d'une phrase d'introduction, et
+                                               # c'est celle qui a fini au `bash -c`.
 
+# Le nettoyage de la valeur, avant validation :
+#   1. le gras qui suit le « : » — `**Verify:** cmd` laisse ses deux astérisques APRÈS le
+#      deux-points, donc hors de portée du premier sed ;
+#   2. si la valeur COMMENCE par un span backtick, on ne garde que lui. Un ticket bien
+#      rédigé écrit la commande en `code` puis, en français, ce qu'elle ne couvre pas :
+#      la prose est une note pour l'agent, pas une porte. Sans ça la ligne entière partait
+#      au `bash -c`, où le `**` globait sur le cwd.
+# La forme nue (`Verify: pnpm test`) reste acceptée telle quelle : c'est celle du README.
 meta_line() {   # $1 = nom du champ, $2 = motif de validation (défaut : n'importe quoi)
   sed -n -E "s/^[[:space:]>*+-]*[\`*]*$1[\`*]*[[:space:]]*:[[:space:]]*//Ip" |
-    sed -E 's/`//g; s/[[:space:]]+$//' | awk 'NF{print; exit}' |
+    sed -E 's/^[*_[:space:]]+//; s/^(`[^`]+`).*$/\1/; s/`//g; s/[[:space:]]+$//' |
+    awk 'NF{print; exit}' |
     grep -Ex -- "${2:-.+}" || true   # absent ou mal formé : pas une erreur
 }
 
@@ -511,7 +523,7 @@ plan_run() {
     printf '%s' "${TITLE[$t]}"   > "$AFK_DIR/$t.title"
     gh issue view "$t" --json labels -q '.labels[].name' 2>/dev/null | tr '\n' ' ' > "$AFK_DIR/$t.labels"
 
-    VERIFY[$t]=$(meta_line Verify <<<"$body"); VERIFY[$t]="${VERIFY[$t]:-$VERIFY_CMD}"
+    VERIFY[$t]=$(meta_line Verify "$RE_VERIFY" <<<"$body"); VERIFY[$t]="${VERIFY[$t]:-$VERIFY_CMD}"
     printf '%s' "${VERIFY[$t]}"  > "$AFK_DIR/$t.verify"
     TMO[$t]=$(meta_line Timeout "$RE_TIMEOUT" <<<"$body"); TMO[$t]="${TMO[$t]:-$TIMEOUT}"
     printf '%s' "${TMO[$t]}"     > "$AFK_DIR/$t.timeout"
@@ -965,7 +977,11 @@ schedule() {
 # En fin de run, pas dans le worker : attendre 15 minutes de CI immobiliserait un
 # slot de parallélisme pour du polling.
 
-CI_RED=(); CI_UNKNOWN=()
+# « Aucune CI déclarée » et « CI toujours en cours » sortaient dans le même panier. Ce
+# n'est pas la même information : la seconde est un verdict qui manque, la première est
+# une propriété du DÉPÔT, vraie pour tous les tickets de tous les runs. Confondues, elles
+# marquaient « vert non prouvé » les quinze tickets d'un lot sur un dépôt sans workflow.
+CI_RED=(); CI_UNKNOWN=(); CI_NONE=()
 
 ci_phase() {
   (( ${#OK[@]} )) || return 0
@@ -998,7 +1014,7 @@ ci_phase() {
       124) echo "  ⚠  #${t} (PR #${pr}) CI toujours en cours après ${CI_TIMEOUT} — non concluant"
            CI_UNKNOWN+=("$t") ;;
       *)   if grep -qi 'no checks' "$AFK_DIR/$t-ci.txt" 2>/dev/null; then
-             echo "  ⚠  #${t} (PR #${pr}) aucune CI déclarée"; CI_UNKNOWN+=("$t")
+             echo "  ⚠  #${t} (PR #${pr}) aucune CI déclarée"; CI_NONE+=("$t")
            else
              echo "  ✗ #${t} (PR #${pr}) CI rouge"
              grep -iE 'fail|error' "$AFK_DIR/$t-ci.txt" 2>/dev/null | head -n 3 | sed 's/^/       /'
@@ -1385,8 +1401,9 @@ integration_check
 # complète, et une PR en draft ne se merge pas. Les deux faits étaient imprimés, à trois
 # lignes d'écart, sans jamais être croisés : c'était au lecteur de rapprocher deux listes
 # de numéros pour s'apercevoir qu'un « vert » ne l'était pas.
-GREEN=(); UNPROVEN=()
+GREEN=(); UNPROVEN=(); REDUCED=()
 for t in "${OK[@]}"; do
+  [[ "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]] && REDUCED+=("$t")
   if   [[ " ${DRAFT[*]} " == *" $t "* ]]; then continue
   elif [[ " ${CI_UNKNOWN[*]} " == *" $t "* && "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]]; then UNPROVEN+=("$t")
   else GREEN+=("$t"); fi
@@ -1412,6 +1429,10 @@ echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relan
   echo "  CI rouge (${#CI_RED[@]}) : ${CI_RED[*]}  → repassés en ${LABEL_KO}"
 (( ${#CI_UNKNOWN[@]} )) &&
   echo "  CI non concluante (${#CI_UNKNOWN[@]}) : ${CI_UNKNOWN[*]}"
+# Une seule ligne pour tout le run : sur un dépôt sans workflow, le dire ticket par
+# ticket n'apprend rien de plus au quinzième qu'au premier.
+(( ${#CI_NONE[@]} == ${#OK[@]} && ${#OK[@]} )) &&
+  echo "  aucune CI sur ce dépôt : la porte locale est la seule qui ait joué$( (( ${#REDUCED[@]} )) && echo " — et elle était RÉDUITE sur ${REDUCED[*]}" )"
 # Une seule ligne « intégration » : le verdict porte déjà son périmètre, une seconde ligne
 # du même nom juste au-dessus se lisait comme deux verdicts contradictoires.
 [[ "$INTEG_VERDICT" != "—" ]] &&
