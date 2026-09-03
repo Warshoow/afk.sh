@@ -69,11 +69,19 @@ dépose des lignes `clé=valeur` dans `.afk/<n>.status`, le parent les relit ave
 Toute nouvelle information remontée par un worker passe par là.
 
 Clés : `result` (`ok` | `ko` | `absorbed`), `branch`, `base`, `base_ref`, `attempt`,
-`pr`, `draft`, `reason`, `dur`, `session`, `cost`, `model`. `draft` est un drapeau posé
-sur un `ok`, pas un résultat.
+`pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`. `draft` est un
+drapeau posé sur un `ok`, pas un résultat.
+
+Le fichier est **append-only** et `sget` lit la dernière ligne. La valeur prudente
+écrite au démarrage s'appelle donc `result_initial`, pas `result` : un humain qui fait
+`cat` ou `grep result=` sur un ticket vert lisait `result=ko` en tête. Un `result`
+absent vaut rouge (`reap` le traite dans sa branche par défaut).
 
 `reap` traduit ces statuts en tableaux du parent (`OK` `KO` `SKIP` `DRAFT` `ABSORBED`
-`BRANCH_OF` `FIRST_TRY`), qui alimentent ensuite `ci_phase`, `integration_check` et le bilan.
+`PUSH_KO` `BRANCH_OF` `FIRST_TRY`), qui alimentent ensuite `ci_phase`, `integration_check`
+et le bilan. `GREEN` et `UNPROVEN` sont calculés au bilan seulement : `OK` reste la liste
+brute des tickets qui ont ouvert une PR, `GREEN` en retire ce qu'aucune porte complète
+n'a vu (draft, ou porte réduite + CI non concluante). C'est `GREEN` qui s'affiche.
 
 ### Isolation
 
@@ -124,11 +132,18 @@ tombe dans le `exit 0` final et rend une chaîne vide, ce qui se manifeste très
 cause. Même chose pour un nouveau comportement d'agent : il se simule par un cas dans le
 faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
-Les cinq runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
+Les sept runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
 filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, empilement
-sur une PR ouverte hors run, et deux bloqueurs directs indépendants (base + absorption,
-double héritage). Les numéros de ticket portent leur scénario (voir l'en-tête du fichier)
-— réutiliser un numéro existant pour autre chose casse les assertions.
+sur une PR ouverte hors run, deux bloqueurs directs indépendants (base + absorption,
+double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
+futur, et porte réduite avec CI muette. Les numéros de ticket portent leur scénario
+(voir l'en-tête du fichier) — réutiliser un numéro existant pour autre chose casse les
+assertions.
+
+Le remote nu porte un hook `update` qui refuse `feat/17` : c'est ainsi qu'on simule un
+`git push` rejeté sans réseau. Et le faux `gh pr checks` obéit à `NO_CHECKS` (le dépôt
+n'a pas de CI) et `NO_CHECKS_ONCE` (la CI existe mais n'est pas encore enregistrée) —
+les deux situations que `--watch` rendait par la même phrase.
 
 ## Les journaux
 

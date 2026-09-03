@@ -31,7 +31,9 @@ tous les rouges à la fois :
 | Ce que tu vois au bilan | Ce que ça dit |
 |---|---|
 | **intégration rouge alors que les tickets sont verts** | ce n'est pas N problèmes, c'en est un : la combinaison. `.afk/integration-verify.txt`, worktree gardé dans `.afk/wt/_integration` |
-| **« numéros en double »** | deux branches ont pris le même numéro d'ADR ou de migration. Aucune porte ne peut le voir, git non plus : renuméroter avant de merger |
+| **« numéros en double »** | deux branches ont pris le même numéro d'ADR ou de migration. Aucune porte ne peut le voir, git non plus : renuméroter avant de merger. Le numéro reste à qui le cite le plus (`git grep -c` tranche) |
+| **« même chemin créé par plusieurs branches »** | deux branches ont créé le même fichier, avec deux API toutes deux justes. Chacune compile sans l'autre : seule la combinaison le dit |
+| **« tickets du run cités dans la doc mergée »** | une phrase peut être au futur sur ce qui est livré depuis dix minutes. Aucun conflit git, aucune porte : relire les lignes citées |
 | **colonne « Modèle » ≠ le modèle demandé** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
 | **colonne « Contexte » proche de la fenêtre** | ticket trop gros, même vert. C'est le thermomètre du découpage, pas une note de qualité |
 
@@ -53,10 +55,13 @@ cat .afk/<n>.out             # la trace de l'orchestrateur pour ce ticket
 |---|---|---|---|
 | `ko` / `setup` | `<n>-setup.log` | l'installation a échoué **dans le worktree** : lockfile absent à la racine, fichier gitignoré indispensable non semé | corriger `SETUP_CMD` ou `SEED_GLOBS` dans `.afk.env`, puis relancer le ticket |
 | `ko` / `verify` | `<n>-fail.txt` (dernier échec conservé) | à trancher : porte fausse ou vrai échec — voir l'étape 4 | selon le verdict |
-| `ko` / `push` | `<n>-push.txt` | la branche `feat/<n>` existe déjà sur le remote, ou le token n'a pas les droits | supprimer la branche distante ou la reprendre à la main |
 | `ko` / `pr` | `<n>.out` | une PR est déjà ouverte sur cette branche | fermer la PR, ou fermer le ticket |
 | `ko`, aucun commit | `<n>-verify.txt` | l'agent n'a rien produit **et** la base était rouge : le repo était déjà cassé avant lui | réparer la base d'abord, tout le lot en dépend |
-| `draft` | la PR elle-même | vert, mais suspect — la note `⚠` de la PR dit pourquoi : session terminée anormalement, ou orchestrateur qui a rattrapé un arbre non commité | relire avant de sortir du draft ; le travail est là, sa complétude n'est pas garantie |
+| `draft` / `coupée` | la PR elle-même | le `timeout` a tiré : la session a pu être coupée **au milieu d'un fichier** | relire en entier avant de sortir du draft, et regarder si le ticket mérite une ligne `Timeout:` |
+| `draft` / `anormale` | la PR + `<n>-<essai>.json` | la session s'est arrêtée entre deux actions, `subtype` dit laquelle | relire ; le travail présent compile, sa complétude n'est pas garantie |
+| `draft` / `non commité` | la PR elle-même | l'orchestrateur a rattrapé un arbre de travail que l'agent n'avait pas commité | le travail est là ; vérifier le message de commit, il porte le titre du ticket et pas le format du dépôt |
+| `vert non prouvé` | le bilan | porte locale réduite (`Verify:`) **et** CI non concluante : rien n'a joué la porte complète | relancer la CI, ou passer la porte complète à la main sur la branche |
+| `poussée refusée` | `<n>-push.txt` | le remote a refusé la branche (jeton sans la portée `workflow`, branche déjà présente). Le travail est complet et vert en local | pousser à la main depuis le worktree gardé ; **ne pas** relancer le ticket, la session referait le même travail |
 | `gelé` | `<n>.out` | son bloqueur n'a pas été livré | rien à faire sur lui : corriger le bloqueur, il repartira |
 | `absorbé` | le commentaire posé sur l'issue | rien à faire, la base était déjà verte : un prédécesseur avait livré son contenu | vérifier puis fermer le ticket |
 | `/ CI rouge` | `<n>-ci.txt` | la porte locale était verte, la CI du dépôt non : la porte locale est plus étroite que la CI | élargir `VERIFY_CMD`, ou la ligne `Verify:` du ticket |

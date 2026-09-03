@@ -64,6 +64,7 @@ et tu relis au réveil.
 | `MAX_ATTEMPTS` | `2` | 1 essai + 1 reprise, en session neuve |
 | `TIMEOUT` | `45m` | borne un run (`--max-turns` n'existe plus en 2.1.x), surchargeable par ticket |
 | `CI_TIMEOUT` | `15m` | attente de la CI après ouverture de PR ; `0` = ne pas consulter |
+| `CI_RETRY_WAIT` | `10` | secondes avant de réessayer une CI « pas encore enregistrée » |
 | `MODEL` | vide | modèle des sessions ; vide = le défaut de `claude`, surchargeable par ticket |
 | `EFFORT` | vide | niveau de réflexion (`low`…`max`) ; vide = le défaut, surchargeable par ticket |
 | `FALLBACK_MODEL` | `sonnet` | modèle de repli quand le principal est indisponible ; vide = pas de repli |
@@ -252,7 +253,13 @@ sorti dans ton arbre, `-n` te le dit avant de lancer quoi que ce soit.
 7. **CI** en fin de run, toutes les PR surveillées en parallèle (attendre dans le
    worker immobiliserait un slot pour du polling).
 8. **Intégration** en fin de run : toutes les branches vertes mergées dans un
-   worktree jetable, puis `VERIFY_CMD`. Rapporte ; ne touche à aucune PR.
+   worktree jetable — **dans l'ordre topologique**, une empilée après sa base, sinon
+   elle conflicte par construction —, puis `INTEGRATION_VERIFY_CMD`. Rapporte ; ne
+   touche à aucune PR. Elle signale en plus trois choses qu'aucune porte ne peut voir :
+   deux fichiers qui réclament le **même numéro** (ADR, migration), le **même chemin
+   créé** par deux branches, et les **tickets du run cités dans la doc** mergée — une
+   phrase au futur sur ce qui est livré depuis dix minutes ne produit aucun conflit.
+   Les fichiers en conflit sont écrits dans `summary.md`, pas seulement affichés.
 
 ## Logs
 
@@ -265,7 +272,8 @@ Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
 | `<n>-verify.txt` / `<n>-fail.txt` | la sortie de la porte, dernier échec conservé |
 | `<n>-setup.log` | l'install du worktree |
 | `<n>-ci.txt` | la sortie de `gh pr checks` |
-| `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `attempt`, `session`, `cost`, `model`) |
+| `<n>-push.txt` | le refus du remote, quand le push échoue |
+| `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
 | `summary.md` | le tableau du run : résultat, PR, essai, modèle, **contexte max**, coût, CI, intégration |
 
 **`.afk/` est écrasé au run suivant.** Ce qui doit survivre vit dans le dépôt d'afk
@@ -273,7 +281,7 @@ lui-même — monté dans chacun de tes projets, donc commun à tous :
 
 | Fichier | Contenu | Écrit par |
 |---|---|---|
-| `RUNS.md` | une ligne par run : date, projet, verts/drafts/rouges/gelés, 1er essai, modèle, coût, durée, intégration | `afk.sh`, à la fin de chaque run |
+| `RUNS.md` | une ligne par run : date, projet, verts/non prouvés/drafts/rouges/poussées refusées/gelés/absorbés, 1er essai, modèle, coût, durée, intégration | `afk.sh`, à la fin de chaque run |
 | `docs/defauts.md` | les défauts **d'afk** constatés en vrai pendant un run, numérotés | `/afk-debrief`, ou à la main |
 
 Le chemin est celui du script (`AFK_HOME`), pas celui du projet : que tu lances `afk.sh`
@@ -393,12 +401,33 @@ Une session Claude peut mourir après avoir produit du travail complet, ou à 60
 porte rend exactement le même vert dans les deux cas. Le script ne jette pas le travail
 — le filet commite l'arbre sale, avec le titre du ticket comme message — mais :
 
-- la PR sort **en draft**, avec le code de sortie et le chemin du log dans son corps ;
-- le ticket ne compte pas comme « vert au premier essai » ;
-- il apparaît dans la ligne `draft` du bilan.
+- la PR sort **en draft**, avec la panne et le chemin du fichier de session dans son corps ;
+- le ticket ne compte pas comme « vert au premier essai », et il sort de la ligne `vert`
+  du bilan : une PR en draft ne se merge pas ;
+- il apparaît dans la ligne `draft` du bilan, **avec la raison** — `coupée`, `anormale`
+  ou `non commité`.
 
 Même traitement quand l'agent n'a pas commité de lui-même : c'est une anomalie, pas un
 succès.
+
+Les trois ne se relisent pas pareil. Une session **coupée** au `timeout` peut l'avoir été
+au milieu d'un fichier ; une session terminée **anormalement** s'est arrêtée entre deux
+actions ; **non commité** veut dire que le travail est là et que seul le commit manquait.
+La porte ne fait la différence dans aucun des trois cas : elle dit que ce qui existe
+compile, pas que le travail est complet.
+
+## Vert, et pourtant pas prouvé
+
+Deux résultats sortent de la colonne `vert` sans être des échecs :
+
+- **vert non prouvé** — le ticket avait une ligne `Verify:` (porte locale réduite) **et**
+  sa CI n'a pas conclu. Sa seule porte complète est celle qui n'a rendu aucun verdict :
+  personne n'a vérifié ce que la porte réduite ne couvre pas.
+- **poussée refusée** — la branche est complète, verte et commitée en local, mais le
+  remote a refusé le `git push` (jeton sans la portée `workflow` sur un ticket qui touche
+  `.github/workflows/`, branche déjà présente). Aucune session n'est relancée — le second
+  essai échouerait à l'identique —, aucun label n'est changé, le worktree est gardé, et la
+  raison du remote est reprise au bilan depuis `<n>-push.txt`.
 
 ## Ctrl-C
 

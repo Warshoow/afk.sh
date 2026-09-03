@@ -45,6 +45,14 @@ printf 'Verify: false\n\n## Blocked by\n\nNone\n'  > "$T/fix/13.body"
 printf 'in-review\n'                                 > "$T/fix/11.labels"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
 
+# ─── Le lot du sixième run ────────────────────────────────────────────────────
+# 17 : le remote refuse sa branche      → poussée refusée, pas un échec d'implémentation
+# 18 × 19 : créent le même fichier      → aucune porte ne le voit, seul le merge le dit
+# 18 cite #19 au futur dans un .md      → renvoi périmé, git fusionne ça en silence
+# 21 : porte réduite + CI muette        → « vert » sans qu'aucune porte complète ait joué
+for n in 17 18 19; do printf '## Blocked by\n\nNone\n' > "$T/fix/$n.body"; done
+printf 'Verify: true\n\n## Blocked by\n\nNone\n'      > "$T/fix/21.body"
+
 cat > "$T/bin/gh" <<'X'
 #!/usr/bin/env bash
 FIX="$HARNESS/fix"; log() { echo "$*" >> "$HARNESS/gh.log"; }
@@ -72,7 +80,14 @@ case "$1" in
                    exit 0 ;;
            create) for a in "$@"; do [[ ${prev:-} == --head ]] && b=$a; prev=$a; done
                    log "pr create $*"; echo "https://x/y/pull/9${b##*/}"; exit 0 ;;
-           checks) [[ "$3" == --help ]] && { echo "  --fail-fast"; exit 0; }; exit 0 ;;
+           # NO_CHECKS       : le dépôt n'a pas de CI, --watch sort tout de suite.
+           # NO_CHECKS_ONCE  : la CI existe mais n'est pas ENCORE enregistrée (le cas réel,
+           #                   ~4 s après `gh pr create`) — afk doit réessayer.
+           checks) [[ "$3" == --help ]] && { echo "  --fail-fast"; exit 0; }
+                   nc() { echo "no checks reported on the 'feat/x' branch"; exit 1; }
+                   [[ -n "${NO_CHECKS:-}" ]] && nc
+                   [[ -n "${NO_CHECKS_ONCE:-}" && ! -f "$HARNESS/ci-$3" ]] && { touch "$HARNESS/ci-$3"; nc; }
+                   exit 0 ;;
          esac ;;
 esac
 exit 0
@@ -98,6 +113,11 @@ case "$n" in
   6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"
      res error_during_execution true; exit 1 ;;
   7) touch BROKEN; git add -A; git commit -qm "feat(#7): casse"; res; exit 0 ;;
+  18) echo "export const a = 1" > shared.ts
+      mkdir -p docs; echo "la liste : c'est #19 qui l'ouvrira" > docs/renvoi.md
+      git add -A; git commit -qm "feat(#18): ok"; res; exit 0 ;;
+  19) echo "export const b = 2" > shared.ts
+      git add -A; git commit -qm "feat(#19): ok"; res; exit 0 ;;
   *) echo x > work-$n.txt; mkdir -p docs/adr; echo "adr $n" > "docs/adr/000$n-x.md"
      git add -A; git commit -qm "feat(#$n): ok"; res; exit 0 ;;
 esac
@@ -126,7 +146,7 @@ git push -q origin feat/99 && git checkout -q master && git branch -qD feat/99
 # AFK_HOME détourné : sans ça, chaque exécution du harness ajouterait ses lignes au
 # RUNS.md du vrai dépôt.
 export HARNESS="$T" PATH="$T/bin:$PATH" CLAUDE_CONFIG_DIR="$T/cfg" AFK_HOME="$T"
-export VERIFY_CMD='! test -f BROKEN' SETUP_CMD='' CI_TIMEOUT=1m
+export VERIFY_CMD='! test -f BROKEN' SETUP_CMD='' CI_TIMEOUT=1m CI_RETRY_WAIT=1
 out=$(JOBS=3 bash "$AFK" 1 2 3 4 5 6 7 8 2>&1) || true
 printf '%s\n' "$out" > "$T/run.log"
 
@@ -153,8 +173,8 @@ want "bloqueur du run échoué -> gel en cascade"   "#8 gelé — un bloqueur du
 want "vérification rouge -> abandon après 2"      '#7 gelé|abandonné après 2 essais'
 want "phase CI sur toutes les PR"                 '═══ CI \(5 PR'
 want "intégration verte"                          'intégration : vert'
-want "5 verts"                                    'vert   \(5\) : 1 2 6 3 4'
-want "2 drafts"                                   'draft  \(2\) : 2 6'
+want "les drafts ne sont pas comptés verts"        'vert   \(3\) : 1 3 4'
+want "le draft dit POURQUOI il est en draft"      'draft  \(2\) : #2 \(non commité\) #6 \(anormale\)'
 want "1 rouge"                                    'rouge  \(1\) : 7'
 want "2 gelés"                                    'gelé   \(2\) : 5 8'
 want "drafts exclus du 1er essai"                 'vert au 1er essai : 3/6'
@@ -169,7 +189,7 @@ grep -qE '\| 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ durées consignées" || { echo "  ✗ durées manquantes"; fail=1; }
 # Le journal traverse les runs et les projets : c'est le seul historique qui survive à
 # l'écrasement de .afk/summary.md.
-grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| repo \| 8 \| 5 \| 2 \| 1 \| 2 \| 0 \| 3/6 \| sonnet-5 \| \$3\.50 \|' "$T/RUNS.md" &&
+grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| repo \| 8 \| 3 \| 0 \| 2 \| 1 \| 0 \| 2 \| 0 \| 3/6 \| sonnet-5 \| \$3\.50 \|' "$T/RUNS.md" &&
   echo "  ✓ le run est consigné dans RUNS.md" ||
   { echo "  ✗ run absent du journal"; sed -n '$p' "$T/RUNS.md" 2>/dev/null; fail=1; }
 
@@ -291,6 +311,60 @@ grep -qE '^  - docs/adr/00014-x\.md$' "$T/prompt-16.txt" 2>/dev/null &&
   { echo "  ✗ mémoire d'un seul bloqueur héritée"; fail=1; }
 grep -qE 'vert   \(3\) : 14 15 16' "$T/run5.log" &&
   echo "  ✓ les trois verts" || { echo "  ✗ le dépendant n'est pas parti"; fail=1; }
+# Une branche empilée mergée AVANT sa base conflicte par construction : l'intégration
+# merge dans l'ordre topologique, pas dans l'ordre d'achèvement.
+[[ "$(grep -o 'merge feat/[0-9]*' "$T/run5.log" | tail -1)" == "merge feat/16" ]] &&
+  echo "  ✓ l'empilée est mergée après sa base" ||
+  { echo "  ✗ ordre de merge non topologique"; fail=1; }
+
+# ─── Sixième run : push refusé, même chemin créé deux fois, renvoi au futur ──
+# Le remote refuse feat/17 comme GitHub refuse une branche qui touche .github/workflows/
+# à un jeton sans la portée `workflow` : le travail est bon, c'est le transport qui casse.
+cat > "$T/origin.git/hooks/update" <<'X'
+#!/bin/sh
+[ "$1" = refs/heads/feat/17 ] &&
+  { echo "refusing to allow an OAuth App to create or update workflow" >&2; exit 1; }
+exit 0
+X
+chmod +x "$T/origin.git/hooks/update"
+
+echo
+out6=$(NO_CHECKS_ONCE=1 JOBS=1 bash "$AFK" 17 18 19 2>&1) || true
+printf '%s\n' "$out6" > "$T/run6.log"
+want6() {
+  if grep -qE -- "$2" <<<"$out6"; then printf '  ✓ %s\n' "$1"
+  else printf '  ✗ %s\n     attendu : /%s/\n' "$1" "$2"; fail=1; fi
+}
+want6 "push refusé : sa propre ligne"          'poussée refusée \(1\) : 17'
+want6 "push refusé : la raison du remote"      '#17 : .*refusing to allow an OAuth App'
+want6 "push refusé n'est pas un rouge"         'rouge  \(0\) : —'
+want6 "même chemin créé par deux branches"     'même chemin créé par plusieurs branches'
+want6 "le chemin fautif est nommé"             'shared\.ts :.*feat/18.*feat/19|shared\.ts :.*feat/19.*feat/18'
+want6 "ticket du run cité dans la doc mergée"  'docs/renvoi\.md:1:.*#19'
+want6 "la CI pas encore enregistrée : réessai" '✓ #18 \(PR #918\) CI verte'
+grep -qE '^\| #17 \| poussée refusée \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : poussée refusée" || { echo "  ✗ résumé sans la poussée refusée"; fail=1; }
+grep -qE -- '- `feat/19` : shared\.ts' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : les fichiers en conflit, pas seulement la branche" ||
+  { echo "  ✗ fichiers en conflit absents du résumé"; fail=1; }
+grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
+  { echo "  ✗ un push refusé ne doit pas rendre le ticket à un humain"; fail=1; } ||
+  echo "  ✓ push refusé : aucun label changé"
+[[ "$(head -n 1 "$T/repo/.afk/18.status")" == "result_initial=ko" ]] &&
+  echo "  ✓ .status : la première ligne ne dit plus « ko » sur un vert" ||
+  { echo "  ✗ .status : result=ko en tête"; head -n 1 "$T/repo/.afk/18.status"; fail=1; }
+
+# ─── Septième run : vert, porte réduite, CI muette ───────────────────────────
+# Les trois faits étaient imprimés séparément ; croisés, ils disent qu'aucune porte
+# complète n'a jamais tourné sur ce ticket.
+echo
+out7=$(NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
+printf '%s\n' "$out7" > "$T/run7.log"
+grep -qE 'vert non prouvé \(1\) : 21' <<<"$out7" &&
+  echo "  ✓ porte réduite + CI muette = vert non prouvé" ||
+  { echo "  ✗ le vert non prouvé est encore compté vert"; fail=1; }
+grep -qE 'vert   \(0\) : —' <<<"$out7" &&
+  echo "  ✓ et il sort de la colonne « vert »" || { echo "  ✗ compté deux fois"; fail=1; }
 
 echo
 (( fail )) && { echo "ÉCHEC — trace : $T/run.log"; trap - EXIT; exit 1; }

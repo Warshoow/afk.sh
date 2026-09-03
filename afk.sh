@@ -214,6 +214,7 @@ MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 essai + 1 reprise, en session neuve
 TIMEOUT="${TIMEOUT:-45m}"                # garde-fou : borne un run (pas de --max-turns en 2.1.x)
                                          # surchargeable par ticket : ligne "Timeout:" du corps
 CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # attente de la CI ; 0 = ne pas consulter
+CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # secondes avant de réessayer un « no checks » (cf. ci_phase)
 INTEGRATION="${INTEGRATION:-1}"          # passe d'intégration des branches vertes en fin de run
 CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-0}"  # 0 = jamais de pause. C'est un outil non surveillé.
 
@@ -452,6 +453,9 @@ Session neuve, aucun historique.
   La session suivante ne saura rien de ce run.
 - Tu commit sur la branche courante, déjà créée. Tu ne push pas, tu n'ouvres pas
   de PR, tu ne touches pas aux labels : c'est le job de l'orchestrateur.
+- Tu ne lances pas la vérification toi-même : l'orchestrateur la passe après toi. La
+  lancer, c'est la faire tourner deux fois — et une session qui rend son tour en
+  l'attendant se termine sans avoir commité.
 - D'autres tickets tournent peut-être en parallèle dans d'autres worktrees. Tu ne
   regardes qu'ici, tu ne touches à aucune autre branche.
 EOF
@@ -640,7 +644,7 @@ worker() {
   local ticket="$1" base="$2" wt="$3"
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
   local title labels verify tmo mdl eff head0 rc crashed netted attempt
-  local out sid why c cost=0
+  local out sid why c cost=0 cut=0
   local -a copts
   local suspect pr_url pr_num pr_body
 
@@ -653,7 +657,10 @@ worker() {
   tmo=$(cat "$AFK_DIR/$ticket.timeout" 2>/dev/null); tmo="${tmo:-$TIMEOUT}"
   mdl=$(cat "$AFK_DIR/$ticket.model" 2>/dev/null)
   eff=$(cat "$AFK_DIR/$ticket.effort" 2>/dev/null)
-  st "result=ko"; st "branch=$branch"; st "base=$base"
+  # `result_initial`, pas `result` : le fichier est append-only et `sget` lit la
+  # DERNIÈRE ligne, mais un humain qui fait `cat` ou `grep result=` sur un ticket vert
+  # lisait `result=ko` en tête. Absent = rouge de toute façon (cf. `reap`).
+  st "result_initial=ko"; st "branch=$branch"; st "base=$base"
 
   # Les drapeaux de la session. --output-format json parce que le code de retour ne
   # dit pas POURQUOI une session s'est arrêtée, et que le bilan a besoin du coût, du
@@ -705,7 +712,7 @@ worker() {
     out="$AFK_DIR/$ticket-$attempt.json"
     timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
       "${copts[@]}" > "$out" 2>&1
-    rc=$?; crashed=0; netted=0
+    rc=$?; crashed=0; netted=0; cut=0
 
     # Ce que la session raconte d'elle-même. `subtype` nomme la panne
     # (error_during_execution, error_max_turns…) là où le code de retour ne donne qu'un
@@ -718,7 +725,7 @@ worker() {
     c=$(jval total_cost_usd < "$out")
     [[ -n "$c" ]] && { cost=$(awk -v a="$cost" -v b="$c" 'BEGIN{printf "%.4f", a+b}'); st "cost=$cost"; }
 
-    (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — le ticket peut porter sa propre ligne \"Timeout:\""; crashed=1; }
+    (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — le ticket peut porter sa propre ligne \"Timeout:\""; crashed=1; cut=1; }
     (( rc != 0 && rc != 124 )) && {
       echo "  ⚠  session terminée anormalement (${why:-code ${rc}}) — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
       crashed=1; }
@@ -768,9 +775,21 @@ worker() {
       # réduite, c'est la CI qui est la seule porte complète — le relecteur doit le lire
       # sur la PR, pas le déduire du corps du ticket.
       [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale réduite** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre en plus n'a été vérifié QUE par la CI de cette PR." 
-      (( crashed )) && pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (${why:-code ${rc}}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Session : \`.afk/${ticket}-${attempt}.json\`."
+      # Une session COUPÉE au timeout peut l'avoir été au milieu d'un fichier ; une session
+      # qui a rendu son tour s'est arrêtée entre deux actions. La porte ne dit ni l'un ni
+      # l'autre — elle dit que ce qui existe compile. Ce n'est pas la même relecture.
+      if (( cut )); then
+        pr_body+=$'\n\n'"> ⚠ **La session agent a été COUPÉE** au bout de \`${tmo}\` (ligne \`Timeout:\` du ticket). Elle peut l'avoir été au milieu d'un fichier : la porte dit que ce qui existe compile, pas que le travail est complet. Session : \`.afk/${ticket}-${attempt}.json\`."
+      elif (( crashed )); then
+        pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (${why:-code ${rc}}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Session : \`.afk/${ticket}-${attempt}.json\`."
+      fi
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ L'agent n'a pas commité lui-même : l'orchestrateur a rattrapé l'arbre de travail."
 
+      # La branche est complète, verte et commitée : ce qui a échoué est le transport
+      # (jeton sans la portée `workflow`, branche déjà sur le remote), pas le travail.
+      # Un second essai échouerait à l'identique, et la ranger avec les rouges la fait
+      # reprendre de zéro au run suivant. Elle a sa propre ligne au bilan, et son
+      # worktree est gardé comme celui d'un rouge.
       if ! git push -qu origin "$branch" 2>"$AFK_DIR/$ticket-push.txt"; then
         echo "  ✗ push refusé — ${AFK_DIR##*/}/${ticket}-push.txt"
         sed 's/^/     /' "$AFK_DIR/$ticket-push.txt" | head -n 5
@@ -784,10 +803,13 @@ worker() {
       pr_num="${pr_url##*/}"
       relabel "$ticket" "$LABEL" "$LABEL_REVIEW"
 
-      st "result=ok"; st "pr=$pr_num"; st "draft=$suspect"
+      local dwhy=""
+      (( cut )) && dwhy="coupée"; (( crashed && ! cut )) && dwhy="anormale"
+      (( netted )) && dwhy="${dwhy:+$dwhy, }non commité"
+      st "result=ok"; st "pr=$pr_num"; st "draft=$suspect"; st "draft_why=$dwhy"
       if (( suspect )); then
         echo "  ✓ vert (essai ${attempt}) — PR #${pr_num} en DRAFT sur ${base#origin/}"
-        echo "     ⚠  session anormale : relire avant de sortir du draft"
+        echo "     ⚠  ${dwhy} : relire avant de sortir du draft"
       else
         echo "  ✓ vert (essai ${attempt}) — PR #${pr_num} sur ${base#origin/}"
       fi
@@ -812,14 +834,14 @@ worker() {
 # ses dépendants : leur base n'existe pas.
 
 declare -A BRANCH_OF=() PID=() START=() WT=()
-OK=(); KO=(); SKIP=(); DRAFT=(); ABSORBED=(); FIRST_TRY=0
+OK=(); KO=(); SKIP=(); DRAFT=(); ABSORBED=(); PUSH_KO=(); FIRST_TRY=0
 
 deps_state() {   # 0 = prêt, 1 = attendre, 2 = gelé
   local t="$1" b state=0
   [[ -n "${EXT[$t]}" ]] && return 2
   for b in ${DEPS[$t]}; do
     if   [[ -n "${BRANCH_OF[$b]:-}" ]]; then continue
-    elif [[ " ${KO[*]} ${SKIP[*]} " == *" $b "* ]]; then return 2
+    elif [[ " ${KO[*]} ${SKIP[*]} ${PUSH_KO[*]} " == *" $b "* ]]; then return 2
     else state=1; fi
   done
   return $state
@@ -885,6 +907,8 @@ reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
       # base qu'il a lui-même utilisée, sinon ils gèleraient derrière un faux échec.
       ABSORBED+=("$t"); BRANCH_OF[$t]=$(sget "$t" base_ref)
       drop_worktree "$t"; git branch -qD "feat/$t" 2>/dev/null
+    elif [[ "$(sget "$t" reason)" == "push" ]]; then
+      PUSH_KO+=("$t")   # branche verte et commitée en local, seulement pas poussée
     else
       KO+=("$t")   # worktree gardé : c'est là qu'on va lire ce qui s'est passé
     fi
@@ -951,8 +975,18 @@ ci_phase() {
   local t pr pids=()
   for t in "${OK[@]}"; do
     pr=$(sget "$t" pr)
-    ( timeout "$CI_TIMEOUT" gh pr checks "$pr" --watch $CI_FAILFAST > "$AFK_DIR/$t-ci.txt" 2>&1
-      echo "$?" > "$AFK_DIR/$t-ci.rc" ) &
+    # `--watch` ne surveille que des check runs DÉJÀ enregistrés : avec zéro, il ne
+    # patiente pas, il sort tout de suite. Or GitHub met quelques secondes à enregistrer
+    # le run après `gh pr create` (mesuré : ~4 s), ce qui expose la dernière PR créée.
+    # « Le dépôt n'a pas de CI » et « la CI n'est pas encore enregistrée » rendaient donc
+    # la même phrase, alors que la seconde se répare en réessayant.
+    ( local crc; for _ in 1 2 3 4; do
+        timeout "$CI_TIMEOUT" gh pr checks "$pr" --watch $CI_FAILFAST > "$AFK_DIR/$t-ci.txt" 2>&1
+        crc=$?
+        grep -qi 'no checks' "$AFK_DIR/$t-ci.txt" || break
+        sleep "$CI_RETRY_WAIT"
+      done
+      echo "$crc" > "$AFK_DIR/$t-ci.rc" ) &
     pids+=($!)
   done
   wait "${pids[@]}" 2>/dev/null
@@ -984,13 +1018,54 @@ ci_phase() {
 # repasse la porte. On ne touche à aucune PR : on rapporte.
 
 INTEG_CONFLICTS=(); INTEG_MERGED=(); INTEG_VERDICT="—"
+declare -A INTEG_FILES=()   # branche → fichiers en conflit, pour le résumé
+INTEG_NOTES=""              # numéros en double, chemins créés deux fois, renvois au futur
 
-# Les fichiers ajoutés par les branches du run, passés au parseur `clashing_numbers`.
-numbering_clashes() {
+# Les fichiers ajoutés par chaque branche verte, une ligne "<branche> <chemin>".
+# Contre SA base, pas contre BASE_REF : une branche empilée porte les commits de son
+# bloqueur, elle « ajoute » donc aussi les fichiers de celui-ci.
+added_files() {
+  local t b
+  for t in "${OK[@]}"; do
+    b=$(sget "$t" base); b="${b:-$BASE_REF}"
+    git diff --name-only --diff-filter=A "$b...${BRANCH_OF[$t]}" 2>/dev/null |
+      sed "s|^|${BRANCH_OF[$t]} |"
+  done
+}
+
+numbering_clashes() { added_files | cut -d' ' -f2- | clashing_numbers; }
+
+# Deux branches qui CRÉENT le même chemin sont vertes chacune de son côté — le fichier
+# répond au même besoin vu des deux bouts, avec deux API différentes et toutes deux
+# justes. Aucune porte ne peut le voir. `clashing_numbers` non plus : son `sort -u`
+# d'entrée écrase justement les deux lignes identiques qu'on cherche, et son awk ne
+# regarde que les noms qui commencent par un chiffre.
+same_path_adds() {
+  added_files | sort -u |
+    awk '{ b[$2] = b[$2] " " $1; n[$2]++ } END { for (p in n) if (n[p] > 1) printf "%s :%s\n", p, b[p] }' |
+    sort
+}
+
+# Merger une branche empilée AVANT sa base est un conflit par construction, et il se lit
+# comme un vrai recouvrement. La liste des verts est remplie dans l'ordre d'ACHÈVEMENT ;
+# on la retrie par nombre de commits depuis la base commune — une branche empilée en a
+# strictement plus que la sienne, donc elle passe après.
+merge_order() {
   local t
   for t in "${OK[@]}"; do
-    git diff --name-only --diff-filter=A "$BASE_REF...${BRANCH_OF[$t]}" 2>/dev/null
-  done | clashing_numbers
+    printf '%s %s\n' "$(git rev-list --count "$BASE_REF..${BRANCH_OF[$t]}" 2>/dev/null || echo 0)" "$t"
+  done | sort -n | cut -d' ' -f2
+}
+
+# Une branche écrit « c'est #116 qui ouvrira cette liste » ; #116 livre dans le même run ;
+# personne ne réécrit la phrase — ni celle qui l'a écrite (elle est finie), ni #116 (elle
+# ne sait pas qu'elle est citée). Les deux côtés sont d'accord, git fusionne en silence,
+# et la doc affirme au futur ce qui est livré depuis dix minutes. On ne juge pas la
+# phrase, on montre où elle est. `git grep` : les fichiers suivis seulement.
+stale_refs() {   # $1 = worktree d'intégration
+  local nums; nums=$(IFS='|'; echo "${OK[*]}")
+  git -C "$1" grep -nE "#(${nums})([^0-9]|$)" -- '*.md' ':!CHANGELOG.md' ':!RUNS.md' 2>/dev/null |
+    head -n 20
 }
 
 integration_check() {
@@ -1003,7 +1078,7 @@ integration_check() {
     echo "  ✗ worktree d'intégration impossible"; return 0; }
   seed_worktree "$wt" >/dev/null
 
-  for t in "${OK[@]}"; do
+  for t in $(merge_order); do
     b="${BRANCH_OF[$t]}"
     if git -C "$wt" merge -q --no-edit "$b" 2>"$AFK_DIR/integration-merge.err"; then
       echo "  merge ${b} ✓"
@@ -1017,18 +1092,38 @@ integration_check() {
       if [[ -n "$files" ]]; then
         echo "  merge ${b} ✗ CONFLIT — ${files}"
       else
-        echo "  merge ${b} ✗ REFUSÉ — $(head -n 1 "$AFK_DIR/integration-merge.err")"
+        files="REFUSÉ — $(head -n 1 "$AFK_DIR/integration-merge.err")"
+        echo "  merge ${b} ✗ ${files}"
       fi
+      # Écrit, pas seulement affiché : c'est la donnée dont la revue a besoin en premier
+      # — elle dit lesquels des conflits sont de la doc et lesquels sont du code, donc
+      # combien la résolution va coûter. Le terminal, lui, se ferme.
+      INTEG_FILES[$b]="$files"
       INTEG_CONFLICTS+=("$b")
     fi
   done
 
-  # Les collisions de numéro se lisent sur les branches, pas sur l'arbre mergé : deux
-  # fichiers de noms différents y coexistent sans rien dire.
+  # Les collisions de numéro et les chemins créés deux fois se lisent sur les branches,
+  # pas sur l'arbre mergé : deux fichiers de noms différents y coexistent sans rien dire,
+  # et un `add/add` résolu n'en garde qu'un.
   clashes=$(numbering_clashes)
   if [[ -n "$clashes" ]]; then
     echo "  ⚠  numéros pris deux fois (aucune porte ne le verra) :"
     sed 's/^/       /' <<<"$clashes"
+    INTEG_NOTES+=$'\n'"- numéros pris deux fois :"$'\n'"$(sed 's/^/  - /' <<<"$clashes")"
+  fi
+  local dupes; dupes=$(same_path_adds)
+  if [[ -n "$dupes" ]]; then
+    echo "  ⚠  même chemin créé par plusieurs branches :"
+    sed 's/^/       /' <<<"$dupes"
+    INTEG_NOTES+=$'\n'"- même chemin créé par plusieurs branches :"$'\n'"$(sed 's/^/  - /' <<<"$dupes")"
+  fi
+
+  local stale; stale=$(stale_refs "$wt")
+  if [[ -n "$stale" ]]; then
+    echo "  ⚠  tickets du run cités dans la doc mergée — relire, la phrase peut être au futur :"
+    sed 's/^/       /' <<<"$stale"
+    INTEG_NOTES+=$'\n'"- tickets du run cités dans la doc mergée (phrase au futur ?) :"$'\n'"$(sed 's/^/  - /' <<<"$stale")"
   fi
 
   # `_integration` comme numéro de ticket : la passe rejoue la porte, donc elle migre
@@ -1056,8 +1151,9 @@ integration_check() {
   fi
   (( ${#INTEG_CONFLICTS[@]} )) && INTEG_VERDICT="$INTEG_VERDICT (partiel : ${n}/${m})"
   [[ -n "$clashes" ]] && INTEG_VERDICT="$INTEG_VERDICT + numéros en double"
+  [[ -n "$dupes"   ]] && INTEG_VERDICT="$INTEG_VERDICT + chemins en double"
 
-  if [[ "$KEEP_WORKTREES" != "1" && "$ok" == "1" && ${#INTEG_CONFLICTS[@]} -eq 0 && -z "$clashes" ]]; then
+  if [[ "$KEEP_WORKTREES" != "1" && "$ok" == "1" && ${#INTEG_CONFLICTS[@]} -eq 0 && -z "$clashes" && -z "$dupes" ]]; then
     git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"
     git branch -qD afk-integration 2>/dev/null
   else
@@ -1098,21 +1194,22 @@ append_run_log() {
     printf "il traverse les projets, ce dépôt étant monté dans chacun.\n\n"
     printf "Les faits seulement. Ce qui demande un jugement va dans\n"
     printf '[docs/defauts.md](docs/defauts.md), écrit par `/afk-debrief`.\n\n'
-    printf '| Date | Projet | Tickets | Vert | Draft | Rouge | Gelé | Absorbé | 1er essai | Modèle | Coût | Durée | Intégration |\n'
-    printf '|---|---|---|---|---|---|---|---|---|---|---|---|---|\n'
+    printf '| Date | Projet | Tickets | Vert | Non prouvé | Draft | Rouge | Push refusé | Gelé | Absorbé | 1er essai | Modèle | Coût | Durée | Intégration |\n'
+    printf '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n'
   } > "$f"
 
   # Un seul printf, une seule ligne courte : deux runs lancés depuis deux projets
   # peuvent l'ajouter en même temps sans se marcher dessus.
-  printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+  printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
     "$(date +%Y-%m-%d\ %H:%M)" "${REPO_ROOT##*/}" "${#TICKETS[@]}" \
-    "${#OK[@]}" "${#DRAFT[@]}" "${#KO[@]}" "${#SKIP[@]}" "${#ABSORBED[@]}" \
+    "${#GREEN[@]}" "${#UNPROVEN[@]}" "${#DRAFT[@]}" "${#KO[@]}" "${#PUSH_KO[@]}" \
+    "${#SKIP[@]}" "${#ABSORBED[@]}" \
     "${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))" "${models:-—}" "${total:-—}" \
     "$(fmt_dur $SECONDS)" "$INTEG_VERDICT" >> "$f"
 }
 
 write_summary() {
-  local f="$AFK_DIR/summary.md" t
+  local f="$AFK_DIR/summary.md" t b
   {
     printf '# Run afk — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
     printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Titre |\n'
@@ -1127,6 +1224,8 @@ write_summary() {
       [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
       [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
+      [[ " ${UNPROVEN[*]} " == *" $t "* ]] && res="vert non prouvé"
+      [[ " ${PUSH_KO[*]} " == *" $t "* ]] && res="poussée refusée"
       [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
       [[ -n "${VERIFY[$t]:-}" && "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && res="$res ⚠"
       printf '| #%s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
@@ -1134,6 +1233,13 @@ write_summary() {
     done
     printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
       "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — écartées au merge : ${INTEG_CONFLICTS[*]} ; mergées : ${INTEG_MERGED[*]}" )"
+    # Le SUR QUOI, pas seulement le QUI : `integration-merge.err` est écrasé à chaque
+    # branche et git rapporte les CONFLICT sur stdout, donc sans ça la liste des fichiers
+    # se reconstruit à coups de `git merge-tree` en devinant l'ordre de merge d'origine.
+    for b in "${INTEG_CONFLICTS[@]}"; do
+      printf -- '  - `%s` : %s\n' "$b" "${INTEG_FILES[$b]:-—}"
+    done
+    [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
     printf -- '- porte : %s%s\n' "$VERIFY_CMD" \
       "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
     printf -- '- les tickets marqués ⚠ ont eu une porte locale RÉDUITE (ligne `Verify:`) : seule leur CI a joué la porte complète.\n'
@@ -1151,7 +1257,7 @@ write_summary() {
     # elle a tourné, et le worktree d'un vert est jeté.
     local sid resumable=0
     for t in "${TICKETS[@]}"; do
-      [[ " ${KO[*]} " == *" $t "* ]] || continue
+      [[ " ${KO[*]} ${PUSH_KO[*]} " == *" $t "* ]] || continue
       sid=$(sget "$t" session); [[ -n "$sid" ]] || continue
       (( resumable++ == 0 )) && printf '\nReprendre une session à la main :\n\n'
       printf -- '- #%s : `(cd %s/%s && claude --resume %s)`\n' \
@@ -1275,14 +1381,32 @@ schedule
 ci_phase
 integration_check
 
+# Un ticket à porte locale RÉDUITE dont la CI n'a pas conclu n'a été vu par AUCUNE porte
+# complète, et une PR en draft ne se merge pas. Les deux faits étaient imprimés, à trois
+# lignes d'écart, sans jamais être croisés : c'était au lecteur de rapprocher deux listes
+# de numéros pour s'apercevoir qu'un « vert » ne l'était pas.
+GREEN=(); UNPROVEN=()
+for t in "${OK[@]}"; do
+  if   [[ " ${DRAFT[*]} " == *" $t "* ]]; then continue
+  elif [[ " ${CI_UNKNOWN[*]} " == *" $t "* && "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]]; then UNPROVEN+=("$t")
+  else GREEN+=("$t"); fi
+done
+
 echo
 echo "═══ Bilan  ($(fmt_dur $SECONDS)) ═══"
-echo "  vert   (${#OK[@]}) : ${OK[*]:-—}"
+echo "  vert   (${#GREEN[@]}) : ${GREEN[*]:-—}"
+(( ${#UNPROVEN[@]} )) &&
+  echo "  vert non prouvé (${#UNPROVEN[@]}) : ${UNPROVEN[*]}  → porte locale réduite ET CI non concluante : rien n'a joué la porte complète"
 (( ${#DRAFT[@]} )) &&
-  echo "  draft  (${#DRAFT[@]}) : ${DRAFT[*]}  → session anormale, relire avant de sortir du draft"
+  echo "  draft  (${#DRAFT[@]}) : $(for t in "${DRAFT[@]}"; do printf '#%s (%s) ' "$t" "$(sget "$t" draft_why)"; done) → relire avant de sortir du draft"
 (( ${#ABSORBED[@]} )) &&
   echo "  absorbé (${#ABSORBED[@]}) : ${ABSORBED[*]}  → rien à faire, base déjà verte : livrés par un prédécesseur, à fermer"
 echo "  rouge  (${#KO[@]}) : ${KO[*]:-—}  → passés en ${LABEL_KO}, worktrees gardés dans .afk/wt/"
+(( ${#PUSH_KO[@]} )) && {
+  echo "  poussée refusée (${#PUSH_KO[@]}) : ${PUSH_KO[*]}  → branche verte et commitée en local, aucun label changé :"
+  for t in "${PUSH_KO[@]}"; do
+    echo "     #${t} : $(head -n 3 "$AFK_DIR/$t-push.txt" 2>/dev/null | tr '\n' ' ')"
+  done; }
 echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relance après merge"
 (( ${#CI_RED[@]} )) &&
   echo "  CI rouge (${#CI_RED[@]}) : ${CI_RED[*]}  → repassés en ${LABEL_KO}"

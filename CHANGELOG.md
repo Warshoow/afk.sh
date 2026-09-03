@@ -6,6 +6,47 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-04
+
+Neuf défauts consignés dans [docs/defauts.md](docs/defauts.md) après un usage intensif
+sur un dépôt réel. Huit corrigés, un atténué.
+
+### Ajouté
+
+- **`vert non prouvé`** et **`poussée refusée`** au bilan. Un ticket à porte locale
+  réduite dont la CI n'a pas conclu n'a été vu par aucune porte complète ; une branche
+  que le remote a refusé de recevoir est complète et verte, seulement pas poussée.
+  Les deux sortent de la colonne `vert`, et une poussée refusée ne change aucun label
+  ni ne relance de session — le second essai échouerait à l'identique (défauts 30, 32).
+- La ligne `draft` du bilan dit **laquelle** des trois anomalies l'a mise là : `coupée`,
+  `anormale`, `non commité`. Une session coupée au `timeout` peut l'avoir été au milieu
+  d'un fichier — ce n'est pas la même relecture qu'une session qui a rendu son tour, et
+  le corps de la PR le dit aussi (défaut 31).
+- L'intégration signale le **même chemin créé par plusieurs branches** : deux branches
+  qui ajoutent le même fichier sont vertes chacune de son côté, et seul le merge le voit
+  (défaut 25). Et elle liste les **tickets du run cités dans la doc mergée** : une phrase
+  au futur sur ce qui est livré depuis dix minutes ne produit aucun conflit (défaut 24,
+  détection seulement).
+- Une ligne du prompt : l'agent ne lance pas la porte lui-même. C'est ce qui a mangé le
+  tour d'une session, qui s'est terminée sur `Gate still running` sans avoir commité
+  (défaut 31).
+- `CI_RETRY_WAIT` : `gh pr checks --watch` ne surveille que des checks déjà enregistrés
+  et sort immédiatement quand il n'y en a aucun. La dernière PR créée était donc
+  structurellement exposée — quatre secondes de retard, classée « aucune CI déclarée ».
+  Afk réessaie quatre fois avant de conclure (défaut 29).
+
+### Corrigé
+
+- L'intégration merge dans l'**ordre topologique** : une branche empilée mergée avant sa
+  base conflicte par construction, et ça se lisait comme un vrai recouvrement (défaut 27).
+- `summary.md` garde les **fichiers en conflit** branche par branche, et les numéros et
+  chemins en double. C'était affiché puis jeté : le terminal fermé, il fallait
+  reconstruire à coups de `git merge-tree` en devinant l'ordre de merge (défaut 26).
+- Les fichiers ajoutés d'une branche sont comptés contre **sa** base et non contre la
+  base commune : une branche empilée porte les commits de son bloqueur (défaut 25).
+- La première ligne de `<n>.status` ne dit plus `result=ko` sur un ticket vert : la
+  valeur prudente du démarrage s'appelle `result_initial` (défaut 28).
+
 ## 2026-09-03
 
 ### Ajouté
