@@ -23,6 +23,13 @@ eu lieu.
 - `Verify` reçoit son motif de validation, `RE_VERIFY`, comme `Timeout`, `Model` et
   `Effort` : une valeur qui finit par `:` est une phrase d'introduction, pas une
   commande — elle est ignorée et le ticket retombe sur `VERIFY_CMD` (défaut 33).
+- Une porte qui **commence en français** et cite ses commandes au milieu (« à la main,
+  `python -m jarvis hub` + `npm run dev` : … ») est refusée elle aussi. Elle ne commence
+  pas par un span et ne finit pas par `:` : les deux règles ci-dessus la laissaient
+  passer entière, trois tickets sur quinze. Les backticks ne tombent donc plus que si la
+  valeur **est** le span, et `RE_VERIFY` refuse celle qui en garde un — après nettoyage,
+  un backtick résiduel ne vient plus que d'une prose qui cite des commandes. Une
+  commande à substitution `` `cmd` `` à l'ancienne est refusée avec (défaut 33).
 - « Aucune CI déclarée » ne vaut plus « CI non concluante ». La première est une
   propriété du dépôt : sur un dépôt sans workflow, elle marquait « vert non prouvé »
   tout ticket portant un `Verify:`. Le bilan le dit maintenant une fois pour le run, en

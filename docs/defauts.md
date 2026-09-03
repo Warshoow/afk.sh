@@ -797,6 +797,26 @@ Et `Verify` reçoit enfin son motif, `RE_VERIFY`, comme les trois autres champs 
 est refusée si elle finit par `:`. C'est la forme d'une phrase d'introduction, et c'est
 exactement celle qui a fini au `bash -c`. Un ticket refusé retombe sur `VERIFY_CMD`.
 
+**Complété le même jour, sur les quinze mêmes tickets.** Le nettoyage ci-dessus en sauvait
+onze et en laissait passer trois : `#51`, `#52` et `#54` écrivent une porte qui **commence
+en français** et cite ses commandes au milieu (« à la main, `python -m jarvis hub` +
+`npm run dev` : … »). Elle ne commence pas par un span, donc le point 2 n'a rien à y garder ;
+elle ne finit pas par `:` mais par un point, donc `RE_VERIFY` l'acceptait ; et le `` s/`//g ``
+effaçait ses backticks avant que quiconque puisse s'en servir. Les trois repartaient
+entières au `bash -c` — `à: command not found`, rouge aux deux essais.
+
+Les backticks ne tombent donc plus que si la valeur **est** le span tout entier, et
+`RE_VERIFY` refuse celle qui en garde un : après nettoyage, un backtick résiduel ne peut
+plus venir que d'une prose qui cite des commandes. C'est la seule trace qui la distingue
+d'une commande, et l'effacer aveuglément la détruisait. Prix payé, assumé : une commande à
+substitution `` `cmd` `` à l'ancienne est refusée aussi — elle s'écrit `$(cmd)`.
+
+**Ce que ça ne rattrape pas.** `#42` déclare `` `npm run dev` `` en tête de sa ligne : un
+span, en première position, syntaxiquement une commande — acceptée, et c'est un serveur de
+développement qui ne rend jamais la main. Le ticket meurt sur `TIMEOUT`, deux fois, budget
+plein. Aucun motif ne distingue une commande qui finit d'une commande qui tourne (défaut
+14 le disait déjà de `npm test` sans `run`) : ça se corrige dans le ticket, pas ici.
+
 ## 34 — Sans CI déclarée, tout ticket à `Verify:` sort « vert non prouvé » — corrigé
 
 *2026-09-04 · jarvis-project · #40 → #54*

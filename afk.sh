@@ -61,9 +61,14 @@ RE_MODEL='[A-Za-z0-9][A-Za-z0-9._-]*'          # pas une liste de noms connus : 
                                                # périmée au prochain modèle. Interdit juste
                                                # ce qui n'est pas un nom (espaces, métacaractères).
 RE_EFFORT='(low|medium|high|xhigh|max)'        # l'ensemble fermé que claude(1) accepte
-RE_VERIFY='.*[^:[:space:]]'                    # une commande ne finit pas par « : ». C'est
-                                               # la forme d'une phrase d'introduction, et
-                                               # c'est celle qui a fini au `bash -c`.
+RE_VERIFY='[^`]*[^`:[:space:]]'                # une commande ne finit pas par « : » — c'est
+                                               # la forme d'une phrase d'introduction, et c'est
+                                               # celle qui a fini au `bash -c`. Et elle ne garde
+                                               # pas de backtick après le nettoyage : ce qui en
+                                               # garde est de la prose qui CITE des commandes.
+                                               # Prix payé : une commande à substitution
+                                               # `cmd` à l'ancienne est refusée aussi. Elle
+                                               # s'écrit $(cmd) depuis trente ans.
 
 # Le nettoyage de la valeur, avant validation :
 #   1. le gras qui suit le « : » — `**Verify:** cmd` laisse ses deux astérisques APRÈS le
@@ -72,10 +77,15 @@ RE_VERIFY='.*[^:[:space:]]'                    # une commande ne finit pas par �
 #      rédigé écrit la commande en `code` puis, en français, ce qu'elle ne couvre pas :
 #      la prose est une note pour l'agent, pas une porte. Sans ça la ligne entière partait
 #      au `bash -c`, où le `**` globait sur le cwd.
+#   3. les backticks ne tombent QUE si la valeur est le span tout entier. Une porte qui
+#      commence en français et cite ses commandes au milieu (« à la main, `python -m jarvis
+#      hub` + `npm run dev` : … ») échappe au point 2 — rien à y garder, elle ne commence
+#      pas par un span. Son backtick résiduel est ce qui la fait refuser par `RE_VERIFY`,
+#      et l'effacer aveuglément effaçait la seule trace qui la distingue d'une commande.
 # La forme nue (`Verify: pnpm test`) reste acceptée telle quelle : c'est celle du README.
 meta_line() {   # $1 = nom du champ, $2 = motif de validation (défaut : n'importe quoi)
   sed -n -E "s/^[[:space:]>*+-]*[\`*]*$1[\`*]*[[:space:]]*:[[:space:]]*//Ip" |
-    sed -E 's/^[*_[:space:]]+//; s/^(`[^`]+`).*$/\1/; s/`//g; s/[[:space:]]+$//' |
+    sed -E 's/^[*_[:space:]]+//; s/^(`[^`]+`).*$/\1/; s/^`([^`]*)`$/\1/; s/[[:space:]]+$//' |
     awk 'NF{print; exit}' |
     grep -Ex -- "${2:-.+}" || true   # absent ou mal formé : pas une erreur
 }

@@ -89,6 +89,12 @@ got=$(meta_line Verify "$RE_VERIFY" <<<'**Verify:** `ruff check jarvis/ && pytho
 got=$(meta_line Verify "$RE_VERIFY" <<<'**Verify:** ruff check')
 [[ "$got" == "ruff check" ]] || { echo "FAIL Verify: gras fermant après le : '$got'"; exit 1; }
 
+# La porte qui commence en français et cite ses commandes au milieu. Elle ne commence pas
+# par un span : rien à en garder, et c'est son backtick résiduel qui la fait refuser. Trois
+# tickets d'un lot de quinze avaient cette forme et seraient partis entiers au `bash -c`.
+got=$(meta_line Verify "$RE_VERIFY" <<<'**Verify:** à la main, `python -m jarvis hub` + `npm run dev` : la page rend /api/info. Plus `pytest -q` vert.')
+[[ -z "$got" ]] || { echo "FAIL Verify: prose citant des commandes : '$got'"; exit 1; }
+
 # Une commande ne finit pas par « : » — c'est la forme d'une phrase d'introduction.
 got=$(meta_line Verify "$RE_VERIFY" <<<'Verify: lancer les tests, puis :')
 [[ -z "$got" ]] || { echo "FAIL Verify: prose acceptée : '$got'"; exit 1; }
