@@ -606,7 +606,12 @@ make_worktree() {   # ticket, base, branches à absorber… → chemin sur stdou
   rm -rf "$wt"
   git worktree add -q -B "$branch" "$wt" "$base" 2>"$AFK_DIR/$ticket-wt.err" || return 1
   for extra in "$@"; do
-    git -C "$wt" merge -q --no-edit "$extra" || { git -C "$wt" merge --abort; return 2; }
+    # `-q` ne tait PAS les « Auto-merging <fichier> » du moteur de fusion, et ils sortent
+    # sur stdout — celui-là même dont l'appelant lit le chemin du worktree. Sans cette
+    # redirection, `wt=$(make_worktree …)` rend « Auto-merging x\n/chemin » et le `cd`
+    # échoue : tout ticket qui absorbe une branche meurt en 0s (défaut 35).
+    git -C "$wt" merge -q --no-edit "$extra" >>"$AFK_DIR/$ticket-wt.err" 2>&1 \
+      || { git -C "$wt" merge --abort; return 2; }
   done
   seed_worktree "$wt" > "$AFK_DIR/$ticket-seed.n"
   echo "$wt"

@@ -851,3 +851,43 @@ n'apprend rien au quinzième que le premier n'ait déjà dit.
 Le premier terme du `ET` reste une égalité de chaînes avec `VERIFY_CMD` : elle ne
 distingue pas une porte réduite d'une porte élargie. Rien ne le permet sans exécuter les
 deux, ce qui est le prix qu'on refuse justement de payer.
+
+## 35 — `git merge -q` écrit sur stdout, donc tout ticket qui absorbe une branche meurt en 0s — corrigé
+
+*2026-09-04 · jarvis-project · #46 #48 #50*
+
+**Ce qu'on a vu.** Trois tickets sortis rouges en `0m00s`, `0m02s`, `0m03s`, sans une ligne
+de session, sur le même message :
+
+```
+    worktree    : Auto-merging CLAUDE.md
+  /workspaces/jarvis-project/.afk/wt/50
+  afk: line 705: cd: $'Auto-merging CLAUDE.md\n/workspaces/jarvis-project/.afk/wt/50': No such file or directory
+    ✗ worktree inaccessible
+```
+
+Les trois — et eux seuls — avaient une ligne `absorbe :`. Cinq autres tickets ont gelé
+derrière eux : huit des quinze du lot perdus, sur un run par ailleurs vert 7/7.
+
+**La cause.** `make_worktree` rend le chemin du worktree **sur stdout**, et son appelant le
+lit par `wt=$(make_worktree …)`. Dans sa boucle d'absorption, `git merge -q --no-edit`
+n'est pas silencieux : `-q` tait le diffstat, pas les « Auto-merging <fichier> » du moteur
+de fusion, qui sortent sur **stdout**. Ils se retrouvent donc collés devant le chemin, et le
+`cd` échoue sur une chaîne à trois lignes. Le déclencheur n'est pas « absorber », c'est
+« absorber une branche qui touche un fichier déjà touché par la base » — une fusion sans
+recouvrement ne dit rien et passe.
+
+**L'impact.** Un ticket sain noté rouge sans avoir été lancé, et sa descendance gelée. Le
+prix est maximal sur un lot empilé : ce sont les tickets les plus tardifs, donc les plus
+chers à refaire, et le rouge accuse le worktree plutôt que la fusion.
+
+**Pourquoi `harness.sh` ne l'a pas vu.** Il couvre pourtant le cas (« frères indépendants :
+l'un sert de base, l'autre est absorbé »), et il passe **avant comme après** la correction :
+ses branches absorbées ne modifient aucun fichier commun, donc la fusion reste muette. Le
+cas manquant n'est pas l'absorption, c'est le recouvrement.
+
+**Ce qu'on en a fait (2026-09-04).** La fusion écrit dans `<n>-wt.err` — `>>"$AFK_DIR/$ticket-wt.err" 2>&1` —
+où le worktree tient déjà sa trace, plutôt que `>/dev/null` : le fichier fusionné est
+exactement ce qu'on veut lire quand une absorption tourne mal. Reste à donner au fixture du
+harness deux branches absorbées qui se recouvrent, sans quoi la même classe de fuite
+reviendra par un autre `git` bavard.
