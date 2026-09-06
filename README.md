@@ -432,9 +432,9 @@ compile, pas que le travail est complet.
 
 Deux résultats sortent de la colonne `vert` sans être des échecs :
 
-- **vert non prouvé** — le ticket avait une ligne `Verify:` (porte locale réduite) **et**
+- **vert non prouvé** — le ticket avait une ligne `Verify:` (porte locale remplacée par la sienne) **et**
   sa CI n'a pas conclu. Sa seule porte complète est celle qui n'a rendu aucun verdict :
-  personne n'a vérifié ce que la porte réduite ne couvre pas. Un dépôt **sans** CI ne
+  personne n'a vérifié ce que sa ligne ne couvre pas. Un dépôt **sans** CI ne
   compte pas : ce n'est pas un verdict qui manque, c'est une propriété du dépôt, et le
   bilan la dit une fois pour le run au lieu d'une fois par ticket.
 - **poussée refusée** — la branche est complète, verte et commitée en local, mais le

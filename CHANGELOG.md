@@ -6,6 +6,18 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-06
+
+### Corrigé
+
+- `.afk/summary.md` affirmait « seule leur CI a joué la porte complète » même sur un dépôt
+  sans `.github/workflows`, où le bilan écrit à l'écran dit l'inverse. La phrase suit
+  maintenant la même condition que le bilan : sans CI, le résumé dit que la porte locale
+  est la seule qui ait joué (défaut 36).
+- Le bilan, le résumé et le corps des PR parlent d'une porte locale **remplacée** et non
+  plus « réduite » : une ligne `Verify:` peut être plus large que la porte du dépôt, et
+  un ticket vérifié plus que les autres était présenté comme le moins vérifié.
+
 ## 2026-09-04 (2)
 
 Deux défauts vus au `-n` d'un lot de quinze tickets, **avant** de lancer : le run n'a pas

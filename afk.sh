@@ -799,9 +799,9 @@ worker() {
       # Le périmètre d'un ticket est une PRÉDICTION : un ticket étiqueté sur une app peut
       # très bien en toucher deux (une clé partagée emporte tout ce qui indexe dessus), et
       # sa ligne `Verify:` a été taillée avant qu'on le sache. Quand la porte locale est
-      # réduite, c'est la CI qui est la seule porte complète — le relecteur doit le lire
+      # remplacée, c'est la CI qui est la seule porte complète — le relecteur doit le lire
       # sur la PR, pas le déduire du corps du ticket.
-      [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale réduite** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre en plus n'a été vérifié QUE par la CI de cette PR." 
+      [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale remplacée** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre et que cette ligne ne couvre pas n'a été vérifié QUE par la CI de cette PR." 
       # Une session COUPÉE au timeout peut l'avoir été au milieu d'un fichier ; une session
       # qui a rendu son tour s'est arrêtée entre deux actions. La porte ne dit ni l'un ni
       # l'autre — elle dit que ce qui existe compile. Ce n'est pas la même relecture.
@@ -1273,7 +1273,14 @@ write_summary() {
     [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
     printf -- '- porte : %s%s\n' "$VERIFY_CMD" \
       "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
-    printf -- '- les tickets marqués ⚠ ont eu une porte locale RÉDUITE (ligne `Verify:`) : seule leur CI a joué la porte complète.\n'
+    # La même phrase que le bilan, pas son contraire (défaut 36) : sur un dépôt sans
+    # workflow, renvoyer le relecteur à « leur CI » l'envoie chercher un verdict qui
+    # n'existe pas — et c'est ce fichier-là qu'il ouvre en premier.
+    if (( ${#CI_NONE[@]} == ${#OK[@]} && ${#OK[@]} )); then
+      printf -- '- aucune CI sur ce dépôt : la porte locale est la seule qui ait joué, y compris pour les tickets marqués ⚠ (porte REMPLACÉE par leur ligne `Verify:`).\n'
+    else
+      printf -- '- les tickets marqués ⚠ ont eu une porte locale REMPLACÉE par leur ligne `Verify:` : seule leur CI a joué la porte complète du dépôt.\n'
+    fi
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
     printf -- '- contexte : le pic de la session. Il mesure la TAILLE du travail, pas sa qualité —\n'
     printf -- '  un pic haut sur un ticket bien cadré reste vert. À lire avec le périmètre livré.\n'
@@ -1412,7 +1419,7 @@ schedule
 ci_phase
 integration_check
 
-# Un ticket à porte locale RÉDUITE dont la CI n'a pas conclu n'a été vu par AUCUNE porte
+# Un ticket à porte locale remplacée dont la CI n'a pas conclu n'a été vu par AUCUNE porte
 # complète, et une PR en draft ne se merge pas. Les deux faits étaient imprimés, à trois
 # lignes d'écart, sans jamais être croisés : c'était au lecteur de rapprocher deux listes
 # de numéros pour s'apercevoir qu'un « vert » ne l'était pas.
@@ -1428,7 +1435,7 @@ echo
 echo "═══ Bilan  ($(fmt_dur $SECONDS)) ═══"
 echo "  vert   (${#GREEN[@]}) : ${GREEN[*]:-—}"
 (( ${#UNPROVEN[@]} )) &&
-  echo "  vert non prouvé (${#UNPROVEN[@]}) : ${UNPROVEN[*]}  → porte locale réduite ET CI non concluante : rien n'a joué la porte complète"
+  echo "  vert non prouvé (${#UNPROVEN[@]}) : ${UNPROVEN[*]}  → porte locale remplacée ET CI non concluante : rien n'a joué la porte complète"
 (( ${#DRAFT[@]} )) &&
   echo "  draft  (${#DRAFT[@]}) : $(for t in "${DRAFT[@]}"; do printf '#%s (%s) ' "$t" "$(sget "$t" draft_why)"; done) → relire avant de sortir du draft"
 (( ${#ABSORBED[@]} )) &&
@@ -1447,7 +1454,7 @@ echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relan
 # Une seule ligne pour tout le run : sur un dépôt sans workflow, le dire ticket par
 # ticket n'apprend rien de plus au quinzième qu'au premier.
 (( ${#CI_NONE[@]} == ${#OK[@]} && ${#OK[@]} )) &&
-  echo "  aucune CI sur ce dépôt : la porte locale est la seule qui ait joué$( (( ${#REDUCED[@]} )) && echo " — et elle était RÉDUITE sur ${REDUCED[*]}" )"
+  echo "  aucune CI sur ce dépôt : la porte locale est la seule qui ait joué$( (( ${#REDUCED[@]} )) && echo " — et elle était REMPLACÉE sur ${REDUCED[*]}" )"
 # Une seule ligne « intégration » : le verdict porte déjà son périmètre, une seconde ligne
 # du même nom juste au-dessus se lisait comme deux verdicts contradictoires.
 [[ "$INTEG_VERDICT" != "—" ]] &&

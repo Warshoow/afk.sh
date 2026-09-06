@@ -364,9 +364,15 @@ grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
 echo
 out7=$(NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
 printf '%s\n' "$out7" > "$T/run7.log"
-grep -qE 'aucune CI sur ce dépôt.*RÉDUITE sur 21' <<<"$out7" &&
+grep -qE 'aucune CI sur ce dépôt.*REMPLACÉE sur 21' <<<"$out7" &&
   echo "  ✓ dépôt sans CI : une ligne pour le run, pas une par ticket" ||
   { echo "  ✗ l'absence de CI est rapportée ticket par ticket"; fail=1; }
+# Et le bilan écrit descend dans summary.md : c'est le seul document que le debrief
+# ouvre, il ne doit pas renvoyer à une CI absente (défaut 36).
+grep -q 'aucune CI sur ce dépôt' "$T/repo/.afk/summary.md" &&
+  ! grep -q 'seule leur CI a joué' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : pas de renvoi à une CI qui n'existe pas" ||
+  { echo "  ✗ summary.md renvoie encore à la CI sur un dépôt qui n'en a pas"; fail=1; }
 grep -qE 'vert   \(1\) : 21' <<<"$out7" &&
   echo "  ✓ et le ticket reste vert" || { echo "  ✗ vert non prouvé pour rien"; fail=1; }
 

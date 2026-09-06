@@ -36,7 +36,7 @@ tous les rouges à la fois :
 | **« tickets du run cités dans la doc mergée »** | une phrase peut être au futur sur ce qui est livré depuis dix minutes. Aucun conflit git, aucune porte : relire les lignes citées |
 | **colonne « Modèle » ≠ le modèle demandé** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
 | **colonne « Contexte » proche de la fenêtre** | ticket trop gros, même vert. C'est le thermomètre du découpage, pas une note de qualité |
-| **« aucune CI sur ce dépôt »** | la porte locale est la seule qui ait joué du run entier. Si elle était réduite sur certains tickets, ceux-là n'ont eu aucune porte complète — la ligne les nomme |
+| **« aucune CI sur ce dépôt »** | la porte locale est la seule qui ait joué du run entier. Si elle était remplacée sur certains tickets, ceux-là n'ont eu aucune porte complète — la ligne les nomme |
 
 Et une mise en garde : **un taux de vert de 100 % ne veut rien dire si la porte ne
 vérifie rien.** Les tickets marqués `⚠` ont eu une porte locale rétrécie par leur ligne
@@ -61,7 +61,7 @@ cat .afk/<n>.out             # la trace de l'orchestrateur pour ce ticket
 | `draft` / `coupée` | la PR elle-même | le `timeout` a tiré : la session a pu être coupée **au milieu d'un fichier** | relire en entier avant de sortir du draft, et regarder si le ticket mérite une ligne `Timeout:` |
 | `draft` / `anormale` | la PR + `<n>-<essai>.json` | la session s'est arrêtée entre deux actions, `subtype` dit laquelle | relire ; le travail présent compile, sa complétude n'est pas garantie |
 | `draft` / `non commité` | la PR elle-même | l'orchestrateur a rattrapé un arbre de travail que l'agent n'avait pas commité | le travail est là ; vérifier le message de commit, il porte le titre du ticket et pas le format du dépôt |
-| `vert non prouvé` | le bilan | porte locale réduite (`Verify:`) **et** CI non concluante : rien n'a joué la porte complète | relancer la CI, ou passer la porte complète à la main sur la branche |
+| `vert non prouvé` | le bilan | porte locale remplacée (`Verify:`) **et** CI non concluante : rien n'a joué la porte complète | relancer la CI, ou passer la porte complète à la main sur la branche |
 | `poussée refusée` | `<n>-push.txt` | le remote a refusé la branche (jeton sans la portée `workflow`, branche déjà présente). Le travail est complet et vert en local | pousser à la main depuis le worktree gardé ; **ne pas** relancer le ticket, la session referait le même travail |
 | `gelé` | `<n>.out` | son bloqueur n'a pas été livré | rien à faire sur lui : corriger le bloqueur, il repartira |
 | `absorbé` | le commentaire posé sur l'issue | rien à faire, la base était déjà verte : un prédécesseur avait livré son contenu | vérifier puis fermer le ticket |

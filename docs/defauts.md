@@ -891,3 +891,31 @@ où le worktree tient déjà sa trace, plutôt que `>/dev/null` : le fichier fus
 exactement ce qu'on veut lire quand une absorption tourne mal. Reste à donner au fixture du
 harness deux branches absorbées qui se recouvrent, sans quoi la même classe de fuite
 reviendra par un autre `git` bavard.
+
+## 36 — « aucune CI sur ce dépôt » ne descend pas dans `summary.md`, qui continue d'y renvoyer — corrigé
+
+*2026-09-04 · jarvis-project · #73, #75*
+
+**Ce qu'on a vu.** Deux tickets verts, dont #75 porteur d'une ligne `Verify:` strictement
+plus large que la porte globale (`ruff && pytest && (cd hub && npm run build)`). La porte a
+tourné en entier : 379 tests, puis `vite build` vert. `.afk/summary.md` le marque `ok ⚠` et
+affirme « les tickets marqués ⚠ ont eu une porte locale RÉDUITE (ligne `Verify:`) : seule
+leur CI a joué la porte complète ». Le dépôt n'a pas de `.github/workflows`.
+
+**La cause.** La phrase de la ligne 1276 est un `printf` inconditionnel dans le bloc qui
+écrit `summary.md`. La correction du défaut 34 avait ajouté la contre-phrase — « aucune CI
+sur ce dépôt : la porte locale est la seule qui ait joué » — mais en `echo`, ligne 1450,
+donc sur stdout : elle atterrit dans `run.log` et jamais dans le bilan. Les deux documents
+disent l'inverse l'un de l'autre, et 34 se voulait justement « le bilan le dit une fois ».
+
+**L'impact.** Le seul document que le debrief demande d'ouvrir en premier renvoie à une CI
+qui n'existe pas, et présente comme insuffisamment vérifié le ticket qui l'a été le plus.
+Sur ce run, ça coûte de rouvrir `75-verify.txt` pour constater que le build avait tourné —
+exactement le travail que la ligne `Verify:` était censée éviter.
+
+**Le correctif.** La phrase de `summary.md` est passée sous la même condition que celle du
+bilan (`${#CI_NONE[@]} == ${#OK[@]}`) : sur un dépôt sans workflow, le résumé dit lui aussi
+que la porte locale est la seule qui ait joué. Et « RÉDUITE » devient « REMPLACÉE » partout
+— bilan, résumé, corps de PR : la ligne du ticket remplace la porte globale, qu'elle soit
+plus étroite ou plus large, et ça au moins on le sait sans exécuter les deux. Le run 7 du
+harness vérifie maintenant `summary.md`, pas seulement stdout.
