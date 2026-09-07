@@ -162,6 +162,10 @@ n'a pas de CI), `NO_CHECKS_ONCE` (la CI existe mais n'est pas encore enregistré
   Un commentaire du code peut y renvoyer (`défaut 17`). N'y va que ce qui aurait cassé
   de la même façon sur n'importe quel dépôt : les problèmes du projet travaillé se
   corrigent là-bas. Écrit par `/afk-debrief` ou à la main.
+- `docs/defauts-corriges.md` — les mêmes une fois **corrigés**, même numérotation. Le
+  fichier vivant ne garde que les ouverts et les atténués : un dépouillement le lit en
+  entier, et trente entrées closes y coûtaient autant à lire que les quatre qui
+  demandent encore une décision. Un renvoi se cherche donc dans `docs/defauts*.md`.
 
 Écrit par la machine :
 

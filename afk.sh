@@ -712,7 +712,7 @@ worker() {
   if [[ -n "$SETUP_CMD" ]]; then
     echo "  → dépendances (${SETUP_CMD})"
     # `AFK_TICKET` / `AFK_WORKTREE` sont exportés pour que `SETUP_CMD` puisse ISOLER ce
-    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17, docs/defauts.md) :
+    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17, docs/defauts*.md) :
     # plusieurs worktrees partageaient une base de test fixée en dur dans un `.env.test` versionné,
     # donc chaque `migrate()`/`rollback()` d'un voisin cassait la suite d'ici — et le ticket
     # courant était noté rouge pour la migration d'un autre.
@@ -1213,7 +1213,7 @@ ctx_of() {
 # sans ce journal, aucun historique n'existe nulle part, et le taux de vert d'une nuit
 # ne se compare à rien. Il traverse les projets, ce dépôt étant monté dans chacun.
 # Aucun LLM : ce sont des faits, pas un jugement — le jugement est dans /afk-debrief,
-# qui écrit les défauts d'afk lui-même dans docs/defauts.md.
+# qui écrit les défauts d'afk lui-même dans docs/defauts.md (corrigés : defauts-corriges.md).
 append_run_log() {
   local f="$AFK_HOME/RUNS.md" t models total
   # Dépôt monté en lecture seule : on ne journalise pas, ce n'est pas une erreur de run.

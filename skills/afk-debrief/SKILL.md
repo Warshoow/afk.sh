@@ -137,7 +137,8 @@ Le chemin est celui du script, pas celui du projet :
 
 ```bash
 d=$(dirname "$(readlink -f "$(command -v afk.sh || echo ./afk.sh)")")
-tail -40 "$d/docs/defauts.md"      # le format, et le dernier numéro pris
+tail -40 "$d/docs/defauts.md"      # le format d'une entrée
+grep -h '^## ' "$d"/docs/defauts*.md | tail -3   # le dernier numéro pris (l'archive le porte)
 ```
 
 **Le tri est tout le travail.** N'y écris que ce qui aurait cassé **de la même façon sur
@@ -152,6 +153,9 @@ ticket qui brûle ses essais pour une raison qui n'est pas la sienne.
 
 Numéro suivant, verdict dans le titre (**corrigé** si tu as déjà la correction,
 **ouvert** sinon), et trois paragraphes : ce qu'on a vu, la cause, ce qu'on en a fait.
+Une entrée s'écrit dans `docs/defauts.md`, qui ne garde que les défauts vivants ; un
+défaut **corrigé** va dans `docs/defauts-corriges.md`, et celui qu'une correction ferme
+plus tard y déménage tel quel, sans changer de numéro.
 Puis **montre l'entrée écrite**. Contrairement aux tickets et aux PR, tu n'attends pas
 validation pour celle-ci : un défaut qu'on ne consigne pas se retrouve, et se
 rediagnostique en entier.

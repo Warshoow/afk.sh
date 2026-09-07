@@ -288,7 +288,8 @@ lui-même — monté dans chacun de tes projets, donc commun à tous :
 | Fichier | Contenu | Écrit par |
 |---|---|---|
 | `RUNS.md` | une ligne par run : date, projet, verts/non prouvés/drafts/rouges/poussées refusées/gelés/absorbés, 1er essai, modèle, coût, durée, intégration | `afk.sh`, à la fin de chaque run |
-| `docs/defauts.md` | les défauts **d'afk** constatés en vrai pendant un run, numérotés | `/afk-debrief`, ou à la main |
+| `docs/defauts.md` | les défauts **d'afk** encore vivants, constatés en vrai pendant un run, numérotés | `/afk-debrief`, ou à la main |
+| `docs/defauts-corriges.md` | les mêmes, une fois corrigés : même numérotation, l'archive | idem, au moment de la correction |
 
 Le chemin est celui du script (`AFK_HOME`), pas celui du projet : que tu lances `afk.sh`
 depuis un devcontainer où il est monté ou depuis l'extérieur, il écrit au même endroit.
