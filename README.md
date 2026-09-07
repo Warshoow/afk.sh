@@ -180,6 +180,10 @@ le plan (`./afk.sh -n`) et le corps des tickets, et dit ce qui va coûter la nui
 ticket gelé par un bloqueur déjà mergé mais non fermé, un critère d'acceptation
 qu'aucune porte ne peut voir, une refonte sans `Timeout:`, deux tickets de la même vague
 sur les mêmes fichiers, un ticket mécanique qui n'a pas besoin du modèle des refontes.
+Il recoupe aussi le lot quand il faut : couper un ticket qui ne tient pas dans une
+session (un `Timeout:` plus long ne répare pas un manque de place), sérialiser par un
+`Blocked by` deux tickets qui écrivent dans les mêmes fichiers, donner les numéros d'ADR
+et de migration avant le run plutôt que de les découvrir en double à l'intégration.
 Il propose les corrections, il ne les applique pas et ne lance pas le run.
 
 [`/afk-debrief`](skills/afk-debrief/SKILL.md) — **au réveil, avant de merger.** Lit
