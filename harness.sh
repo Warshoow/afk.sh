@@ -50,11 +50,15 @@ printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
 # 18 × 19 : créent le même fichier      → aucune porte ne le voit, seul le merge le dit
 # 18 cite #19 au futur dans un .md      → renvoi périmé, git fusionne ça en silence
 # 21 : porte réduite + CI muette        → « vert » sans qu'aucune porte complète ait joué
+# 22 : porte écrite en markdown          → la commande sort du span, la prose reste
+# 23 : porte rouge sur la base           → dit une fois, avant le premier worktree
 for n in 17 18 19; do printf '## Blocked by\n\nNone\n' > "$T/fix/$n.body"; done
 printf 'Verify: true\n\n## Blocked by\n\nNone\n'      > "$T/fix/21.body"
 # 22 : la porte écrite comme dans un ticket bien rédigé — la commande en `code`, puis en
 # français ce qu'elle ne couvre pas. La ligne entière partait au `bash -c`.
 printf '**Verify:** `true`, plus un test neuf par point :\n\n## Blocked by\n\nNone\n' > "$T/fix/22.body"
+# 23 : la base est rouge avant le run → le dire une fois, et ne pas l'imputer au ticket
+printf '## Blocked by\n\nNone\n' > "$T/fix/23.body"
 
 cat > "$T/bin/gh" <<'X'
 #!/usr/bin/env bash
@@ -182,6 +186,8 @@ want "le draft dit POURQUOI il est en draft"      'draft  \(2\) : #2 \(non commi
 want "1 rouge"                                    'rouge  \(1\) : 7'
 want "2 gelés"                                    'gelé   \(2\) : 5 8'
 want "drafts exclus du 1er essai"                 'vert au 1er essai : 3/6'
+want "la base est passée à la porte, une fois"    'La base \(origin/master\)'
+want "base verte : le rouge d'un ticket est sien" '✓ verte'
 want "session plantée nommée, pas un code"        'session terminée anormalement \(error_during_execution\)'
 
 grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-model sonnet' "$T/args-1.txt" &&
@@ -390,6 +396,24 @@ grep -qE 'vert non prouvé \(1\) : 22' <<<"$out8" &&
   { echo "  ✗ le vert non prouvé est encore compté vert"; fail=1; }
 grep -qE 'vert   \(0\) : —' <<<"$out8" &&
   echo "  ✓ et il sort de la colonne « vert »" || { echo "  ✗ compté deux fois"; fail=1; }
+
+# ─── Neuvième run : la base est déjà rouge ───────────────────────────────────
+# Sans ce passage, le ticket porte l'échec de la base : `reason=verify`, un
+# `<n>-fail.txt` qui nomme un test hors de son périmètre, et un aller-retour humain.
+echo
+out9=$(VERIFY_CMD='test -f NOPE' NO_CHECKS=1 JOBS=1 bash "$AFK" 23 2>&1) || true
+printf '%s\n' "$out9" > "$T/run9.log"
+grep -qE 'ROUGE AVANT LE RUN' <<<"$out9" &&
+  echo "  ✓ base rouge : dite avant le premier worktree" ||
+  { echo "  ✗ base rouge non détectée"; fail=1; }
+grep -qE 'base rouge AVANT le run' <<<"$out9" &&
+  echo "  ✓ et redite au bilan, où on lit les rouges" ||
+  { echo "  ✗ le bilan impute la base au ticket"; fail=1; }
+grep -q 'était déjà rouge avant le run' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ et dans summary.md" || { echo "  ✗ absente de summary.md"; fail=1; }
+[[ -s "$T/repo/.afk/base-verify.txt" ]] || [[ -f "$T/repo/.afk/base-verify.txt" ]] &&
+  echo "  ✓ la sortie de la porte sur la base est gardée" ||
+  { echo "  ✗ base-verify.txt absent"; fail=1; }
 
 echo
 (( fail )) && { echo "ÉCHEC — trace : $T/run.log"; trap - EXIT; exit 1; }

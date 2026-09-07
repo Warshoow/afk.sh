@@ -919,3 +919,79 @@ que la porte locale est la seule qui ait joué. Et « RÉDUITE » devient « REM
 — bilan, résumé, corps de PR : la ligne du ticket remplace la porte globale, qu'elle soit
 plus étroite ou plus large, et ça au moins on le sait sans exécuter les deux. Le run 7 du
 harness vérifie maintenant `summary.md`, pas seulement stdout.
+
+## 37 — La dernière durée affichée sous un ticket est celle de la porte, pas du ticket — corrigé
+
+*2026-09-07 · hexa-zero*
+
+**Ce qu'on a vu.** Un ticket qui a tourné plus de trente minutes se termine sur
+`Time:    2m3.821s`. Soit la mesure est fausse, soit le ticket a fini vite et le run
+continue dans le vide.
+
+**La cause.** Ni l'un ni l'autre : cette ligne n'est pas d'`afk`, qui n'imprime jamais de
+millisecondes (`fmt_dur` rend `2m03s`). C'est le lanceur de tests du projet — Japa, sur ce
+dépôt — et elle chronomètre **la porte**. En parallèle, `reap` annonce la durée du ticket
+dans l'en-tête `═══ #N — titre (32m10s) ═══` puis recopie tout son log dessous : trente
+lignes plus tard, l'en-tête est hors de l'écran et la dernière durée visible est celle de
+la porte.
+
+**Le correctif.** `reap` redit sa mesure **après** le dump, en nommant le ticket et en
+précisant que les durées du dessus sont celles de la porte. Rien à changer au calcul, qui
+était juste.
+
+## 38 — La base n'est jamais passée à la porte avant le run, et chaque ticket la rediagnostique à ses frais — corrigé
+
+*2026-09-07 · hexa-zero · #169 à #179 (11 tickets, deux runs)*
+
+**Ce qu'on a vu.** Onze tickets lancés sur `origin/develop`, dont six sortis rouges au
+premier essai. Les six échouent sur **le même test**, dans un fichier qu'aucun des onze ne
+nomme : `apps/backend/tests/functional/map_objects.spec.ts`, qui attend sept objets de map
+quand le tableau de la commande d'import en compte dix depuis un commit poussé la veille
+directement sur `develop` (donc sans PR, donc sans CI). Un test rouge sur 605.
+
+Les onze branches ont corrigé ce test. Sept portent pour ça un commit à part, avec sept
+messages différents (« la palette importe dix objets, plus sept — le test le dit », « the
+seeder assertion catches up with the ten versioned map objects », …) ; les quatre autres
+l'ont plié dans leur commit de feature. Six ont brûlé un second essai complet pour le
+découvrir.
+
+**La cause.** `afk` ne passait la porte sur `BASE_REF` que dans un seul cas : quand la
+session n'avait produit **aucun commit** (« aucun commit — je passe la porte sur la base
+pour trancher »). Dès que l'agent commite, la porte ne juge plus que `base + ticket`, et
+rien ne sépare les deux termes. La machinerie existait donc déjà — elle n'était simplement
+jamais appelée en amont, alors que le run paie de toute façon une exécution complète de la
+porte à la passe d'intégration.
+
+**L'impact.** La trace accuse le mauvais coupable, et elle le fait onze fois. Le ticket
+rouge porte `reason=verify`, son `<n>-fail.txt` nomme un test hors de son périmètre, et le
+bilan l'affiche « rouge » : #169 est parti en `ready-for-human` sur un défaut qui n'est pas
+le sien. Le prix se paie trois fois — les six seconds essais, l'attention de onze agents
+sur un test hors sujet, et sept corrections concurrentes du même fichier à relire une par
+une au merge.
+
+**Le correctif.** `base_check` passe la porte une fois sur `BASE_REF`, dans un worktree
+détaché, avant le premier worktree de ticket. Verte, elle le dit en une ligne. Rouge, elle
+nomme ce qui échoue, garde `.afk/base-verify.txt`, et le fait redire au bilan et dans
+`summary.md` : un rouge de ticket dont l'échec y figure aussi n'est pas imputable au
+ticket. Le run **continue** — le lanceur est parti se coucher, et un run qui s'arrête sur
+une base rouge coûte la nuit entière. Le coût est d'une exécution de porte par run, celle
+que la passe d'intégration exécute déjà à la fin. Run 9 du harness.
+
+## 39 — La colonne « Coût » du bilan annonce un cumul et n'affiche que le dernier essai — pas un défaut
+
+*2026-09-07 · hexa-zero · #179*
+
+**Ce qu'on croyait voir.** `summary.md` donne #179 à `$11.0831` sur deux essais quand son
+`.afk/179.status` porte deux lignes, `cost=8.9192` puis `cost=11.0831` — donc un ticket à
+$20.00 dont le bilan ne montrerait que 55 %.
+
+**Pourquoi c'est faux.** `cost` est déjà cumulé **dans le worker** : il part de 0 et chaque
+essai écrit la somme (`awk 'BEGIN{printf "%.4f", a+b}'`). La dernière ligne du `.status`
+est donc le total, pas le dernier essai — $11.0831 contient les $8.9192, et le second essai
+a coûté $2.16. Le `sget` qui lit la dernière ligne rend exactement ce que la légende
+promet, et le harness l'assure depuis le deuxième run : deux sessions à $0.50 sortent
+`$1.0000` au résumé.
+
+**Ce qu'il faut en retenir.** Additionner les lignes `cost=` d'un `.status` compte deux
+fois. Les chiffres cités dans le défaut 38 avaient été obtenus comme ça, et étaient à peu
+près du double.

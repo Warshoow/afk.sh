@@ -6,6 +6,26 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-07
+
+Trois défauts relevés sur un lot de onze tickets, dont un qui n'en était pas un.
+
+### Ajouté
+
+- **La porte tourne une fois sur la base, avant le premier worktree.** Un test rouge
+  poussé directement sur `develop` (donc sans PR, donc sans CI) faisait échouer six
+  tickets sur onze, chacun payant son propre diagnostic puis un second essai, et sept
+  branches corrigeant le même fichier de leur côté. La porte ne juge jamais que
+  « base + ticket » : elle juge maintenant la base seule d'abord. Rouge, le run
+  continue — le lanceur est parti — mais l'en-tête, le bilan et `summary.md` le disent,
+  et `.afk/base-verify.txt` garde de quoi dédouaner un ticket rouge (défaut 38).
+
+### Corrigé
+
+- La durée d'un ticket est redite **après** son log, pas seulement dans son en-tête :
+  la dernière durée à l'écran était celle du lanceur de tests du projet, qui chronomètre
+  la porte (défaut 37).
+
 ## 2026-09-06
 
 ### Corrigé

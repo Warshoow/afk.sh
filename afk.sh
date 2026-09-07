@@ -920,8 +920,13 @@ reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
     if (( JOBS > 1 )); then
       echo; echo "═══ #${t} — ${TITLE[$t]}  ($(fmt_dur "$dur")) ═══"
       sed 's/^/  /' "$AFK_DIR/$t.out" 2>/dev/null
+      # La dernière ligne du dump est celle du lanceur de tests du projet, avec sa propre
+      # mesure (« Time: 2m3.821s » chez Japa) : elle chronomètre la PORTE, pas le ticket,
+      # et c'est celle-là que l'œil lit en bas de trente lignes. On redit la nôtre après
+      # (défaut 37) — l'en-tête, lui, est déjà remonté hors de l'écran.
+      echo "  ⏱  #${t} : $(fmt_dur "$dur") au total (les durées ci-dessus sont celles de la porte)"
     else
-      echo "  ⏱  $(fmt_dur "$dur")"
+      echo "  ⏱  $(fmt_dur "$dur") au total"
     fi
 
     if [[ "$res" == "ok" ]]; then
@@ -1271,6 +1276,7 @@ write_summary() {
       printf -- '  - `%s` : %s\n' "$b" "${INTEG_FILES[$b]:-—}"
     done
     [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
+    (( BASE_RED )) && printf -- '- **la base (`%s`) était déjà rouge avant le run** (`.afk/base-verify.txt`) : un ticket rouge dont l\'échec y figure aussi n\'est pas le sien.\n' "$BASE_REF"
     printf -- '- porte : %s%s\n' "$VERIFY_CMD" \
       "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
     # La même phrase que le bilan, pas son contraire (défaut 36) : sur un dépôt sans
@@ -1415,6 +1421,45 @@ ensure_label "$LABEL_KO"     "Rendu à un humain : l'agent n'a pas abouti"
 
 mkdir -p "$WORKTREE_DIR"
 trap finish EXIT INT TERM
+
+# ─── La base, une fois ────────────────────────────────────────────────────────
+# La porte ne juge jamais que « base + ticket », et rien ne sépare les deux termes : un
+# test rouge poussé directement sur la base (donc sans PR, donc sans CI) fait échouer
+# tout le lot, chacun à ses frais. Onze tickets l'ont diagnostiqué onze fois, six ont
+# brûlé un second essai complet, sept ont corrigé le même fichier de leur côté avec sept
+# messages différents (défaut 38). La porte tournait déjà sur la base — mais dans le seul
+# cas où la session n'a rien commité. On l'avance donc au début du run : c'est
+# l'exécution que la passe d'intégration fait déjà à la fin.
+# Un rouge n'arrête pas le run : le lanceur est parti. Il est dit dans l'en-tête, au
+# bilan et dans `summary.md`, et un rouge de ticket dont l'échec figure aussi dans
+# `base-verify.txt` n'est pas imputable au ticket.
+BASE_RED=0
+base_check() {
+  local wt="$WORKTREE_DIR/_base"
+  echo; echo "═══ La base (${BASE_REF}) ═══"
+  git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
+  # Détaché : pas de branche à nettoyer derrière, on ne commite rien ici.
+  git worktree add -q --detach "$wt" "$BASE_REF" 2>"$AFK_DIR/base-wt.err" || {
+    echo "  ⚠  worktree impossible — base non vérifiée : $(head -1 "$AFK_DIR/base-wt.err")"
+    return 0; }
+  seed_worktree "$wt" >/dev/null
+  # `_base` comme numéro de ticket : la base migre comme un worker, elle doit s'isoler
+  # pareil (cf. `AFK_TICKET` dans le worker).
+  [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
+    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1
+  if ( cd "$wt" && locked verify bash -c "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
+    echo "  ✓ verte — un rouge de ticket sera bien le sien"
+  else
+    BASE_RED=1
+    echo "  ✗ ROUGE AVANT LE RUN — .afk/base-verify.txt"
+    tail -n 10 "$AFK_DIR/base-verify.txt" | sed 's/^/     /'
+    echo "  · le run continue quand même : chaque ticket va rencontrer cet échec, et"
+    echo "    réparer la base est hors de son périmètre. Un rouge peut ne pas être le sien."
+  fi
+  git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
+}
+base_check
+
 schedule
 ci_phase
 integration_check
@@ -1433,6 +1478,8 @@ done
 
 echo
 echo "═══ Bilan  ($(fmt_dur $SECONDS)) ═══"
+(( BASE_RED )) &&
+  echo "  base rouge AVANT le run : un rouge de ticket peut ne pas être le sien — comparer .afk/<n>-fail.txt à .afk/base-verify.txt"
 echo "  vert   (${#GREEN[@]}) : ${GREEN[*]:-—}"
 (( ${#UNPROVEN[@]} )) &&
   echo "  vert non prouvé (${#UNPROVEN[@]}) : ${UNPROVEN[*]}  → porte locale remplacée ET CI non concluante : rien n'a joué la porte complète"

@@ -229,6 +229,11 @@ sorti dans ton arbre, `-n` te le dit avant de lancer quoi que ce soit.
 
 ## Ce qu'il fait, ticket par ticket
 
+0. **La base d'abord.** La porte tourne une fois sur `origin/<base>`, avant le premier
+   worktree. Rouge, tout le lot va échouer sur le même test sans que rien ne le dise : la
+   porte ne juge jamais que « base + ticket ». Le run continue quand même — tu es parti —
+   mais l'en-tête, le bilan et `summary.md` disent que la base était rouge, et
+   `.afk/base-verify.txt` garde de quoi comparer avec le `<n>-fail.txt` d'un ticket.
 1. **Frontière.** Lit les bloqueurs (dépendances natives GitHub, sinon la section
    `## Blocked by` écrite par `/to-tickets`). Bloqueur encore ouvert et non traité
    dans ce run → ticket gelé, pas lancé — sauf s'il a une PR ouverte : sa branche est
@@ -273,6 +278,7 @@ Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
 | `<n>-setup.log` | l'install du worktree |
 | `<n>-ci.txt` | la sortie de `gh pr checks` |
 | `<n>-push.txt` | le refus du remote, quand le push échoue |
+| `base-verify.txt` | la porte passée sur la base avant le run — un ticket par run, pas par ticket |
 | `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
 | `summary.md` | le tableau du run : résultat, PR, essai, modèle, **contexte max**, coût, CI, intégration |
 
