@@ -252,8 +252,9 @@ sorti dans ton arbre, `-n` te le dit avant de lancer quoi que ce soit.
    La reprise reçoit les 60 dernières lignes de l'échec, dans une session vierge.
    `--resume` reste offert à un humain sur un ticket rouge, à la fin du bilan.
 4. **Vérification externe.** C'est le script qui note la copie, pas l'agent.
-   Zéro commit produit → la porte est passée **sur la base** pour trancher : rouge,
-   c'est un échec ; verte, le ticket est **absorbé** (voir plus bas).
+   Zéro commit produit → si la session dit avoir été bloquée, le ticket est **gelé** ;
+   sinon la porte est passée **sur la base** pour trancher : rouge, c'est un échec ;
+   verte, le ticket est **absorbé** (voir plus bas).
 5. **Vert** → push, PR `Closes #N` sur la bonne base, ticket basculé en `in-review`,
    puis attente de la CI. **Rouge** → `ready-for-human` + commentaire avec la sortie
    d'échec. La machine à états de `/triage` continue de tourner pendant que tu dors.
@@ -411,12 +412,20 @@ loin que son périmètre, ce qui est la norme dès qu'un contrat typé traverse 
 `aucun commit` : deux essais brûlés par ticket, puis `ready-for-human` pour une raison
 fausse.
 
-Quand la session ne produit aucun commit, la porte tourne donc **sur la base** :
+Mais la porte sur la base ne dit rien du contenu du ticket : elle est verte parce que le
+dépôt compile, pas parce que le travail demandé a eu lieu. Un ticket que l'agent juge
+trop tôt — un prérequis qui n'est pas dans cette base — sortait donc « absorbé », donc
+invité à la fermeture (défaut 40). Le prompt demande maintenant à la session de nommer
+son cas en dernière ligne quand elle ne commite rien :
 
-- **rouge** → l'agent n'a effectivement rien produit, essai suivant puis `ready-for-human` ;
-- **verte** → le ticket est **absorbé** : basculé en `in-review` avec un commentaire, pas
-  de PR, ni rouge ni « vert au 1er essai ». Ses dépendants partent de la base qu'il a
-  lui-même utilisée, au lieu de geler derrière un faux échec.
+- `AFK: BLOQUE <ce qui manque>` → le ticket est **gelé**, comme derrière un bloqueur non
+  levé : label inchangé, pas de PR, un commentaire qui cite ce qui manque, pas de second
+  essai (même session, même base, même conclusion). Il repart au run suivant.
+- `AFK: DEJA LIVRE`, ou pas de ligne du tout → la porte tourne **sur la base** :
+  - **rouge** → l'agent n'a effectivement rien produit, essai suivant puis `ready-for-human` ;
+  - **verte** → le ticket est **absorbé** : basculé en `in-review` avec un commentaire, pas
+    de PR, ni rouge ni « vert au 1er essai ». Ses dépendants partent de la base qu'il a
+    lui-même utilisée, au lieu de geler derrière un faux échec.
 
 ## Quand une session se termine mal
 

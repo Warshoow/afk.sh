@@ -188,6 +188,21 @@ settings par worker, un socket, un chemin d'entrée de plus dans une session en
 logs reproductibles. À reconsidérer seulement si l'ordonnanceur cesse d'attendre les
 bloqueurs — c'est-à-dire s'il change de nature.
 
+## « Absorbé » exige un bloqueur livré dans ce run — refusé
+
+*2026-09-09*
+
+Pour trancher le défaut 40 sans lire le texte de la session : un ticket n'est déclaré
+absorbé que si au moins un de ses bloqueurs a livré une branche dans ce run — sinon
+personne n'a pu l'absorber. C'est mécanique, et ça aurait attrapé le cas vu (#114
+n'avait aucun bloqueur déclaré, donc aucune base héritée).
+
+Mais ça casse le cas pour lequel « absorbé » a été écrit : un ticket dont le contenu
+était déjà dans `master` **avant** le run n'a aucun bloqueur dans ce run, et il
+redeviendrait un rouge à deux essais pour une raison fausse. La règle échange un faux
+« à fermer » contre un faux « rendu à un humain ». On lit donc la session, qui est le
+seul témoin de la différence.
+
 ## Messagerie entre workers concurrents — refusé
 
 *2026-09-02*

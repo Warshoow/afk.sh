@@ -37,6 +37,7 @@ printf '## Blocked by\n\n- #7\n'       > "$T/fix/8.body"
 # 11 : déjà in-review                              → retiré de la liste
 # 12 : Timeout:/Model:/Effort: dans le corps       → surcharges propres au ticket
 # 13 : l'agent ne produit rien, sa porte est rouge → vrai échec, ko
+# 25 : l'agent ne produit rien, la base est verte, mais il DIT être bloqué → gelé
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/9.body"
 printf '## Blocked by\n\n- #9\n'                    > "$T/fix/10.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/11.body"
@@ -44,6 +45,7 @@ printf 'Timeout: 90m\nModel: sonnet\n**Effort**: high\n\n## Blocked by\n\nNone\n
 printf 'Verify: false\n\n## Blocked by\n\nNone\n'  > "$T/fix/13.body"
 printf 'in-review\n'                                 > "$T/fix/11.labels"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
+printf '## Blocked by\n\nNone\n'                    > "$T/fix/25.body"
 
 # ─── Le lot du sixième run ────────────────────────────────────────────────────
 # 17 : le remote refuse sa branche      → poussée refusée, pas un échec d'implémentation
@@ -116,6 +118,11 @@ res() { printf '{"session_id":"sess-%s","total_cost_usd":0.5,"is_error":%s,"subt
         printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},"result":"fini"}\n'; }
 case "$n" in
   9|13) res; exit 0 ;;                 # sort proprement sans rien produire
+  # Rien produit, base verte — mais la session NOMME ce qui manque : gelé, pas absorbé.
+  25) printf '{"session_id":"sess-25","total_cost_usd":0.5,"is_error":false,"subtype":"success",'
+      printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},'
+      printf '"result":"Aucun changement.\\nAFK: BLOQUE #107 pas encore mergé dans cette base"}\n'
+      exit 0 ;;
   20) sleep 987654 ;;                  # ne finit jamais : cible de l'interruption
   2) echo "j'écris et je ne commite pas" > work-$n.txt; res; exit 0 ;;
   6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"
@@ -218,10 +225,10 @@ grep -qE '^  - docs/adr/0001-x\.md$' "$T/prompt-4.txt" 2>/dev/null &&
   { echo "  ✗ section héritée sur un ticket sans bloqueur"; fail=1; }
 
 
-# ─── Second run : absorbé, Timeout:, in-review, faux vs vrai "aucun commit" ───
+# ─── Second run : absorbé, gelé par la session, Timeout:, in-review, "aucun commit" ───
 # En série : l'ordre de récolte est alors le seul possible, donc assertable.
 
-out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 2>&1) || true
+out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 25 2>&1) || true
 printf '%s\n' "$out2" > "$T/run2.log"
 want2() {
   if grep -qE -- "$2" <<<"$out2"; then printf '  ✓ %s\n' "$1"
@@ -237,6 +244,14 @@ want2 "Model: du ticket honoré"                   'modèle      : sonnet'
 want2 "Effort: du ticket honoré"                  'effort      : high'
 want2 "aucun commit + base rouge reste un échec"  "rouge  \(1\) : 13"
 want2 "absorbé hors du vert au 1er essai"         'vert au 1er essai : 2/3'
+want2 "session qui se dit bloquée : gelée"        '⏸  gelé — la session dit'
+want2 "gelée par la session, comptée avec les gelés" 'gelé   \(1\) : 25'
+grep -qE 'edit issue edit 25 ' "$T/gh.log" &&
+  { echo "  ✗ un ticket gelé par sa session ne doit pas changer de label"; fail=1; } ||
+  echo "  ✓ gelé par sa session : label inchangé"
+grep -qE 'pr create .*--head feat/25( |$)' "$T/gh.log" &&
+  { echo "  ✗ un gelé ne doit pas ouvrir de PR"; fail=1; } ||
+  echo "  ✓ aucune PR pour un gelé"
 
 grep -qE 'edit issue edit 9 .*--add-label in-review' "$T/gh.log" &&
   echo "  ✓ absorbé étiqueté in-review" || { echo "  ✗ absorbé mal étiqueté"; fail=1; }

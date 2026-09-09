@@ -65,7 +65,7 @@ cat .afk/<n>.out             # la trace de l'orchestrateur pour ce ticket
 | `draft` / `non commité` | la PR elle-même | l'orchestrateur a rattrapé un arbre de travail que l'agent n'avait pas commité | le travail est là ; vérifier le message de commit, il porte le titre du ticket et pas le format du dépôt |
 | `vert non prouvé` | le bilan | porte locale remplacée (`Verify:`) **et** CI non concluante : rien n'a joué la porte complète | relancer la CI, ou passer la porte complète à la main sur la branche |
 | `poussée refusée` | `<n>-push.txt` | le remote a refusé la branche (jeton sans la portée `workflow`, branche déjà présente). Le travail est complet et vert en local | pousser à la main depuis le worktree gardé ; **ne pas** relancer le ticket, la session referait le même travail |
-| `gelé` | `<n>.out` | son bloqueur n'a pas été livré | rien à faire sur lui : corriger le bloqueur, il repartira |
+| `gelé` | `<n>.out` | son bloqueur n'a pas été livré — ou la session elle-même a dit qu'un prérequis manquait dans sa base (`result=frozen`, la raison est dans un commentaire sur l'issue et dans `<n>-<essai>.json`) | rien à faire sur lui : livrer ce qui manque, il repartira. Le label n'a pas bougé |
 | `absorbé` | le commentaire posé sur l'issue | rien à faire, la base était déjà verte : un prédécesseur avait livré son contenu | vérifier puis fermer le ticket |
 | `/ CI rouge` | `<n>-ci.txt` | la porte locale était verte, la CI du dépôt non : la porte locale est plus étroite que la CI | élargir `VERIFY_CMD`, ou la ligne `Verify:` du ticket |
 

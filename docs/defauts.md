@@ -149,3 +149,66 @@ fichier et leur ligne. Elle ne juge pas la phrase — il faudrait une liste de v
 futur, qui serait fausse dès qu'on change de langue ou de style. Elle dit où regarder,
 ce qui est exactement ce qui manquait : ces renvois ne sont dans le diff d'aucune
 branche. La puce en double et le renvoi périmé par l'autre bout restent invisibles.
+
+---
+
+## 40 — « absorbé » ne distingue pas « déjà livré » de « bloqué, l'agent a refusé » — atténué
+
+*2026-09-09 · jarvis-project · #114*
+
+**Ce qu'on a vu.** #114 supprimait `agent.py` et `jarvis/llm/`. La session est sortie en
+7m20 sans un commit, avec un verdict explicite : *« #114 ne peut pas être fait maintenant
+— bloqué par #107/#108/#109, pas encore mergés dans cette base. Aucun changement
+effectué. »* Elle citait les trois appelants encore vivants, fichier et ligne. afk a
+passé la porte sur la base, l'a trouvée verte, et a conclu **absorbé** : le ticket est
+passé en `in-review` avec un commentaire lui disant *« vérifier puis fermer »*. Les
+fichiers à supprimer sont toujours là.
+
+**La cause.** `absorbed` se décide sur deux faits — aucun commit, base verte — et rien
+d'autre. C'était la correction d'un défaut réel : un ticket vidé par son prédécesseur
+brûlait ses deux essais puis partait en `ready-for-human` pour une raison fausse. Mais la
+porte de la base ne prouve rien sur le contenu d'un ticket : elle est verte parce que le
+dépôt compile, pas parce que la suppression a eu lieu. Un ticket de suppression est
+l'espèce où l'écart se voit, il n'en est pas la seule — n'importe quel ticket dont
+l'agent constate qu'il est trop tôt sort ainsi. Et le verdict n'est pas neutre : il
+réétiquette et invite à fermer, donc il fait disparaître le ticket du prochain lot.
+
+**Ce qu'on en a fait (2026-09-09).** Le troisième cas existe. Le prompt demande à la
+session, quand elle ne commite rien, de nommer son cas en dernière ligne : `AFK: DEJA
+LIVRE`, ou `AFK: BLOQUE <ce qui manque>`. La seconde sort **gelée** — le même verdict
+qu'un bloqueur non levé, parce que c'est le même fait, dit par la session au lieu de
+l'ordonnanceur : label inchangé, aucune PR, un commentaire qui cite ce qui manque, pas
+de second essai (même session, même base, même conclusion), et le ticket repart au run
+suivant. Sans la ligne, la porte sur la base tranche comme avant.
+
+Atténué et pas corrigé : le témoin est la session elle-même. Une session qui refuse sans
+le dire repasse pour absorbée. Le distinguer *sans* lire son texte a été écarté —
+exiger un bloqueur livré dans ce run casse le cas d'origine, un ticket que le dépôt avait
+déjà livré avant le run n'a aucun bloqueur dans ce run (voir docs/propositions.md).
+
+---
+
+## 41 — La colonne « Modèle » compte les sous-agents et fait lire un repli qui n'a pas eu lieu — ouvert
+
+*2026-09-09 · jarvis-project · #111*
+
+**Ce qu'on a vu.** #111 portait `Model: sonnet`, la trace de l'orchestrateur affiche
+`modèle : sonnet`, et le bilan met `opus-5 sonnet-5` dans sa colonne « Modèle ». La
+légende sous le tableau dit qu'un modèle autre que celui demandé signifie que
+`FALLBACK_MODEL` a joué — donc, à la lecture, sonnet aurait été indisponible. C'est
+l'inverse : sonnet a tenu toute la session, opus n'a tourné que dans les deux sous-agents
+`reviewer` que la session a lancés, et que le dépôt épingle sur opus dans
+`.claude/agents/`.
+
+**La cause.** `jmodels()` relève tous les `canonicalModel` de `modelUsage` et les rend
+dédoublonnés. `modelUsage` agrège la session **et** ses sous-agents, qui portent le modèle
+de leur définition et pas celui du ticket. La colonne mesure donc « quels modèles ont été
+facturés » là où sa légende promet « quel modèle a répondu ». Ça touche n'importe quel
+dépôt dont les `.claude/agents/*.md` nomment un modèle, et c'est justement le cas des
+dépôts où l'on demande une revue avant commit.
+
+**Ce qu'on en a fait.** Rien encore. Le JSON distingue les deux : `subagent_stats.spawned`
+dit combien de sous-agents ont tourné, donc une colonne à plusieurs modèles n'est un repli
+que lorsqu'il vaut zéro. Le plus court est de garder le premier modèle — celui de la
+session — et de ne nommer les autres que comme sous-agents, ou de laisser la colonne
+telle quelle et de corriger la légende, qui est la moitié réellement fausse.

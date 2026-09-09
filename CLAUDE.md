@@ -69,7 +69,7 @@ Un worker est un sous-shell : **il ne peut rien écrire dans les tableaux du par
 dépose des lignes `clé=valeur` dans `.afk/<n>.status`, le parent les relit avec `sget`.
 Toute nouvelle information remontée par un worker passe par là.
 
-Clés : `result` (`ok` | `ko` | `absorbed`), `branch`, `base`, `base_ref`, `attempt`,
+Clés : `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`, `attempt`,
 `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`. `draft` est un
 drapeau posé sur un `ok`, pas un résultat.
 
@@ -134,8 +134,8 @@ cause. Même chose pour un nouveau comportement d'agent : il se simule par un ca
 faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
 Les huit runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
-filet, crash, gel), série (absorbé, `Timeout:`, `in-review`), interruption, empilement
-sur une PR ouverte hors run, deux bloqueurs directs indépendants (base + absorption,
+filet, crash, gel), série (absorbé, gelé par sa propre session, `Timeout:`, `in-review`),
+interruption, empilement sur une PR ouverte hors run, deux bloqueurs directs indépendants (base + absorption,
 double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
 futur, dépôt sans CI, et porte réduite avec CI qui ne conclut pas. Les numéros de ticket
 portent leur scénario

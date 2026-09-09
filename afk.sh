@@ -475,6 +475,11 @@ Session neuve, aucun historique.
   La session suivante ne saura rien de ce run.
 - Tu commit sur la branche courante, déjà créée. Tu ne push pas, tu n'ouvres pas
   de PR, tu ne touches pas aux labels : c'est le job de l'orchestrateur.
+- Si tu ne commit RIEN, ta dernière ligne dit lequel des deux cas c'est, à l'identique :
+  "AFK: DEJA LIVRE" — les critères du ticket sont déjà satisfaits dans cette base, il
+  n'y a rien à écrire ; ou "AFK: BLOQUE <ce qui manque>" — il est trop tôt, un prérequis
+  n'est pas dans cette base. Sans cette ligne l'orchestrateur tranche seul, avec la seule
+  chose qu'il sache faire — passer la porte sur la base — et il conclut "déjà livré".
 - Tu ne lances pas la vérification toi-même : l'orchestrateur la passe après toi. La
   lancer, c'est la faire tourner deux fois — et une session qui rend son tour en
   l'attendant se termine sans avoir commité.
@@ -671,7 +676,7 @@ worker() {
   local ticket="$1" base="$2" wt="$3"
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
   local title labels verify tmo mdl eff head0 rc crashed netted attempt
-  local out sid why c cost=0 cut=0
+  local out sid why c cost=0 cut=0 blocked
   local -a copts
   local suspect pr_url pr_num pr_body
 
@@ -767,6 +772,22 @@ worker() {
       netted=1; }
 
     if [[ "$(git rev-parse HEAD)" == "$head0" ]]; then
+      # Défaut 40 : la porte sur la base ne dit rien du CONTENU du ticket — elle est verte
+      # parce que le dépôt compile, pas parce que la suppression demandée a eu lieu. Un
+      # ticket que l'agent juge trop tôt sortait donc "absorbé", donc en in-review avec un
+      # commentaire l'invitant à la fermeture : il disparaissait du lot suivant sans que
+      # rien n'ait été fait. Le seul témoin de la différence est la session, qui la dit —
+      # le prompt lui demande de la dire à l'identique. C'est le même fait qu'un bloqueur
+      # non levé, donc le même verdict : gelé, label inchangé, il revient au prochain run.
+      # Un second essai serait la même session sur la même base, avec la même conclusion.
+      if grep -q 'AFK: BLOQUE' "$out"; then
+        blocked=$(grep -o 'AFK: BLOQUE[^"\\]*' "$out" | head -1)
+        echo "  ⏸  gelé — la session dit qu'un prérequis manque dans cette base : ${blocked#AFK: BLOQUE }"
+        st "result=frozen"; st "reason=blocked"
+        gh issue comment "$ticket" --body "$(printf '> *Généré par une session agent AFK.*\n\nSession sortie sans aucun commit, en disant que la base `%s` ne porte pas encore un prérequis : *« %s »*. Rien à revoir, rien à fermer — le ticket garde son label et repart au prochain run, après le merge de ce qui lui manque.' \
+          "${base#origin/}" "${blocked#AFK: BLOQUE }")" >/dev/null 2>&1
+        return
+      fi
       # "L'agent a échoué" et "il n'y avait plus rien à faire" sortaient tous les deux
       # en "aucun commit" : un ticket vidé par son prédécesseur brûlait ses deux essais
       # puis partait en ready-for-human, pour une raison fausse. La base est déjà là et
@@ -939,6 +960,11 @@ reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
       # base qu'il a lui-même utilisée, sinon ils gèleraient derrière un faux échec.
       ABSORBED+=("$t"); BRANCH_OF[$t]=$(sget "$t" base_ref)
       drop_worktree "$t"; git branch -qD "feat/$t" 2>/dev/null
+    elif [[ "$res" == "frozen" ]]; then
+      # Même liste que les tickets gelés par un bloqueur non levé : c'est la même chose,
+      # dite par la session au lieu de l'ordonnanceur. Pas de branche à garder — elle est
+      # vide — et pas de dépendant à laisser partir : ce qui manque ici leur manque aussi.
+      SKIP+=("$t"); drop_worktree "$t"; git branch -qD "feat/$t" 2>/dev/null
     elif [[ "$(sget "$t" reason)" == "push" ]]; then
       PUSH_KO+=("$t")   # branche verte et commitée en local, seulement pas poussée
     else

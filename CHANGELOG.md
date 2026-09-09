@@ -6,6 +6,19 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-09
+
+### Corrigé
+
+- **Une session qui refuse parce qu'il est trop tôt n'est plus annoncée « absorbée ».**
+  Sortie sans commit, elle était tranchée par la porte sur la base seule : verte, le
+  ticket passait en `in-review` avec un commentaire l'invitant à la fermeture, alors que
+  rien n'avait été fait. Le prompt demande maintenant à la session de nommer son cas en
+  dernière ligne (`AFK: DEJA LIVRE` ou `AFK: BLOQUE <ce qui manque>`) ; « bloqué » sort
+  **gelé** — label inchangé, aucune PR, un commentaire qui dit ce qui manque, et le
+  ticket revient au run suivant. Sans cette ligne, le comportement est celui d'avant
+  (défaut 40).
+
 ## 2026-09-07
 
 Trois défauts relevés sur un lot de onze tickets, dont un qui n'en était pas un.
