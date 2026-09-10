@@ -34,7 +34,8 @@ tous les rouges à la fois :
 | **« numéros en double »** | deux branches ont pris le même numéro d'ADR ou de migration. Aucune porte ne peut le voir, git non plus : renuméroter avant de merger. Le numéro reste à qui le cite le plus (`git grep -c` tranche) |
 | **« même chemin créé par plusieurs branches »** | deux branches ont créé le même fichier, avec deux API toutes deux justes. Chacune compile sans l'autre : seule la combinaison le dit |
 | **« tickets du run cités dans la doc mergée »** | une phrase peut être au futur sur ce qui est livré depuis dix minutes. Aucun conflit git, aucune porte : relire les lignes citées |
-| **colonne « Modèle » ≠ le modèle demandé** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
+| **colonne « Modèle » ≠ le modèle demandé, sans `(+N sous-agents)`** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
+| **colonne « Modèle » avec `(+N sous-agents)`** | la session a lancé N sous-agents ; ils portent le modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket. Un modèle de plus vient d'eux, pas d'un repli — et une part du coût aussi (défaut 41) |
 | **colonne « Contexte » proche de la fenêtre** | ticket trop gros, même vert. C'est le thermomètre du découpage, pas une note de qualité |
 | **« la base était déjà rouge avant le run »** | la porte échouait sur `origin/<base>` avant qu'aucun ticket ne tourne. Ouvrir `.afk/base-verify.txt` **avant** de juger un rouge : un ticket dont le `<n>-fail.txt` nomme le même échec n'y est pour rien, et se relance tel quel une fois la base réparée |
 | **« aucune CI sur ce dépôt »** | la porte locale est la seule qui ait joué du run entier. Si elle était remplacée sur certains tickets, ceux-là n'ont eu aucune porte complète — la ligne les nomme |

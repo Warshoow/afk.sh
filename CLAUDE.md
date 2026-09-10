@@ -40,9 +40,9 @@ worker, worktrees, phases CI/intégration). Il a trouvé trois bugs à sa premi�
 `afk.sh` se coupe en deux à la ligne `[[ -n "${AFK_LIB:-}" ]] && return 0` :
 
 - **au-dessus** : les parseurs purs (`label_for`, `blocked_refs`, `meta_line`,
-  `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`). `check.sh`
-  fait `AFK_LIB=1 source ./afk.sh` pour les tester seuls. Ils ne doivent lire aucune
-  globale et ne rien écrire. Les motifs de validation des surcharges (`RE_TIMEOUT`,
+  `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`).
+  `check.sh` fait `AFK_LIB=1 source ./afk.sh` pour les tester seuls. Ils ne doivent lire
+  aucune globale et ne rien écrire. Les motifs de validation des surcharges (`RE_TIMEOUT`,
   `RE_MODEL`, `RE_EFFORT`, `RE_VERIFY`) sont là aussi, pour que `check.sh` teste ceux qui
   servent vraiment plutôt qu'une copie. **Les quatre champs passent un motif** : `Verify`
   était le seul à ne pas le faire, et le seul dont la valeur soit exécutée.
@@ -69,9 +69,9 @@ Un worker est un sous-shell : **il ne peut rien écrire dans les tableaux du par
 dépose des lignes `clé=valeur` dans `.afk/<n>.status`, le parent les relit avec `sget`.
 Toute nouvelle information remontée par un worker passe par là.
 
-Clés : `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`, `attempt`,
-`pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`. `draft` est un
-drapeau posé sur un `ok`, pas un résultat.
+Clés : `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`,
+`attempt`, `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`,
+`subagents`. `draft` est un drapeau posé sur un `ok`, pas un résultat.
 
 Le fichier est **append-only** et `sget` lit la dernière ligne. La valeur prudente
 écrite au démarrage s'appelle donc `result_initial`, pas `result` : un humain qui fait
@@ -99,9 +99,12 @@ d'arrêter le run.
 `claude -p … --output-format json`, jamais `--resume` : la sortie est un objet, pas un
 log. `jval` y lit `subtype` (la panne se NOMME au lieu de rendre un code), `session_id`
 (le bilan en fait un `claude --resume` pour les rouges, dont le worktree est gardé),
-`total_cost_usd` (cumulé sur les essais du ticket) ; `jmodels` lit le modèle réellement
-utilisé, seule façon de voir un repli `FALLBACK_MODEL`. Ajouter un drapeau de session
-implique de le passer par `copts` — et de vérifier que le faux `claude` du harness rend
+`total_cost_usd` (cumulé sur les essais du ticket) ; `jmodels` lit les modèles réellement
+utilisés, seule façon de voir un repli `FALLBACK_MODEL`. Mais `modelUsage` **et** le coût
+agrègent la session et ses sous-agents, qui portent le modèle de leur définition et pas
+celui du ticket : `jspawned` lit leur nombre, sans quoi un second modèle se lit comme un
+repli qui n'a pas eu lieu (défaut 41). Ajouter un drapeau de session implique de le
+passer par `copts` — et de vérifier que le faux `claude` du harness rend
 toujours un objet lisible, sinon chaque session passe pour muette.
 
 ### Le prompt
@@ -135,12 +138,11 @@ faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
 Les huit runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
 filet, crash, gel), série (absorbé, gelé par sa propre session, `Timeout:`, `in-review`),
-interruption, empilement sur une PR ouverte hors run, deux bloqueurs directs indépendants (base + absorption,
-double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
-futur, dépôt sans CI, et porte réduite avec CI qui ne conclut pas. Les numéros de ticket
-portent leur scénario
-(voir l'en-tête du fichier) — réutiliser un numéro existant pour autre chose casse les
-assertions.
+interruption, empilement sur une PR ouverte hors run, deux bloqueurs directs
+indépendants (base + absorption, double héritage), push refusé par le remote + même
+chemin créé deux fois + renvoi au futur, dépôt sans CI, et porte réduite avec CI qui ne
+conclut pas. Les numéros de ticket portent leur scénario (voir l'en-tête du fichier) —
+réutiliser un numéro existant pour autre chose casse les assertions.
 
 Le remote nu porte un hook `update` qui refuse `feat/17` : c'est ainsi qu'on simule un
 `git push` rejeté sans réseau. Et le faux `gh pr checks` obéit à `NO_CHECKS` (le dépôt

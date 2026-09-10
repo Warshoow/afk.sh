@@ -13,3 +13,4 @@ Les faits seulement. Ce qui demande un jugement va dans
 | 2026-09-09 16:43 | jarvis-project | 13 | 0 | 0 | 0 | 1 | 0 | 12 | 0 | 0/1 | — | — | 0m52s | — |
 | 2026-09-09 19:13 | jarvis-project | 13 | 9 | 0 | 0 | 0 | 0 | 3 | 1 | 9/9 | opus-5 sonnet-5 | $104.67 | 138m25s | vert (partiel : 5/9) |
 | 2026-09-09 22:18 | jarvis-project | 4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 4/4 | opus-5 sonnet-5 | $49.84 | 132m34s | vert |
+| 2026-09-10 11:21 | jarvis-project | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 3/3 | sonnet-5 | $4.60 | 22m24s | vert |

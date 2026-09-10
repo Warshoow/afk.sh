@@ -18,6 +18,11 @@ proposées est dans [docs/propositions.md](docs/propositions.md).
   **gelé** — label inchangé, aucune PR, un commentaire qui dit ce qui manque, et le
   ticket revient au run suivant. Sans cette ligne, le comportement est celui d'avant
   (défaut 40).
+- **La colonne « Modèle » dit combien de sous-agents ont tourné** — `sonnet-5 (+2
+  sous-agents)`. `modelUsage` agrège la session et ses sous-agents, qui portent le modèle
+  de leur définition (`.claude/agents/*.md`) : un second modèle se lisait comme un repli
+  de `FALLBACK_MODEL`, alors qu'il venait d'une revue lancée par la session. La légende
+  du résumé dit maintenant laquelle des deux lectures s'applique (défaut 41).
 
 ## 2026-09-07
 

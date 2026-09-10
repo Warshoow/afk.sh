@@ -387,10 +387,15 @@ Effort: high
 niveaux de `claude` (`low`, `medium`, `high`, `xhigh`, `max`). Sans ces lignes, `MODEL` et
 `EFFORT` s'appliquent ; sans eux, les défauts de `claude`.
 
-Le bilan donne le modèle qui a **réellement** tourné : `FALLBACK_MODEL` bascule sur un
+Le bilan donne les modèles qui ont **réellement** tourné : `FALLBACK_MODEL` bascule sur un
 modèle de secours quand le principal est indisponible — sans ça, une nuit entière peut
 changer de modèle sans le dire. C'est ce repli qui évite qu'une indisponibilité passagère
 brûle les deux essais d'un ticket en quelques secondes et vide la file.
+
+La colonne porte aussi le nombre de sous-agents lancés par la session
+(`sonnet-5 (+2 sous-agents)`) : ils portent le modèle de leur définition
+(`.claude/agents/*.md`) et pas celui du ticket, donc plusieurs modèles ne sont un repli
+que sans eux — et une part du coût vient d'eux (défaut 41).
 
 ## Reprendre une session ratée
 

@@ -115,7 +115,11 @@ printf '%s\n' "$*" >> "$HARNESS/args-$n.txt"     # les drapeaux passés à claud
 # ferait passer chaque session pour muette.
 res() { printf '{"session_id":"sess-%s","total_cost_usd":0.5,"is_error":%s,"subtype":"%s",' \
           "$n" "${2:-false}" "${1:-success}"
+        printf '"subagent_stats":{"spawned":%s,"spawned_by_subagents":0},' "${SPAWNED:-0}"
         printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},"result":"fini"}\n'; }
+# La session de #12 lance deux revues : un modèle de plus dans modelUsage sans qu'aucun
+# repli n'ait joué (défaut 41).
+[[ "$n" == 12 ]] && SPAWNED=2
 case "$n" in
   9|13) res; exit 0 ;;                 # sort proprement sans rien produire
   # Rien produit, base verte — mais la session NOMME ce qui manque : gelé, pas absorbé.
@@ -265,6 +269,9 @@ grep -qE 'pr create .*--head feat/9( |$)' "$T/gh.log" &&
   { echo "  ✗ journal écrasé ou non ajouté"; fail=1; }
 grep -qE '^\| #9 \| absorbé \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé : absorbé" || { echo "  ✗ résumé sans absorbé"; fail=1; }
+grep -qE '^\| #12 \|.*\| sonnet-5 \(\+2 sous-agents\) \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : les sous-agents comptés avec le modèle" ||
+  { echo "  ✗ sous-agents absents de la colonne Modèle"; fail=1; }
 grep -qE -- '--model sonnet' "$T/args-12.txt" && grep -qE -- '--effort high' "$T/args-12.txt" &&
   echo "  ✓ Model:/Effort: transmis à claude" || { echo "  ✗ surcharges non transmises"; fail=1; }
 # Deux essais à 0,5 : le coût est celui du TICKET, pas de sa dernière session.

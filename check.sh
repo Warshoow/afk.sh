@@ -176,6 +176,13 @@ j+='"result":"jai fini, \"is_error\":true"}'
 [[ "$(jmodels <<<"$j")" == "opus-5 sonnet-5" ]] || { echo "FAIL jmodels : '$(jmodels <<<"$j")'"; exit 1; }
 [[ -z "$(jmodels <<<'session tuée avant la fin')" ]] || { echo "FAIL jmodels sur sortie tronquée"; exit 1; }
 
+# Les sous-agents : `spawned_by_subagents` est un leurre, il ne doit pas être lu à sa place.
+k='{"subagent_stats":{"spawned":2,"spawned_by_subagents":0,"by_type":{"reviewer":2}},"result":"fini"}'
+[[ "$(jspawned <<<"$k")" == "2" ]] || { echo "FAIL jspawned : '$(jspawned <<<"$k")'"; exit 1; }
+[[ "$(jspawned <<<'{"subagent_stats":{"spawned":0,"spawned_by_subagents":0}}')" == "0" ]] ||
+  { echo "FAIL jspawned à zéro"; exit 1; }
+[[ -z "$(jspawned <<<'session tuée avant la fin')" ]] || { echo "FAIL jspawned sur sortie tronquée"; exit 1; }
+
 # ─── deepest_branch ───────────────────────────────────────────────────────────
 # La base d'une PR empilée doit être le bloqueur topologiquement le plus profond.
 # L'ordre de listage de l'API ne l'est pas : prendre la dernière ne marchait que

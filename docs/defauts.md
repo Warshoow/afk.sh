@@ -188,7 +188,7 @@ déjà livré avant le run n'a aucun bloqueur dans ce run (voir docs/proposition
 
 ---
 
-## 41 — La colonne « Modèle » compte les sous-agents et fait lire un repli qui n'a pas eu lieu — ouvert
+## 41 — La colonne « Modèle » compte les sous-agents et fait lire un repli qui n'a pas eu lieu — atténué
 
 *2026-09-09 · jarvis-project · #111*
 
@@ -207,8 +207,14 @@ facturés » là où sa légende promet « quel modèle a répondu ». Ça touch
 dépôt dont les `.claude/agents/*.md` nomment un modèle, et c'est justement le cas des
 dépôts où l'on demande une revue avant commit.
 
-**Ce qu'on en a fait.** Rien encore. Le JSON distingue les deux : `subagent_stats.spawned`
-dit combien de sous-agents ont tourné, donc une colonne à plusieurs modèles n'est un repli
-que lorsqu'il vaut zéro. Le plus court est de garder le premier modèle — celui de la
-session — et de ne nommer les autres que comme sous-agents, ou de laisser la colonne
-telle quelle et de corriger la légende, qui est la moitié réellement fausse.
+**Ce qu'on en a fait (2026-09-09).** `subagent_stats.spawned` est lu (`jspawned`) et
+affiché avec les modèles, pas dans une colonne à lui : `sonnet-5 (+2 sous-agents)`. C'est
+lui qui dit si un second modèle est un repli ou une revue, et il explique du même coup une
+part du coût, qui agrège les sous-agents comme `modelUsage`. La légende dit maintenant ce
+qui est vrai : plusieurs modèles **sans** sous-agent = un repli ; avec, ils portent le
+modèle de leur définition et pas celui du ticket.
+
+Atténué et pas corrigé : la colonne ne dit toujours pas *lequel* des modèles était celui
+de la session. Le premier `modelUsage` l'est (la session appelle l'API avant qu'aucun
+sous-agent n'existe), mais s'y fier rend un repli en cours de session invisible — la liste
+complète plus le nombre de sous-agents ne mentent sur rien.

@@ -155,6 +155,15 @@ jmodels() {
     paste -sd' ' -
 }
 
+# Combien de sous-agents la session a lancés. C'est ce qui rend la colonne « Modèle »
+# lisible (défaut 41) : `modelUsage` agrège la session ET ses sous-agents, qui portent le
+# modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket. Un second
+# modèle se lisait donc comme un repli, alors qu'il venait d'une revue lancée par la
+# session. `spawned_by_subagents` ne matche pas : le motif exige `":` après le nom.
+jspawned() {
+  grep -o '"spawned":[0-9]*' | head -1 | cut -d: -f2
+}
+
 # Numéros pris deux fois. Reçoit des chemins sur stdin (les fichiers AJOUTÉS par les
 # branches d'un run) et rend une ligne par collision : même répertoire, même préfixe
 # numérique de tête, plusieurs fichiers différents.
@@ -751,7 +760,7 @@ worker() {
     # chiffre ; `session_id` la rend reprenable à la main ; le coût s'additionne sur les
     # essais, le modèle est celui du dernier — c'est lui qui a produit la branche.
     sid=$(jval session_id < "$out"); why=$(jval subtype < "$out")
-    st "session=$sid"; st "model=$(jmodels < "$out")"
+    st "session=$sid"; st "model=$(jmodels < "$out")"; st "subagents=$(jspawned < "$out")"
     # Rien lu = rien à dire : une session tuée avant d'écrire son objet doit laisser le
     # coût VIDE au bilan, pas un "0,0000 $" qui se lirait comme une session gratuite.
     c=$(jval total_cost_usd < "$out")
@@ -1277,11 +1286,15 @@ write_summary() {
     printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Titre |\n'
     printf '|---|---|---|---|---|---|---|---|---|\n'
     for t in "${TICKETS[@]}"; do
-      local res pr att d ctx mdl cost
+      local res pr att d ctx mdl cost sa
       res=$(sget "$t" result); pr=$(sget "$t" pr); att=$(sget "$t" attempt)
       d=$(sget "$t" dur); d=${d:+$(fmt_dur "$d")}; d=${d:-—}
       ctx=$(ctx_of "$t"); ctx=${ctx:+$(( ctx / 1000 ))k}; ctx=${ctx:-—}
       mdl=$(sget "$t" model); mdl=${mdl:-—}
+      # Le nombre de sous-agents va avec les modèles, pas dans sa propre colonne : c'est
+      # lui qui dit si un second modèle est un repli ou une revue, et il explique du même
+      # coup une part du coût.
+      sa=$(sget "$t" subagents); (( ${sa:-0} > 0 )) && mdl+=" (+${sa} sous-agents)"
       cost=$(sget "$t" cost); cost=${cost:+\$$cost}; cost=${cost:-—}
       [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
@@ -1316,8 +1329,10 @@ write_summary() {
     printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
     printf -- '- contexte : le pic de la session. Il mesure la TAILLE du travail, pas sa qualité —\n'
     printf -- '  un pic haut sur un ticket bien cadré reste vert. À lire avec le périmètre livré.\n'
-    printf -- '- modèle : celui qui a réellement tourné. Un autre que le modèle demandé = un repli\n'
-    printf -- '  (`FALLBACK_MODEL=%s`) a joué, le modèle voulu était indisponible.\n' "${FALLBACK_MODEL:-aucun}"
+    printf -- '- modèle : ceux qui ont réellement tourné. Plusieurs modèles SANS sous-agent = un repli\n'
+    printf -- '  (`FALLBACK_MODEL=%s`) a joué, le modèle voulu était indisponible. Avec des sous-agents,\n' "${FALLBACK_MODEL:-aucun}"
+    printf -- '  ils portent le modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket :\n'
+    printf -- '  un modèle de plus vient d'"'"'eux, et une part du coût aussi (défaut 41).\n'
     printf -- '- coût : prix catalogue cumulé sur les essais du ticket, tel que rendu par la session.\n'
 
     # Un ticket rendu à un humain se relit aujourd'hui dans un fichier. La session qui l'a
