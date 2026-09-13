@@ -17,6 +17,31 @@ proposées est dans [docs/propositions.md](docs/propositions.md).
   sur tous les tickets, sans distinguer « rien trouvé » de « rien à signaler »
   (défaut 42).
 
+- **Un ticket dont les bloqueurs sont livrés mais ne tiennent pas ensemble sort
+  « conflit », plus « gelé ».** Le mot était celui d'un prérequis jamais livré, et la
+  colonne PR est vide dans les deux cas : le diagnostic partait à la recherche d'un
+  bloqueur manquant qui n'existe pas. Le bilan nomme maintenant les chemins en conflit
+  sous le tableau, comme il le fait déjà pour les branches écartées à l'intégration, et
+  `.afk/<n>-wt.err` — le seul journal d'un tel ticket — est entré dans la légende des
+  logs (défaut 45).
+
+- **`-n` n'annonce plus gelé ce que le run lance.** Le plan ne comptait comme livrable
+  qu'un bloqueur livré *dans ce run*, là où l'ordonnanceur se contente d'une branche
+  poussée : un bloqueur hors lot à PR ouverte sortait « gelé — bloqueur non livrable »
+  dans la sortie qui venait d'imprimer sa base. C'est en reprise d'un run interrompu
+  qu'on lit le plan, donc exactement là où il disait l'inverse de ce qui allait se
+  passer (défaut 44).
+
+### Ajouté
+
+- **Une colonne « Phases » au bilan : installation / session / porte.** La durée d'un
+  ticket ne disait pas où elle passait, et trois de ces quatre phases sont réglables
+  (`JOBS`, `TIMEOUT`, `VERIFY_CMD`, `SETUP_CMD`) : sérialiser la porte n'a aucun effet
+  là où elle dure une minute. La quatrième, l'attente d'un verrou, est ce que « durée »
+  porte en plus de leur somme. Les phases sont chronométrées par afk, donc sous-agents
+  en arrière-plan compris, là où le `duration_ms` de la session ne couvre que sa boucle
+  principale (défaut 43).
+
 ## 2026-09-09
 
 ### Corrigé

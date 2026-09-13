@@ -138,11 +138,13 @@ faux `claude`, indexé sur le numéro de ticket extrait du prompt.
 
 Les huit runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
 filet, crash, gel), série (absorbé, gelé par sa propre session, `Timeout:`, `in-review`),
-interruption, empilement sur une PR ouverte hors run, deux bloqueurs directs
-indépendants (base + absorption, double héritage), push refusé par le remote + même
-chemin créé deux fois + renvoi au futur, dépôt sans CI, et porte réduite avec CI qui ne
-conclut pas. Les numéros de ticket portent leur scénario (voir l'en-tête du fichier) —
-réutiliser un numéro existant pour autre chose casse les assertions.
+interruption, empilement sur une PR ouverte hors run (plus le même lot rejoué en `-n`,
+qui doit dire la même chose), deux bloqueurs directs indépendants (base + absorption,
+double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
+futur + un dépendant des deux dont l'empilement conflicte, dépôt sans CI, et porte
+réduite avec CI qui ne conclut pas. Les numéros de ticket portent leur scénario (voir
+l'en-tête du fichier) — réutiliser un numéro existant pour autre chose casse les
+assertions.
 
 Le remote nu porte un hook `update` qui refuse `feat/17` : c'est ainsi qu'on simule un
 `git push` rejeté sans réseau. Et le faux `gh pr checks` obéit à `NO_CHECKS` (le dépôt

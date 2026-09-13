@@ -369,7 +369,7 @@ memory_present || echo "⚠  ni CONTEXT.md, ni CONTEXT-MAP.md, ni docs/adr/ — 
 
 # ─── Utilitaires ──────────────────────────────────────────────────────────────
 
-fmt_dur() { printf '%dm%02ds' $(( $1 / 60 )) $(( $1 % 60 )); }
+fmt_dur() { local n=${1:-0}; printf '%dm%02ds' $(( n / 60 )) $(( n % 60 )); }
 
 # Statut d'un ticket : le worker tourne dans un sous-shell, il ne peut rien écrire
 # dans les tableaux du parent. Il dépose des lignes clé=valeur, le parent les relit.
@@ -686,6 +686,12 @@ worker() {
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
   local title labels verify tmo mdl eff head0 rc crashed netted attempt
   local out sid why c cost=0 cut=0 blocked
+  # Le bilan ne chronométrait que le ticket : « c'est lent » sans savoir si le temps part
+  # dans SETUP_CMD, dans la session ou dans la porte — et trois des quatre phases sont
+  # réglables (JOBS, TIMEOUT, VERIFY_CMD, SETUP_CMD). Sérialiser la porte n'a aucun effet
+  # là où elle dure une minute ; le savoir demandait d'ouvrir les .json un par un
+  # (défaut 43). La quatrième phase, l'attente d'un verrou, se déduit : dur moins la somme.
+  local s0 vrc t_setup=0 t_session=0 t_verify=0
   local -a copts
   local suspect pr_url pr_num pr_body
 
@@ -735,8 +741,11 @@ worker() {
     # afk : il enchaîne son propre script devant `SETUP_CMD` dans son `.afk.env` et lit ces
     # deux variables. `SETUP_CMD` tourne déjà dans le worktree et sous le verrou `install`,
     # donc sérialisé — deux créations de base ne se croisent pas.
-    if ! AFK_TICKET="$ticket" AFK_WORKTREE="$wt" \
-         locked install bash -c "$SETUP_CMD" > "$AFK_DIR/$ticket-setup.log" 2>&1; then
+    s0=$SECONDS
+    AFK_TICKET="$ticket" AFK_WORKTREE="$wt" \
+      locked install bash -c "$SETUP_CMD" > "$AFK_DIR/$ticket-setup.log" 2>&1; vrc=$?
+    t_setup=$(( SECONDS - s0 )); st "t_setup=$t_setup"
+    if (( vrc )); then
       echo "  ✗ installation des dépendances échouée — ${AFK_DIR##*/}/${ticket}-setup.log"
       st "result=ko"; st "reason=setup"; return
     fi
@@ -751,9 +760,14 @@ worker() {
     # Jamais --resume : reprendre une session qui vient d'échouer, c'est repartir
     # du contexte pollué qui a échoué.
     out="$AFK_DIR/$ticket-$attempt.json"
+    s0=$SECONDS
     timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
       "${copts[@]}" > "$out" 2>&1
     rc=$?; crashed=0; netted=0; cut=0
+    # Cumulé sur les essais, comme le coût. Et mesuré par afk, donc sous-agents en
+    # arrière-plan compris — le duration_ms de la session, lui, ne couvre que sa boucle
+    # principale et rate les 18 minutes d'une revue lancée à côté.
+    t_session=$(( t_session + SECONDS - s0 )); st "t_session=$t_session"
 
     # Ce que la session raconte d'elle-même. `subtype` nomme la panne
     # (error_during_execution, error_max_turns…) là où le code de retour ne donne qu'un
@@ -802,7 +816,10 @@ worker() {
       # puis partait en ready-for-human, pour une raison fausse. La base est déjà là et
       # la porte tourne déjà — on la passe sur la base, et elle tranche entre les deux.
       echo "  · aucun commit — je passe la porte sur la base pour trancher"
-      if locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; then
+      s0=$SECONDS
+      locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
+      t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
+      if (( vrc == 0 )); then
         echo "  ≡ absorbé — rien à faire et la base est verte : déjà livré par un prédécesseur"
         st "result=absorbed"; st "base_ref=$base"
         relabel "$ticket" "$LABEL" "$LABEL_REVIEW"
@@ -817,7 +834,10 @@ worker() {
     fi
 
     echo "  → vérification"
-    if locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; then
+    s0=$SECONDS
+    locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
+    t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
+    if (( vrc == 0 )); then
       git diff --name-only "$head0" | grep -qE "$MEMORY_RE" ||
         echo "  ⚠  aucun CONTEXT.md ni ADR touché — décisions non capturées, relire de près"
 
@@ -890,8 +910,8 @@ worker() {
 # ceux dont tous les bloqueurs de ce run sont déjà verts. Un bloqueur rouge gèle
 # ses dépendants : leur base n'existe pas.
 
-declare -A BRANCH_OF=() PID=() START=() WT=()
-OK=(); KO=(); SKIP=(); DRAFT=(); ABSORBED=(); PUSH_KO=(); FIRST_TRY=0
+declare -A BRANCH_OF=() PID=() START=() WT=() CONFLICT_FILES=()
+OK=(); KO=(); SKIP=(); DRAFT=(); ABSORBED=(); PUSH_KO=(); CONFLICT=(); FIRST_TRY=0
 
 deps_state() {   # 0 = prêt, 1 = attendre, 2 = gelé
   local t="$1" b state=0
@@ -919,8 +939,15 @@ launch() {
 
   wt=$(make_worktree "$t" "$base" "${stack[@]}"); rc=$?
   if (( rc == 2 )); then
-    echo "  ⏸  #${t} : conflit entre bloqueurs — à faire à la main"
-    SKIP+=("$t"); return
+    # Reste dans SKIP — ses dépendants gèlent pareil — mais le bilan ne dit plus « gelé »,
+    # qui est le mot d'un bloqueur JAMAIS livré. Ici c'est l'inverse : ils sont tous là et
+    # ne tiennent pas ensemble. Les chemins sont dans <n>-wt.err, seul fichier du run que
+    # la légende ne citait pas ; lu sans lui, le bilan fait chercher un bloqueur manquant
+    # qui n'existe pas (défaut 45).
+    CONFLICT_FILES[$t]=$(sed -n 's/^CONFLICT ([^)]*): \(Merge conflict in \)\?//p' \
+      "$AFK_DIR/$t-wt.err" 2>/dev/null | sort -u | paste -sd' ' -)
+    echo "  ⏸  #${t} : conflit entre bloqueurs — à faire à la main${CONFLICT_FILES[$t]:+ : ${CONFLICT_FILES[$t]}}"
+    CONFLICT+=("$t"); SKIP+=("$t"); return
   elif (( rc != 0 )); then
     echo "  ✗ #${t} : worktree impossible — $(cat "$AFK_DIR/$t-wt.err" 2>/dev/null | head -1)"
     KO+=("$t"); return
@@ -1283,10 +1310,10 @@ write_summary() {
   local f="$AFK_DIR/summary.md" t b
   {
     printf '# Run afk — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
-    printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Titre |\n'
-    printf '|---|---|---|---|---|---|---|---|---|\n'
+    printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Phases | Titre |\n'
+    printf '|---|---|---|---|---|---|---|---|---|---|\n'
     for t in "${TICKETS[@]}"; do
-      local res pr att d ctx mdl cost sa
+      local res pr att d ctx mdl cost sa ph
       res=$(sget "$t" result); pr=$(sget "$t" pr); att=$(sget "$t" attempt)
       d=$(sget "$t" dur); d=${d:+$(fmt_dur "$d")}; d=${d:-—}
       ctx=$(ctx_of "$t"); ctx=${ctx:+$(( ctx / 1000 ))k}; ctx=${ctx:-—}
@@ -1296,15 +1323,22 @@ write_summary() {
       # coup une part du coût.
       sa=$(sget "$t" subagents); (( ${sa:-0} > 0 )) && mdl+=" (+${sa} sous-agents)"
       cost=$(sget "$t" cost); cost=${cost:+\$$cost}; cost=${cost:-—}
+      # Une durée par ticket ne dit pas où elle passe. Les trois phases mesurables la
+      # découpent, la quatrième (l'attente d'un verrou) est ce qui reste (défaut 43).
+      local tse; tse=$(sget "$t" t_session)
+      if [[ -n "$tse" ]]; then
+        ph="$(fmt_dur "$(sget "$t" t_setup)") / $(fmt_dur "$tse") / $(fmt_dur "$(sget "$t" t_verify)")"
+      else ph="—"; fi
       [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
+      [[ " ${CONFLICT[*]} " == *" $t "* ]] && res="conflit"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
       [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
       [[ " ${UNPROVEN[*]} " == *" $t "* ]] && res="vert non prouvé"
       [[ " ${PUSH_KO[*]} " == *" $t "* ]] && res="poussée refusée"
       [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
       [[ -n "${VERIFY[$t]:-}" && "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && res="$res ⚠"
-      printf '| #%s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$mdl" "$ctx" "$cost" "$d" "${TITLE[$t]:-}"
+      printf '| #%s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+        "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$mdl" "$ctx" "$cost" "$d" "$ph" "${TITLE[$t]:-}"
     done
     printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
       "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — écartées au merge : ${INTEG_CONFLICTS[*]} ; mergées : ${INTEG_MERGED[*]}" )"
@@ -1313,6 +1347,12 @@ write_summary() {
     # se reconstruit à coups de `git merge-tree` en devinant l'ordre de merge d'origine.
     for b in "${INTEG_CONFLICTS[@]}"; do
       printf -- '  - `%s` : %s\n' "$b" "${INTEG_FILES[$b]:-—}"
+    done
+    # Le SUR QUOI vaut pour l'empilement d'un ticket comme pour le merge d'intégration :
+    # « conflit » sans les chemins renvoie encore à un fichier que la légende ne nommait pas.
+    for b in "${CONFLICT[@]}"; do
+      printf -- '- #%s : conflit à l'"'"'empilement de ses bloqueurs — %s (`.afk/%s-wt.err`)\n' \
+        "$b" "${CONFLICT_FILES[$b]:-chemins dans le journal}" "$b"
     done
     [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
     (( BASE_RED )) && printf -- '- **la base (`%s`) était déjà rouge avant le run** (`.afk/base-verify.txt`) : un ticket rouge dont l\'échec y figure aussi n\'est pas le sien.\n' "$BASE_REF"
@@ -1334,6 +1374,9 @@ write_summary() {
     printf -- '  ils portent le modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket :\n'
     printf -- '  un modèle de plus vient d'"'"'eux, et une part du coût aussi (défaut 41).\n'
     printf -- '- coût : prix catalogue cumulé sur les essais du ticket, tel que rendu par la session.\n'
+    printf -- '- phases : installation / session / porte, cumulées sur les essais. Ce que « durée »\n'
+    printf -- '  porte en plus est l'"'"'attente d'"'"'un verrou (`JOBS=%s`). La session est chronométrée par\n' "$JOBS"
+    printf -- '  afk, sous-agents en arrière-plan compris — son propre `duration_ms` les rate (défaut 43).\n'
 
     # Un ticket rendu à un humain se relit aujourd'hui dans un fichier. La session qui l'a
     # produit existe toujours et son worktree est gardé : on donne de quoi y RENTRER, et
@@ -1350,7 +1393,8 @@ write_summary() {
     done
 
     printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.json` (session),\n'
-    printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI).\n'
+    printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI), `.afk/<n>-wt.err` (empilement\n'
+    printf 'des branches de ses bloqueurs — le seul journal d'"'"'un ticket sorti « conflit »).\n'
   } > "$f"
   echo "  résumé : .afk/summary.md"
 }
@@ -1404,6 +1448,13 @@ if [[ "$DRY_RUN" == "1" ]]; then
   # est possible et où le DAG l'interdit.
   echo; echo "═══ Plan ═══"
   declare -A LIVERED=()
+  # Même question que deps_state : un bloqueur hors run qui porte déjà une branche (PR
+  # ouverte) est livrable, on s'empile dessus. Sans cette amorce le plan annonçait
+  # « gelé — bloqueur non livrable » ce que le run lance sans broncher, et il se
+  # contredisait dans la même sortie : il venait d'imprimer « bloqueur #N livré hors run
+  # (PR ouverte) ». C'est exactement en reprise d'un run interrompu — lot à moitié livré
+  # — qu'on lit le plan avant de relancer (défaut 44).
+  for b in "${!BRANCH_OF[@]}"; do LIVERED[$b]=1; done
   local_wave=1; remaining=("${TICKETS[@]}")
   while (( ${#remaining[@]} )); do
     wave=(); frozen=(); next=()

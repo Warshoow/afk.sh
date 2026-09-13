@@ -55,6 +55,10 @@ printf '## Blocked by\n\nNone\n'                    > "$T/fix/25.body"
 # 22 : porte écrite en markdown          → la commande sort du span, la prose reste
 # 23 : porte rouge sur la base           → dit une fois, avant le premier worktree
 for n in 17 18 19; do printf '## Blocked by\n\nNone\n' > "$T/fix/$n.body"; done
+# 26 : bloqué par 18 ET 19, qui écrivent le même fichier → le merge de leurs branches
+# dans son worktree conflicte. Ses prérequis sont TOUS livrés : « gelé » disait le
+# contraire, et la seule trace (26-wt.err) n'était citée nulle part (défaut 45).
+printf '## Blocked by\n\n- #18\n- #19\n' > "$T/fix/26.body"
 printf 'Verify: true\n\n## Blocked by\n\nNone\n'      > "$T/fix/21.body"
 # 22 : la porte écrite comme dans un ticket bien rédigé — la commande en `code`, puis en
 # français ce qu'elle ne couvre pas. La ligne entière partait au `bash -c`.
@@ -208,6 +212,11 @@ grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé écrit" || { echo "  ✗ résumé absent ou faux"; fail=1; }
 grep -qE '\| 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ durées consignées" || { echo "  ✗ durées manquantes"; fail=1; }
+# Une durée par ticket ne dit pas où elle passe : installation / session / porte, et
+# l'attente d'un verrou par soustraction (défaut 43).
+grep -qE '\| 0m[0-9]{2}s / 0m[0-9]{2}s / 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ les phases sont découpées" ||
+  { echo "  ✗ colonne Phases absente ou vide"; grep -m1 '^| #1 ' "$T/repo/.afk/summary.md"; fail=1; }
 # Le journal traverse les runs et les projets : c'est le seul historique qui survive à
 # l'écrasement de .afk/summary.md.
 grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| repo \| 8 \| 3 \| 0 \| 2 \| 1 \| 0 \| 2 \| 0 \| 3/6 \| sonnet-5 \| \$3\.50 \|' "$T/RUNS.md" &&
@@ -319,6 +328,17 @@ want4 "le dépendant part de sa branche"             'PR #95 sur feat/99'
 grep -qE 'pr create .*--base feat/99' "$T/gh.log" &&
   echo "  ✓ PR ciblée sur la branche du bloqueur" ||
   { echo "  ✗ PR mal ciblée"; fail=1; }
+# Le même lot en `-n`. Le plan annonçait « gelé — bloqueur non livrable » ce que le run
+# venait de lancer, et se contredisait dans sa propre sortie (défaut 44). C'est en
+# reprise d'un run interrompu qu'on le lit, donc exactement là où il doit dire vrai.
+out4n=$(OPEN_PR=1 bash "$AFK" -n 5 2>&1) || true
+printf '%s\n' "$out4n" > "$T/run4n.log"
+grep -qE '#5 +base origin/feat/99' <<<"$out4n" &&
+  echo "  ✓ plan : le dépendant part de la branche du bloqueur" ||
+  { echo "  ✗ plan : base fausse"; printf '%s\n' "$out4n"; fail=1; }
+grep -q 'gelé' <<<"$out4n" &&
+  { echo "  ✗ plan : #5 gelé alors que le run le lance"; fail=1; } ||
+  echo "  ✓ plan : aucun gel, comme le run réel"
 
 # ─── Cinquième run : deux bloqueurs directs indépendants ─────────────────────
 # Le losange du premier run a toujours une branche dominante, donc `deepest_branch`
@@ -349,7 +369,7 @@ grep -qE 'vert   \(3\) : 14 15 16' "$T/run5.log" &&
   echo "  ✓ l'empilée est mergée après sa base" ||
   { echo "  ✗ ordre de merge non topologique"; fail=1; }
 
-# ─── Sixième run : push refusé, même chemin créé deux fois, renvoi au futur ──
+# ─── Sixième run : push refusé, même chemin deux fois, renvoi au futur, conflit ─
 # Le remote refuse feat/17 comme GitHub refuse une branche qui touche .github/workflows/
 # à un jeton sans la portée `workflow` : le travail est bon, c'est le transport qui casse.
 cat > "$T/origin.git/hooks/update" <<'X'
@@ -361,7 +381,7 @@ X
 chmod +x "$T/origin.git/hooks/update"
 
 echo
-out6=$(NO_CHECKS_ONCE=1 JOBS=1 bash "$AFK" 17 18 19 2>&1) || true
+out6=$(NO_CHECKS_ONCE=1 JOBS=1 bash "$AFK" 17 18 19 26 2>&1) || true
 printf '%s\n' "$out6" > "$T/run6.log"
 want6() {
   if grep -qE -- "$2" <<<"$out6"; then printf '  ✓ %s\n' "$1"
@@ -374,6 +394,13 @@ want6 "même chemin créé par deux branches"     'même chemin créé par plusi
 want6 "le chemin fautif est nommé"             'shared\.ts :.*feat/18.*feat/19|shared\.ts :.*feat/19.*feat/18'
 want6 "ticket du run cité dans la doc mergée"  'docs/renvoi\.md:1:.*#19'
 want6 "la CI pas encore enregistrée : réessai" '✓ #18 \(PR #918\) CI verte'
+want6 "conflit d'empilement : les chemins à l'écran" '#26 : conflit entre bloqueurs.*shared\.ts'
+grep -qE '^\| #26 \| conflit \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : conflit, pas gelé" ||
+  { echo "  ✗ un conflit d'empilement est encore rangé « gelé »"; grep -m1 '^| #26 ' "$T/repo/.afk/summary.md"; fail=1; }
+grep -qE -- '- #26 : conflit à l.empilement de ses bloqueurs — shared\.ts' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ résumé : le chemin en conflit, et le journal qui le porte" ||
+  { echo "  ✗ résumé : conflit sans ses chemins"; fail=1; }
 grep -qE '^\| #17 \| poussée refusée \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ résumé : poussée refusée" || { echo "  ✗ résumé sans la poussée refusée"; fail=1; }
 grep -qE -- '- `feat/19` : shared\.ts' "$T/repo/.afk/summary.md" &&

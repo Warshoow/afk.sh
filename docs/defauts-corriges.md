@@ -886,3 +886,95 @@ en reconstruisant le chemin des cinq worktrees du run, qui tombent tous sur le r
 réel, et en rejouant `peak_context` dessus : 178k, 168k, 147k, 185k, 138k. Le découpage
 du lot était donc juste — aucun ticket au-dessus d'un cinquième de la fenêtre — mais
 c'est une chose qu'on n'a apprise qu'après avoir réparé le thermomètre.
+
+## 43 — Le bilan chronomètre le ticket, jamais ses phases — corrigé
+
+*2026-09-12 · jarvis-project · run du 2026-09-11*
+
+**Ce qu'on a vu.** « Pourquoi les tickets mettent si longtemps ? » Le bilan ne peut pas
+répondre : il donne une durée par ticket et rien d'autre. Il a fallu ouvrir les
+`.afk/<n>-<essai>.json` un par un et comparer leur `duration_ms` au `dur` du `.status`
+pour voir où passe le temps :
+
+```
+#148  ticket 20m13  session 1m28   #149  13m10 / 12m07   #150  10m59 / 10m03
+#151  10m58 / 9m57  #152  16m52 / 15m52
+```
+
+Soit ~95 % en session, et **une minute** pour `SETUP_CMD` plus les deux passages de la
+porte — l'inverse de ce qu'on soupçonnait. `#148` fait exception pour une autre raison :
+`duration_ms` ne couvre que la boucle principale, ses deux sous-agents de revue tournaient
+en arrière-plan (`duration_api_ms` = 14m47), et ces 18 minutes n'apparaissent nulle part.
+
+**La cause.** `reap` écrit `dur=` et c'est tout. Le worker traverse pourtant quatre
+phases mesurables et de nature différente — `SETUP_CMD`, la session, la porte, et
+l'attente d'un verrou quand `JOBS > 1` — dont trois sont réglables (`JOBS`, `TIMEOUT`,
+`VERIFY_CMD`, `SETUP_CMD`) et une ne l'est pas. Sans la découpe, la seule lecture
+possible est « c'est lent », et les réglages se choisissent au pif : sérialiser la porte
+n'a aucun effet là où elle dure une minute, et un dépôt dont la porte dure dix minutes
+est exactement le cas inverse. `peak_context` a déjà réglé ce problème-là pour la taille
+du travail ; la durée est restée un seul nombre.
+
+**Ce qu'on en a fait (2026-09-13).** Trois `st` dans le worker — `$SECONDS` autour de
+`SETUP_CMD`, de chaque `claude -p` et de chaque passage de la porte, les deux derniers
+cumulés sur les essais comme le coût — et une colonne « Phases » du résumé qui les rend
+`0m58s / 15m52s / 0m38s`. La quatrième phase, l'attente d'un verrou, ne se mesure pas :
+elle se déduit, `durée` moins la somme des trois, et la légende le dit avec la valeur de
+`JOBS`. Les sous-agents en arrière-plan sont comptés dans `t_session` sans qu'on ait eu à
+décider : c'est afk qui chronomètre, du lancement du processus `claude` à sa sortie, là où
+`duration_ms` ne couvre que la boucle principale.
+
+## 44 — Le plan gèle un bloqueur hors run que le run réel sait empiler — corrigé
+
+`-n` affiche « gelé — bloqueur non livrable » pour tout ticket dont un bloqueur est
+hors du lot mais porte une PR ouverte. Le run réel, lui, le lance sans broncher.
+
+Les deux chemins ne posent pas la même question :
+
+- `deps_state` : `[[ -n "${BRANCH_OF[$b]:-}" ]] && continue` — la
+  branche de la PR suffit, le ticket est prêt ;
+- le plan (bloc `DRY_RUN`) : `[[ -n "${LIVERED[$b]:-}" ]]` — seul un ticket livré
+  *dans ce run* compte, `BRANCH_OF` est ignoré.
+
+Le plan s'auto-contredit dans la même sortie : il vient d'imprimer, à la lecture des
+tickets, « · #20 : bloqueur #16 livré hors run (PR ouverte) → base origin/feat/16 ».
+
+Vu sur Trainr le 2026-09-12, en reprenant un run interrompu : les 5 premiers tickets
+étaient passés en `in-review` avec leurs PR ouvertes, et le plan du reliquat annonçait
+les 4 tickets restants gelés. Rien ne l'était.
+
+Ce que ça coûte : c'est précisément dans cette situation — reprise après interruption,
+lot partiellement livré — qu'on consulte le plan avant de relancer. Il dit exactement
+l'inverse de ce qui va se passer, et pousse à ne pas relancer.
+
+**Ce qu'on en a fait (2026-09-13).** `LIVERED` est amorcé avec les bloqueurs qui ont déjà
+une branche, avant la boucle des vagues : le plan pose désormais la même question que
+`deps_state`. Le harness rejoue le lot du quatrième run en `-n` et vérifie les deux moitiés
+— la base annoncée est bien `origin/feat/99`, et le mot « gelé » n'apparaît nulle part.
+
+## 45 — Un empilement qui conflicte est rangé « gelé », comme un bloqueur non livré — corrigé
+
+Un ticket dont les bloqueurs sont **tous livrés** sort « gelé » au bilan quand le merge
+de leurs branches dans son worktree échoue. Le mot est le même que pour un bloqueur
+jamais livré, et la colonne PR est vide dans les deux cas : rien ne distingue « son
+prérequis manque » de « ses prérequis sont là mais ne tiennent pas ensemble ».
+
+La trace existe pourtant, seule et non citée : `.afk/<n>-wt.err` contient le
+`CONFLICT (content)` et les chemins en cause. Ni `<n>.out` ni `<n>.status` ne sont
+écrits — `launch` échoue avant. Le bilan ne renvoie vers `<n>-wt.err` nulle part ; sa
+légende ne nomme que `<n>.out`, `<n>-<essai>.json`, `<n>-verify.txt` et `<n>-ci.txt`.
+
+Vu sur Trainr le 2026-09-12 : #23 dépendait de #19, #20, #21 et #22, tous livrés avec
+leur PR. Il est sorti « gelé ». `23-wt.err` disait `CONFLICT (content): Merge conflict
+in CONTEXT.md` et un second sur `app/components/Suivie.vue`. Lu sans ce fichier, le
+bilan fait chercher un bloqueur manquant qui n'existe pas.
+
+Ce que ça coûte : c'est l'information la plus utile du run — la combinaison des branches
+ne tient pas — et c'est la seule qui ne remonte pas. Le diagnostic se fait à la main, en
+fouillant un fichier dont la légende ne parle pas.
+
+**Ce qu'on en a fait (2026-09-13).** Les trois. Le ticket reste dans `SKIP` — ses
+dépendants gèlent pour la même raison qu'avant — mais il entre aussi dans `CONFLICT`, et
+le bilan écrit **conflit**. Les chemins sont extraits de `<n>-wt.err` au moment où le
+merge échoue, dits à l'écran et repris sous le tableau comme ceux de la passe
+d'intégration, avec le nom du journal. Et `<n>-wt.err` est dans la légende des logs.
