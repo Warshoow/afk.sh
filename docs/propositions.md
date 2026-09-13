@@ -141,6 +141,87 @@ plutôt que lancé sur une moitié du travail. Le cinquième run du harness couv
 (deux frères indépendants, un dépendant commun) : le losange du premier run ne
 l'atteignait pas, sa base contenant toujours déjà l'autre branche.
 
+## Construire une app entière en autonomie, à partir d'une idée — retenu
+
+*2026-09-13*
+
+Proposé : partir d'une idée d'app et non d'un lot de tickets déjà découpé. Trois skills
+au-dessus d'`afk.sh` — `afk-spec` une fois, puis `afk-wave` et `afk-merge` en boucle
+autour de chaque run.
+
+Ce qui manquait n'était pas le premier découpage, c'était le **re-découpage** : les
+tickets d'une vague dépendent du code que la vague précédente a réellement écrit. On ne
+peut donc pas tout découper d'avance, et c'est ce qui obligeait à se réveiller entre deux
+runs.
+
+Ces trois-là agissent sans validation, contrairement aux trois autres skills : ils
+tournent quand personne n'est là. `afk.sh` lui-même ne change pas et reste sans LLM —
+la boucle est au-dessus, pas dedans. Ce qui les tient n'est pas leur discipline mais une
+garde mécanique : `docs/spec.md` est écrit une fois, taggé `afk-spec`, et un `diff` qui
+neutralise les cases refuse tout autre changement. Sans elle, celui qui écrit les
+critères et celui qui les remplit sont le même modèle. Et un critère porte la commande
+qui le prouve : cocher, c'est lancer la commande sur `dev` et lire le code de retour,
+jamais lire le travail.
+
+### `/goal` de Claude Code comme condition d'arrêt — refusé
+
+Son hook `Stop` relit **le transcript** de la session et rend `{ok, reason, impossible}`.
+Deux choses le disqualifient : il juge le récit d'un agent et pas le dépôt — un agent qui
+raconte que ça marche le convainc — et il fait durer **une seule** session, là où toute
+la conception d'afk est une session neuve par ticket et par essai. Il resterait
+utilisable pour remplacer le 2ᵉ essai du worker ; c'est un mauvais échange.
+
+### La boucle `gauntlet-loop` sur chaque ticket — refusé
+
+Un critique au contexte frais par ticket multiplie la facture alors que la porte d'afk
+est déjà déterministe, et le critique n'ajoute rien là où une commande tranche. Sa place
+est ailleurs : les tickets qu'aucune commande ne peut juger — un rendu, une page, une
+animation. Le jour où une référence réelle est nommée, ça s'écrit `Gauntlet: <référence>`
+dans le corps du ticket, même famille que `Verify:` / `Model:` / `Timeout:`, même
+parseur, même surface de confiance. Rien à faire tant qu'aucun projet n'a de référence à
+viser — c'est pour ça que le spec de `afk-spec` interdit les critères de goût : un
+critère qu'aucune commande ne juge bloque la boucle pour toujours, ou se coche à
+l'aveugle.
+
+## Partager `node_modules` entre les worktrees par un lien symbolique — refusé, autrement
+
+*2026-09-13*
+
+Proposé : au lieu de réinstaller les dépendances dans chaque worktree, un lien symbolique
+de `node_modules` depuis l'arbre principal. `t_setup` est de plusieurs minutes par ticket
+sur un monorepo, et il est payé autant de fois qu'il y a de tickets.
+
+Le lien ne marche pas, et pas pour une raison propre à pnpm. Si `wt/node_modules` est un
+lien vers `main/node_modules`, tout chemin relatif à l'intérieur se résout depuis
+l'endroit où vit le vrai dossier : le noyau suit le lien avant de résoudre les `..`. Dans
+un espace de travail, `apps/*/node_modules/@x/<paquet>` → `../../../packages/<paquet>`
+atterrit donc dans **l'arbre principal**. Le worker compile contre un code qu'il ne
+modifie pas, ses propres changements dans `packages/*` lui sont invisibles, et il passe
+vert pour la mauvaise raison. Accessoirement il lit l'arbre principal, que tout le reste
+du script s'interdit de toucher. Sur un dépôt plat sans espace de travail ça ne mord pas,
+mais reste l'écriture : un `pnpm add` dans un worktree modifie l'arbre partagé, et à
+`-j 3` deux workers se marchent dessus.
+
+Ce qui marche à la place est une **copie en liens durs** (`cp -al`) : chaque worktree a sa
+propre arborescence de dossiers, donc les chemins relatifs se résolvent chez lui, et les
+fichiers partagent leurs inodes — ni disque ni temps. Le seul angle mort est un
+`postinstall` qui modifie un fichier sur place, ce qui fuirait vers les voisins.
+
+Rien à changer dans `afk.sh` pour autant : `SETUP_CMD` est déjà le point d'accroche du
+projet, et il reçoit `AFK_TICKET` / `AFK_WORKTREE` exactement pour ça, sous le verrou
+`install` donc sérialisé.
+
+```bash
+SETUP_CMD='cp -al "$REPO_ROOT/node_modules" "$AFK_WORKTREE/node_modules" 2>/dev/null; pnpm install --prefer-offline'
+```
+
+C'est une décision de projet et pas d'afk : le script ne peut pas savoir si le dépôt est
+un espace de travail, si un `postinstall` écrit sur place, ni où est le store. Et avant
+tout ça, `grep -h 't_setup=' .afk/*.status` — sur un store pnpm partagé et sur le même
+système de fichiers, une install fraîche est du lien dur et ne coûte que des secondes ;
+quand elle est longue, ce sont souvent les `postinstall` (`prisma generate`, compilations
+natives) qu'aucun partage de `node_modules` n'éviterait.
+
 ## Rapatriement des logs d'échec sur l'issue GitHub — déjà fait
 
 *2026-09-02*

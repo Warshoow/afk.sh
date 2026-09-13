@@ -8,6 +8,20 @@ proposées est dans [docs/propositions.md](docs/propositions.md).
 
 ## 2026-09-13
 
+### Ajouté
+
+- **Trois skills pour construire une app entière sans se réveiller entre deux runs** :
+  `/afk-spec` (une idée → `docs/spec.md`, le squelette, la porte et le jalonnage, une
+  seule fois), `/afk-wave` (ouvrir la vague de tickets suivante à partir des critères non
+  cochés **et** de l'état réel du dépôt), `/afk-merge` (faire atterrir la vague sur `dev`,
+  cocher ce dont la commande passe, dire si la boucle continue). **`afk-app.sh`** les
+  enchaîne : `./afk-app.sh -w 4 -j 3`. Son flux de contrôle est mécanique — il compte les
+  cases du spec et les tickets ouverts, jamais ce qu'une session raconte, donc une session
+  qui se déclare victorieuse ne peut ni prolonger la boucle ni l'arrêter. `afk.sh` ne change pas :
+  la boucle est au-dessus, l'orchestrateur reste sans LLM. Chaque critère du spec porte la
+  commande qui le prouve, `docs/spec.md` est taggé `afk-spec` et ne peut plus recevoir que
+  des cases — voir [docs/propositions.md](docs/propositions.md).
+
 ### Corrigé
 
 - **La colonne « Contexte » du bilan ne s'éteint plus sur un chemin contenant un tiret

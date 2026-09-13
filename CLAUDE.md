@@ -9,17 +9,46 @@ des sessions `claude -p "/implement le ticket #N"` sur les tickets `ready-for-ag
 repo GitHub configuré par `/setup-matt-pocock-skills`. Le README décrit le comportement
 utilisateur ; ce fichier décrit les invariants internes.
 
-`skills/` contient trois skills qui encadrent le run sans jamais entrer dedans :
-`afk-setup` (écrire le `.afk.env`), `afk-preflight` (relire le lot avant de lancer),
-`afk-debrief` (dépouiller le run au réveil). Ils proposent, ils n'agissent pas — un
-skill qui lancerait `afk.sh` ou réétiquetterait un ticket remettrait du LLM dans la
-boucle par la porte de derrière.
+`skills/` contient deux familles, et elles n'ont pas les mêmes droits.
+
+**Encadrer un run** — `afk-setup` (écrire le `.afk.env`), `afk-preflight` (relire le lot
+avant de lancer), `afk-debrief` (dépouiller le run au réveil). Ils proposent, ils
+n'agissent pas — un skill qui lancerait `afk.sh` ou réétiquetterait un ticket remettrait
+du LLM dans la boucle par la porte de derrière.
+
+**Construire une app en autonomie** — `afk-spec` (idée → `docs/spec.md` + squelette +
+porte, une fois), `afk-wave` (ouvrir la vague de tickets suivante), `afk-merge` (faire
+atterrir la vague sur `dev`, cocher, décider si on continue). `afk-app.sh` les enchaîne
+autour d'`afk.sh`, une vague après l'autre. Ceux-là **agissent** : ils
+tournent en boucle quand personne n'est réveillé, donc attendre une validation n'a aucun
+sens. L'invariant tient quand même : ils restent **au-dessus** d'`afk.sh`, qui n'a
+toujours aucun LLM dedans — c'est la boucle qui juge, pas l'orchestrateur.
+
+Ce qui les garde honnêtes n'est pas leur bonne volonté, c'est une garde mécanique :
+`docs/spec.md` est écrit une seule fois par `afk-spec` et taggé `afk-spec`. Les deux
+autres ne peuvent que cocher des cases, et le vérifient à chaque tour :
+
+```bash
+diff <(git show afk-spec:docs/spec.md | sed 's/\[x\]/[ ]/g') <(sed 's/\[x\]/[ ]/g' docs/spec.md)
+```
+
+Non vide → la boucle s'arrête. Sans ça, celui qui écrit les critères et celui qui les
+remplit sont le même modèle, et la boucle se décerne sa propre victoire. Les cases sont
+neutralisées **des deux côtés** du `diff` : la version taggée en contient déjà une cochée
+(le squelette fait passer A0), et une garde qui ne neutralise qu'un côté refuse de
+tourner dès la première vague.
+
+Et une case ne se coche qu'après que la commande du critère soit **passée sur `dev`** :
+le compteur est mécanique, jamais une lecture. `afk-app.sh` s'appuie sur le même
+principe — il compte les cases et les tickets ouverts, il ne lit jamais ce qu'une session
+raconte pour décider de continuer.
 
 Le code et les commentaires sont en français — s'y tenir.
 
 ## Commandes
 
 ```bash
+./afk-app.sh -w 4 -j 3   # la boucle autonome : /afk-wave → afk.sh → /afk-merge, ×4
 ./check.sh          # parseurs purs, ~1 s, sans effet de bord
 ./harness.sh        # orchestrateur complet, claude et gh bouchonnés, remote nu local (~1 min)
 bash -n afk.sh      # syntaxe seule (check.sh le fait déjà en premier)
