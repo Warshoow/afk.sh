@@ -1238,7 +1238,7 @@ integration_check() {
 # $CLAUDE_CONFIG_DIR/projects/<cwd de la session, / et . remplacés par ->.
 ctx_of() {
   local t="$1" d
-  d="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$WORKTREE_DIR/$t" | sed 's#[/.]#-#g')"
+  d="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$WORKTREE_DIR/$t" | sed 's#[/._]#-#g')"
   [[ -d "$d" ]] || return 0
   find "$d" -maxdepth 1 -name '*.jsonl' -newer "$RUN_MARKER" -exec cat {} + 2>/dev/null |
     peak_context

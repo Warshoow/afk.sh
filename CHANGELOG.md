@@ -6,6 +6,17 @@ les dates suffisent. Le raisonnement derrière un changement reste dans les
 commentaires de `afk.sh`, à côté du code concerné ; le verdict sur les idées
 proposées est dans [docs/propositions.md](docs/propositions.md).
 
+## 2026-09-13
+
+### Corrigé
+
+- **La colonne « Contexte » du bilan ne s'éteint plus sur un chemin contenant un tiret
+  bas.** `ctx_of` reconstruisait le nom du répertoire de transcripts en remplaçant `/`
+  et `.`, là où Claude Code remplace aussi `_` : sur un `$HOME` comme
+  `/home/jean_dupont`, le répertoire cherché n'existait pas et la colonne rendait `—`
+  sur tous les tickets, sans distinguer « rien trouvé » de « rien à signaler »
+  (défaut 42).
+
 ## 2026-09-09
 
 ### Corrigé

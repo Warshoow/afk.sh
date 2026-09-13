@@ -861,3 +861,28 @@ promet, et le harness l'assure depuis le deuxième run : deux sessions à $0.50 
 **Ce qu'il faut en retenir.** Additionner les lignes `cost=` d'un `.status` compte deux
 fois. Les chiffres cités dans le défaut 38 avaient été obtenus comme ça, et étaient à peu
 près du double.
+
+## 42 — La colonne « Contexte » est vide dès que le chemin du dépôt contient un tiret bas — corrigé
+
+*2026-09-11 · jarvis-project · #148–#152*
+
+**Ce qu'on a vu.** La colonne « Contexte » du bilan à `—` sur les cinq tickets du run, et
+sur les trois du run précédent. Huit tickets de suite sans une seule mesure, alors que la
+légende sous le tableau explique en trois lignes comment la lire, et que `/afk-debrief`
+en fait le premier signal d'un ticket trop gros. Rien dans la sortie ne distingue « aucun
+transcript trouvé » de « ce ticket n'avait rien de remarquable » : les deux s'écrivent `—`.
+
+**La cause.** `ctx_of()` reconstruit le nom du répertoire où Claude Code range les
+transcripts, `$CLAUDE_CONFIG_DIR/projects/<cwd de la session>`, en remplaçant les
+séparateurs du chemin : `sed 's#[/.]#-#g'`. Claude Code remplace aussi le **tiret bas**.
+Ici le worktree est `/home/joffrey_guilmeau/…/.afk/wt/152` : afk cherchait
+`-home-joffrey_guilmeau-…`, le répertoire s'appelait `-home-joffrey-guilmeau-…`. Le
+`[[ -d "$d" ]] || return 0` en tête de la fonction avale l'écart sans un mot. Ça ne
+dépend d'aucun dépôt : n'importe quel nom d'utilisateur ou de répertoire portant un
+tiret bas éteint la colonne partout.
+
+**Ce qu'on en a fait.** Une classe de caractères de plus : `sed 's#[/._]#-#g'`. Vérifié
+en reconstruisant le chemin des cinq worktrees du run, qui tombent tous sur le répertoire
+réel, et en rejouant `peak_context` dessus : 178k, 168k, 147k, 185k, 138k. Le découpage
+du lot était donc juste — aucun ticket au-dessus d'un cinquième de la fenêtre — mais
+c'est une chose qu'on n'a apprise qu'après avoir réparé le thermomètre.
