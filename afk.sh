@@ -1,102 +1,103 @@
 #!/usr/bin/env bash
-# afk.sh — enchaîne /implement sur les tickets ready-for-agent.
+# afk.sh — chains /implement over the ready-for-agent tickets.
 #
-# Un ticket = une session Claude neuve = un worktree = une branche = une PR.
-# L'orchestrateur ne contient aucun LLM : il ordonne, il lance, il vérifie, il
-# pousse, il étiquette. Zéro interaction humaine par défaut.
+# One ticket = one fresh Claude session = one worktree = one branch = one PR.
+# The orchestrator holds no LLM: it orders, it launches, it verifies, it pushes,
+# it labels. Zero human interaction by default.
 #
-# Suppose un repo configuré par /setup-matt-pocock-skills (tracker GitHub) et des
-# tickets produits par /to-tickets — donc porteurs de leurs "Blocked by".
+# Assumes a repo configured by /setup-matt-pocock-skills (GitHub tracker) and
+# tickets produced by /to-tickets — so carrying their "Blocked by".
 #
-# Usage :
-#   ./afk.sh                       # tous les tickets ready-for-agent, en série
-#   ./afk.sh 43 48 49 50           # ceux-là
-#   ./afk.sh -j 3 43 48 49 50      # en parallèle partout où le DAG le permet
-#   ./afk.sh -n 43 48 49 50        # le plan : vagues, bases, piles, gelés
+# Usage:
+#   ./afk.sh                       # every ready-for-agent ticket, in series
+#   ./afk.sh 43 48 49 50           # these ones
+#   ./afk.sh -j 3 43 48 49 50      # in parallel wherever the DAG allows it
+#   ./afk.sh -n 43 48 49 50        # the plan: waves, bases, stacks, frozen
 #
-# En parallèle : les sessions Claude tournent en même temps, la vérification passe
-# une par une (Postgres, ports et RAM sont partagés — voir VERIFY_LOCK).
+# In parallel: the Claude sessions run at the same time, verification runs one at
+# a time (Postgres, ports and RAM are shared — see VERIFY_LOCK).
 
 set -uo pipefail
 
-# ─── Parseurs ─────────────────────────────────────────────────────────────────
-# Purs, en tête : ce sont eux qui décident de l'ordonnancement. Testés par check.sh.
+# ─── Parsers ──────────────────────────────────────────────────────────────────
+# Pure, up top: they are the ones deciding the schedule. Tested by check.sh.
 
-# Vocabulaire de triage réel du repo, depuis la config du plugin.
+# The repo's real triage vocabulary, from the plugin config.
 label_for() {
   awk -F'|' -v role="$1" '$0 ~ "`"role"`" && NF>3 { gsub(/[ `]/,"",$3); print $3; exit }' \
     docs/agents/triage-labels.md 2>/dev/null
 }
 
-# Numéros cités dans la section "Blocked by" d'un corps de ticket, sur stdin.
+# Numbers cited in the "Blocked by" section of a ticket body, on stdin.
 blocked_refs() {
   awk '/^#+ *Blocked by/{f=1;next} /^#+ /{f=0} f||/[Bb]locked by:/' |
-    grep -o '#[0-9]\+' | tr -d '#' || true   # "aucun bloqueur" n'est pas une erreur
+    grep -o '#[0-9]\+' | tr -d '#' || true   # "no blocker" is not an error
 }
 
-# Surcharge propre à un ticket : la première ligne "<Champ>: <valeur>" de son corps, sur
-# stdin. Un seul parseur pour les quatre champs — ils ne diffèrent que par le nom et par
-# ce qu'on accepte comme valeur.
+# A ticket-level override: the first "<Field>: <value>" line of its body, on stdin.
+# One parser for all four fields — they only differ by name and by what counts as a
+# valid value.
 #
-# Ils existent tous pour la même raison : le réglage global a été taillé pour le ticket
-# moyen, et celui qui écrit le ticket est le seul à savoir avant qu'il ne tourne que
-# celui-ci n'est pas moyen.
-#   Verify:  la porte. Sans elle, VERIFY_CMD. C'est la seule façon pour un ticket d'app
-#            de ne pas être gardé par un typecheck de monorepo entier, et pour un ticket
-#            d'aspect d'exiger autre chose qu'une compilation.
-#   Timeout: le budget de temps, au format de timeout(1). Une refonte (migration +
-#            formule + gardes + tests + docs) ne rentre pas dans le gabarit d'un ticket
-#            moyen et se fait couper au milieu.
-#   Model:   le modèle. Une correction de typo n'a pas besoin du modèle d'une refonte.
-#   Effort:  le niveau de réflexion, parmi ceux que claude(1) accepte.
+# They all exist for the same reason: the global setting was cut for the average
+# ticket, and whoever writes the ticket is the only one who knows, before it runs,
+# that this one is not average.
+#   Verify:  the gate. Without it, VERIFY_CMD. It is the only way for an app ticket
+#            not to be guarded by a whole-monorepo typecheck, and for a cross-cutting
+#            ticket to demand more than a compile.
+#   Timeout: the time budget, in timeout(1) format. A rework (migration + formula +
+#            guards + tests + docs) does not fit the average ticket's shape and gets
+#            cut in the middle.
+#   Model:   the model. A typo fix does not need the model of a rework.
+#   Effort:  the thinking level, among those claude(1) accepts.
 #
-# Une valeur qui ne passe pas son motif est IGNORÉE plutôt que passée telle quelle à
-# claude(1) ou timeout(1), qui refuseraient alors de lancer la session — un ticket mal
-# rédigé ne doit pas coûter un run.
+# A value that does not match its pattern is IGNORED rather than passed as-is to
+# claude(1) or timeout(1), which would then refuse to start the session — a badly
+# written ticket must not cost a run.
 #
-# Les motifs vivent ici, pas dans les appels : check.sh source ce fichier et teste donc
-# ceux qu'afk.sh emploie vraiment. Un motif recopié dans le test ne vérifierait que lui-même.
-RE_TIMEOUT='[0-9]+(\.[0-9]+)?[smhd]?'          # le format de timeout(1)
-RE_MODEL='[A-Za-z0-9][A-Za-z0-9._-]*'          # pas une liste de noms connus : elle serait
-                                               # périmée au prochain modèle. Interdit juste
-                                               # ce qui n'est pas un nom (espaces, métacaractères).
-RE_EFFORT='(low|medium|high|xhigh|max)'        # l'ensemble fermé que claude(1) accepte
-RE_VERIFY='[^`]*[^`:[:space:]]'                # une commande ne finit pas par « : » — c'est
-                                               # la forme d'une phrase d'introduction, et c'est
-                                               # celle qui a fini au `bash -c`. Et elle ne garde
-                                               # pas de backtick après le nettoyage : ce qui en
-                                               # garde est de la prose qui CITE des commandes.
-                                               # Prix payé : une commande à substitution
-                                               # `cmd` à l'ancienne est refusée aussi. Elle
-                                               # s'écrit $(cmd) depuis trente ans.
+# The patterns live here, not at the call sites: check.sh sources this file and so
+# tests the ones afk.sh actually uses. A pattern copied into the test would only
+# verify itself.
+RE_TIMEOUT='[0-9]+(\.[0-9]+)?[smhd]?'          # timeout(1)'s format
+RE_MODEL='[A-Za-z0-9][A-Za-z0-9._-]*'          # not a list of known names: it would be
+                                               # stale at the next model. It only rejects
+                                               # what is not a name (spaces, metacharacters).
+RE_EFFORT='(low|medium|high|xhigh|max)'        # the closed set claude(1) accepts
+RE_VERIFY='[^`]*[^`:[:space:]]'                # a command does not end in ":" — that is
+                                               # the shape of an introducing sentence, and
+                                               # that is the one that ended up at `bash -c`.
+                                               # And it keeps no backtick after cleanup:
+                                               # what keeps one is prose that QUOTES
+                                               # commands. Price paid: an old-style `cmd`
+                                               # substitution is refused too. It has been
+                                               # written $(cmd) for thirty years.
 
-# Le nettoyage de la valeur, avant validation :
-#   1. le gras qui suit le « : » — `**Verify:** cmd` laisse ses deux astérisques APRÈS le
-#      deux-points, donc hors de portée du premier sed ;
-#   2. si la valeur COMMENCE par un span backtick, on ne garde que lui. Un ticket bien
-#      rédigé écrit la commande en `code` puis, en français, ce qu'elle ne couvre pas :
-#      la prose est une note pour l'agent, pas une porte. Sans ça la ligne entière partait
-#      au `bash -c`, où le `**` globait sur le cwd.
-#   3. les backticks ne tombent QUE si la valeur est le span tout entier. Une porte qui
-#      commence en français et cite ses commandes au milieu (« à la main, `python -m jarvis
-#      hub` + `npm run dev` : … ») échappe au point 2 — rien à y garder, elle ne commence
-#      pas par un span. Son backtick résiduel est ce qui la fait refuser par `RE_VERIFY`,
-#      et l'effacer aveuglément effaçait la seule trace qui la distingue d'une commande.
-# La forme nue (`Verify: pnpm test`) reste acceptée telle quelle : c'est celle du README.
-meta_line() {   # $1 = nom du champ, $2 = motif de validation (défaut : n'importe quoi)
+# Cleaning the value, before validation:
+#   1. the bold that follows the ":" — `**Verify:** cmd` leaves its two asterisks AFTER
+#      the colon, out of reach of the first sed;
+#   2. if the value STARTS with a backtick span, keep only that span. A well written
+#      ticket writes the command in `code` then, in prose, what it does not cover: the
+#      prose is a note for the agent, not a gate. Without this the whole line went to
+#      `bash -c`, where the `**` globbed over the cwd.
+#   3. backticks are dropped ONLY when the value is the whole span. A gate that starts
+#      in prose and quotes its commands mid-sentence ("by hand, `python -m app hub` +
+#      `npm run dev`: …") escapes point 2 — there is nothing to keep, it does not start
+#      with a span. Its leftover backtick is what makes `RE_VERIFY` reject it, and
+#      erasing it blindly erased the only trace telling it apart from a command.
+# The bare form (`Verify: pnpm test`) stays accepted as-is: it is the README's.
+meta_line() {   # $1 = field name, $2 = validation pattern (default: anything)
   sed -n -E "s/^[[:space:]>*+-]*[\`*]*$1[\`*]*[[:space:]]*:[[:space:]]*//Ip" |
     sed -E 's/^[*_[:space:]]+//; s/^(`[^`]+`).*$/\1/; s/^`([^`]*)`$/\1/; s/[[:space:]]+$//' |
     awk 'NF{print; exit}' |
-    grep -Ex -- "${2:-.+}" || true   # absent ou mal formé : pas une erreur
+    grep -Ex -- "${2:-.+}" || true   # missing or malformed: not an error
 }
 
-# Base d'une PR empilée : parmi les branches des bloqueurs déjà livrés, celle qui
-# contient déjà toutes les autres. L'ordre de listage de l'API n'est pas topologique
-# — prendre la dernière ne marchait que par chance. Si aucune ne domine (frères
-# indépendants) ou si une branche manque, on retombe sur la dernière.
-# Les candidats ne sont plus tous des branches locales : une base peut être un ref
-# distant (origin/<base>, ou la branche d'un bloqueur livré hors run), d'où le
-# committish plutôt que refs/heads/.
+# Base of a stacked PR: among the branches of the blockers already delivered, the one
+# that already contains all the others. The API's listing order is not topological —
+# taking the last one only worked by luck. If none dominates (independent siblings) or
+# if a branch is missing, fall back to the last one.
+# Candidates are no longer all local branches: a base can be a remote ref
+# (origin/<base>, or the branch of a blocker delivered outside the run), hence the
+# committish rather than refs/heads/.
 deepest_branch() {
   local b o ok last="${!#}"
   for b in "$@"; do
@@ -113,14 +114,14 @@ deepest_branch() {
   echo "$last"
 }
 
-# Contexte maximal atteint par une session, depuis son transcript JSONL sur stdin.
-# Une session neuve garantit un départ propre, pas une arrivée propre : avec une
-# fenêtre de 1M rien ne compacte, et la session grossit jusqu'à finir le ticket.
-# C'est donc le thermomètre du découpage — un ticket qui frôle la fenêtre était trop
-# gros, et ça se voit avant que la qualité ne se dégrade.
-# Le contexte d'une requête = frais + écrit au cache + lu au cache ; on garde le max.
-# Rien à parser en JSON : les trois clés sont cherchées telles quelles, le guillemet
-# ouvrant suffit à distinguer "input_tokens" de "cache_read_input_tokens".
+# Peak context reached by a session, from its JSONL transcript on stdin.
+# A fresh session guarantees a clean start, not a clean finish: with a 1M window
+# nothing compacts, and the session grows until the ticket is done.
+# So it is the thermometer of the slicing — a ticket that brushes the window was too
+# big, and it shows before quality degrades.
+# A request's context = fresh + written to cache + read from cache; keep the max.
+# Nothing to parse as JSON: the three keys are searched literally, the opening quote
+# is enough to tell "input_tokens" from "cache_read_input_tokens".
 peak_context() {
   awk '
     function num(line, re,   m) {
@@ -138,41 +139,42 @@ peak_context() {
   '
 }
 
-# Un champ de l'objet rendu par `claude -p --output-format json`, sur stdin. Pas de jq :
-# une seule clé cherchée telle quelle, comme peak_context — et la sortie d'erreur de la
-# session atterrit dans le même fichier, donc un parseur JSON strict refuserait de le
-# lire. Les clés visées (session_id, subtype, is_error, total_cost_usd) précèdent toutes
-# le champ "result", qui est du texte libre : le premier match est le bon.
-jval() {   # nom de la clé
+# One field of the object returned by `claude -p --output-format json`, on stdin. No jq:
+# a single key searched literally, like peak_context — and the session's error output
+# lands in the same file, so a strict JSON parser would refuse to read it. The targeted
+# keys (session_id, subtype, is_error, total_cost_usd) all precede the "result" field,
+# which is free text: the first match is the right one.
+jval() {   # key name
   grep -o "\"$1\":\"\?[^,\"}]*" | head -1 | cut -d: -f2- | tr -d '"'
 }
 
-# Les modèles réellement utilisés par la session — une entrée "canonicalModel" par
-# modèle dans modelUsage. C'est ce qui rend FALLBACK_MODEL visible : un repli change le
-# modèle sans rien dire, et une nuit entière peut basculer sur le secours.
+# The models actually used by the session — one "canonicalModel" entry per model in
+# modelUsage. This is what makes FALLBACK_MODEL visible: a fallback changes the model
+# without saying so, and a whole night can swing onto the backup.
 jmodels() {
   grep -o '"canonicalModel":"[^"]*"' | cut -d'"' -f4 | sed 's/^claude-//' | sort -u |
     paste -sd' ' -
 }
 
-# Combien de sous-agents la session a lancés. C'est ce qui rend la colonne « Modèle »
-# lisible (défaut 41) : `modelUsage` agrège la session ET ses sous-agents, qui portent le
-# modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket. Un second
-# modèle se lisait donc comme un repli, alors qu'il venait d'une revue lancée par la
-# session. `spawned_by_subagents` ne matche pas : le motif exige `":` après le nom.
+# How many subagents the session spawned. This is what makes the "Model" column
+# readable (defect 41): `modelUsage` aggregates the session AND its subagents, which
+# carry the model of their definition (`.claude/agents/*.md`) and not the ticket's. A
+# second model therefore read as a fallback, when it came from a review the session
+# launched. `spawned_by_subagents` does not match: the pattern requires `":` after the
+# name.
 jspawned() {
   grep -o '"spawned":[0-9]*' | head -1 | cut -d: -f2
 }
 
-# Numéros pris deux fois. Reçoit des chemins sur stdin (les fichiers AJOUTÉS par les
-# branches d'un run) et rend une ligne par collision : même répertoire, même préfixe
-# numérique de tête, plusieurs fichiers différents.
+# Numbers taken twice. Receives paths on stdin (the files ADDED by a run's branches)
+# and returns one line per clash: same directory, same leading numeric prefix, several
+# different files.
 #
-# Ça n'a l'air de rien et c'est un angle mort entier : un ADR `0018-…`, une migration
-# `1768621000034_…` — le numéro est un espace de noms PARTAGÉ, et chaque worktree part de
-# la base sans voir ses voisins, donc chaque agent prend le numéro libre qu'il voit et il
-# a raison. Les noms de fichiers diffèrent → git ne voit aucun conflit ; ça compile ; les
-# tests passent. Aucune porte ne peut le dire, seule la combinaison des branches peut.
+# It looks like nothing and it is a whole blind spot: an ADR `0018-…`, a migration
+# `1768621000034_…` — the number is a SHARED namespace, and each worktree starts from
+# the base without seeing its neighbours, so each agent takes the free number it sees
+# and is right. The file names differ → git sees no conflict; it compiles; the tests
+# pass. No gate can say it, only the combination of the branches can.
 clashing_numbers() {
   sort -u | awk '
     {
@@ -187,19 +189,19 @@ clashing_numbers() {
     END {
       for (k in g) if (c[k] > 1) {
         split(k, kk, "|")
-        printf "%s* dans %s : %s\n", kk[2], (kk[1] == "" ? "./" : kk[1]), g[k]
+        printf "%s* in %s: %s\n", kk[2], (kk[1] == "" ? "./" : kk[1]), g[k]
       }
     }' | sort
 }
 
-[[ -n "${AFK_LIB:-}" ]] && return 0   # sourcé par check.sh
+[[ -n "${AFK_LIB:-}" ]] && return 0   # sourced by check.sh
 
-cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "pas un repo git"; exit 1; }
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
 
 # ─── Arguments ────────────────────────────────────────────────────────────────
 
 usage() {
-  sed -n '3,20p' "$0" | sed 's/^# \?//'
+  sed -n '3,18p' "$0" | sed 's/^# \?//'
 }
 
 ARGV=()
@@ -209,30 +211,30 @@ while (( $# )); do
     --jobs=*)     JOBS="${1#*=}"; shift ;;
     -n|--dry-run) DRY_RUN=1; shift ;;
     -h|--help)    usage; exit 0 ;;
-    -*)           echo "option inconnue : $1"; usage; exit 1 ;;
+    -*)           echo "unknown option: $1"; usage; exit 1 ;;
     *)            ARGV+=("$1"); shift ;;
   esac
 done
 
-# ─── Config du projet ─────────────────────────────────────────────────────────
-# Les défauts ci-dessous sont taillés pour un monorepo pnpm. Un repo Python, PHP ou
-# Rust n'a pas la même définition de "fini" — et même sur un repo npm, `npm test`
-# ouvre souvent un watcher qui ne rend jamais la main (vitest sans `run`) : le ticket
-# meurt alors sur TIMEOUT, pour une raison qui n'a rien à voir avec son contenu.
-# Le projet déclare donc lui-même sa porte, dans un fichier versionné à côté de son
-# code — là où vit la vraie définition de "fini", pas dans la ligne de commande.
-# Sourcé APRÈS les arguments : la ligne de commande garde le dernier mot.
-# Même surface de confiance que les lignes "Verify:" d'un ticket : c'est du shell du
-# repo, exécuté tel quel.
-[[ -f .afk.env ]] && { echo "· config du projet : .afk.env"; source ./.afk.env; }
+# ─── Project config ───────────────────────────────────────────────────────────
+# The defaults below are cut for a pnpm monorepo. A Python, PHP or Rust repo does not
+# have the same definition of "done" — and even on an npm repo, `npm test` often opens
+# a watcher that never returns (vitest without `run`): the ticket then dies on TIMEOUT,
+# for a reason that has nothing to do with its content.
+# So the project declares its own gate, in a versioned file next to its code — where
+# the real definition of "done" lives, not on the command line.
+# Sourced AFTER the arguments: the command line keeps the last word.
+# Same trust surface as a ticket's "Verify:" lines: it is shell from the repo, executed
+# as-is.
+[[ -f .afk.env ]] && { echo "· project config: .afk.env"; source ./.afk.env; }
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-# Les skills mattpocock doivent exister DANS la session headless : même config dir
-# que ta session interactive, sinon /implement n'est pas résolu. On prend le premier
-# répertoire qui contient réellement le plugin, au lieu d'un défaut en dur : dans un
-# devcontainer, le HOME du conteneur n'est pas celui où la config de l'hôte est montée
-# ($HOME=/home/node, config sur /home/<user>/.claude).
+# The mattpocock skills must exist INSIDE the headless session: same config dir as
+# your interactive session, otherwise /implement is not resolved. We take the first
+# directory that really contains the plugin, instead of a hardcoded default: in a
+# devcontainer, the container's HOME is not the one where the host config is mounted
+# ($HOME=/home/node, config under /home/<user>/.claude).
 CLAUDE_CONFIG_CANDIDATES=("$HOME"/.claude /home/*/.claude)
 if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
   for d in "${CLAUDE_CONFIG_CANDIDATES[@]}"; do
@@ -241,85 +243,85 @@ if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
 fi
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
-MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 essai + 1 reprise, en session neuve
-TIMEOUT="${TIMEOUT:-45m}"                # garde-fou : borne un run (pas de --max-turns en 2.1.x)
-                                         # surchargeable par ticket : ligne "Timeout:" du corps
-CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # attente de la CI ; 0 = ne pas consulter
-CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # secondes avant de réessayer un « no checks » (cf. ci_phase)
-INTEGRATION="${INTEGRATION:-1}"          # passe d'intégration des branches vertes en fin de run
-CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-0}"  # 0 = jamais de pause. C'est un outil non surveillé.
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 attempt + 1 retry, in a fresh session
+TIMEOUT="${TIMEOUT:-45m}"                # guard rail: bounds a run (no --max-turns in 2.1.x)
+                                         # overridable per ticket: "Timeout:" line of the body
+CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # how long we wait for CI; 0 = do not consult it
+CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # seconds before retrying a "no checks" (see ci_phase)
+INTEGRATION="${INTEGRATION:-1}"          # integration pass over the green branches at the end
+CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-0}"  # 0 = never pause. This is an unattended tool.
 
-# Le modèle et le niveau de réflexion des sessions. Vides = les défauts de claude(1).
-# Surchargeables par ticket : lignes "Model:" et "Effort:" du corps.
+# The sessions' model and thinking level. Empty = claude(1)'s defaults.
+# Overridable per ticket: "Model:" and "Effort:" lines of the body.
 MODEL="${MODEL:-}"
 EFFORT="${EFFORT:-}"
 
-# Un run AFK n'a personne devant lui. Sans repli, une indisponibilité passagère du
-# modèle sort la session en erreur, le ticket brûle ses deux essais en quelques
-# secondes et part en ready-for-human — pour une raison qui n'a rien à voir avec lui,
-# et la file entière y passe. --fallback-model ne marche qu'avec --print, donc
-# exactement ici. Le repli est visible : le bilan donne le modèle qui a réellement
-# tourné, ticket par ticket. Vide = pas de repli.
+# An AFK run has nobody in front of it. Without a fallback, a transient model outage
+# errors the session out, the ticket burns both attempts in a few seconds and goes to
+# ready-for-human — for a reason that has nothing to do with it, and the whole queue
+# follows. --fallback-model only works with --print, so exactly here. The fallback is
+# visible: the summary gives the model that actually ran, ticket by ticket. Empty = no
+# fallback.
 FALLBACK_MODEL="${FALLBACK_MODEL:-sonnet}"
 
-# Un bloqueur livré à la main — PR ouverte, pas encore mergée — n'est ni "dans le run"
-# ni "fermé" : il gelait ses dépendants jusqu'à son merge, alors que sa branche est
-# poussée et lisible. On empile dessus comme sur un bloqueur livré par le run. La PR
-# ciblera cette branche, pas BASE_BRANCH : c'est le prix, et c'est le même que pour
-# n'importe quelle PR empilée.
+# A blocker delivered by hand — PR open, not merged yet — is neither "in the run" nor
+# "closed": it froze its dependants until it merged, although its branch is pushed and
+# readable. We stack on it like on a blocker delivered by the run. The PR will target
+# that branch, not BASE_BRANCH: that is the price, and it is the same as for any
+# stacked PR.
 STACK_ON_OPEN_PR="${STACK_ON_OPEN_PR:-1}"
 
-# Un ticket déjà in-review a sa PR ouverte : le relancer en ouvrirait une seconde sur
-# la même branche. Le listing par label ne peut pas les ramener, une liste explicite si.
+# A ticket already in-review has its PR open: running it again would open a second one
+# on the same branch. Listing by label cannot bring them back, an explicit list can.
 ALLOW_REVIEW="${ALLOW_REVIEW:-0}"
 
-# Parallélisme. Un ticket par worktree : deux agents dans le même arbre de travail
-# se piétinent. Le DAG des bloqueurs est respecté — un ticket empilé attend le sien.
+# Parallelism. One ticket per worktree: two agents in the same working tree trample
+# each other. The blocker DAG is respected — a stacked ticket waits for its own.
 JOBS="${JOBS:-1}"
 [[ "$JOBS" == "auto" ]] && { JOBS=$(( $(nproc 2>/dev/null || echo 4) / 4 )); (( JOBS < 1 )) && JOBS=1; (( JOBS > 4 )) && JOBS=4; }
 
-# La vérification tient des ressources qu'on ne peut pas dupliquer : le Postgres de
-# test, les ports, et la RAM d'un turbo typecheck. Les sessions Claude, elles, ne
-# partagent rien. Donc : agents en parallèle, vérifications en file d'attente.
+# Verification holds resources that cannot be duplicated: the test Postgres, the ports,
+# and the RAM of a turbo typecheck. The Claude sessions, on the other hand, share
+# nothing. So: agents in parallel, verifications queued.
 VERIFY_LOCK="${VERIFY_LOCK:-1}"
 
-# La vérification. Externe à l'agent : c'est toi qui notes sa copie, pas lui.
+# Verification. External to the agent: you grade its work, it does not.
 VERIFY_CMD="${VERIFY_CMD:-pnpm typecheck && pnpm test && pnpm lint}"
 
-# La porte de la passe d'intégration. Par défaut la même, mais séparable — parce que c'est
-# le seul verdict du run qui doit être digne de confiance, et qu'un cache de build peut le
-# rendre creux : un outil qui hache les fichiers SUIVIS PAR GIT ne voit pas les fichiers
-# générés et gitignorés, donc un worktree qui ne les a pas produit la même empreinte que
-# l'arbre principal qui les a → cache hit, logs rejoués, rien d'exécuté. La porte affiche
-# un ✓ sans avoir compilé une ligne, et ce faux vert voyage d'un worktree à l'autre quand
-# le cache est partagé. Un projet peut donc demander ici la forme non cachée
-# (`turbo … --force`, `pytest -p no:cacheprovider`, …), qu'on ne veut pas payer à chaque
-# ticket mais qu'on veut une fois, sur la combinaison.
+# The integration pass's gate. The same one by default, but separable — because it is
+# the only verdict of the run that has to be trustworthy, and a build cache can make it
+# hollow: a tool that hashes the files TRACKED BY GIT does not see generated, gitignored
+# files, so a worktree that has not produced them yields the same fingerprint as the
+# main tree that has → cache hit, logs replayed, nothing executed. The gate prints a ✓
+# without compiling a line, and that false green travels from worktree to worktree when
+# the cache is shared. So a project can ask here for the uncached form (`turbo … --force`,
+# `pytest -p no:cacheprovider`, …), which we do not want to pay per ticket but do want
+# once, on the combination.
 INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-$VERIFY_CMD}"
 
-# Chemins qui comptent comme "décision capturée". Un monorepo multi-contextes range
-# ses glossaires et ses ADR par app, pas seulement à la racine.
+# Paths that count as "decision captured". A multi-context monorepo keeps its glossaries
+# and ADRs per app, not only at the root.
 MEMORY_RE="${MEMORY_RE:-^(CONTEXT(-MAP)?\.md|(apps|packages)/[^/]+/CONTEXT\.md|docs/adr/|(apps|packages)/[^/]+/docs/adr/)}"
 
 REPO_ROOT="$PWD"
-# Le dépôt d'afk lui-même, qui n'est PAS le dépôt travaillé : le script est monté dans
-# les devcontainers et lancé depuis n'importe quel projet. `$PWD` est le projet,
-# `$AFK_HOME` est afk — le seul endroit qui survive d'un projet à l'autre, et donc le
-# seul où un journal puisse s'accumuler. `readlink -f` parce que le script est souvent
-# atteint par un lien. Surchargeable : harness.sh le détourne pour ne pas écrire dans
-# le vrai dépôt pendant ses tests.
+# afk's own repo, which is NOT the repo being worked on: the script is mounted into the
+# devcontainers and launched from any project. `$PWD` is the project, `$AFK_HOME` is afk
+# — the only place that survives from one project to the next, and so the only one where
+# a log can accumulate. `readlink -f` because the script is often reached through a
+# symlink. Overridable: harness.sh redirects it so it does not write into the real repo
+# during its tests.
 AFK_HOME="${AFK_HOME:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)}"
-AFK_DIR="$REPO_ROOT/.afk"                 # logs et worktrees, auto-ignorés
+AFK_DIR="$REPO_ROOT/.afk"                 # logs and worktrees, self-ignored
 WORKTREE_DIR="${WORKTREE_DIR:-$AFK_DIR/wt}"
-KEEP_WORKTREES="${KEEP_WORKTREES:-0}"    # les worktrees des échecs sont gardés d'office
+KEEP_WORKTREES="${KEEP_WORKTREES:-0}"    # failed tickets' worktrees are kept regardless
 DRY_RUN="${DRY_RUN:-0}"
 
-# Un worktree neuf ne contient que les fichiers suivis. Les .env sont gitignorés et
-# le backend ne démarre pas sans : sans ce semis, la vérification échoue dans un
-# worktree pour une raison qui n'a rien à voir avec le ticket.
+# A fresh worktree only contains tracked files. The .env files are gitignored and the
+# backend does not start without them: without this seeding, verification fails in a
+# worktree for a reason that has nothing to do with the ticket.
 SEED_GLOBS="${SEED_GLOBS:-.env .env.local apps/*/.env apps/*/.env.local packages/*/.env}"
 
-# Installer les dépendances du worktree. "auto" = déduit du lockfile.
+# Install the worktree's dependencies. "auto" = deduced from the lockfile.
 SETUP_CMD="${SETUP_CMD:-auto}"
 if [[ "$SETUP_CMD" == "auto" ]]; then
   if   [[ -f pnpm-lock.yaml   ]]; then SETUP_CMD="pnpm install --frozen-lockfile --prefer-offline"
@@ -330,52 +332,52 @@ fi
 
 LABEL="${LABEL:-$(label_for ready-for-agent)}";  LABEL="${LABEL:-ready-for-agent}"
 LABEL_KO="${LABEL_KO:-$(label_for ready-for-human)}"; LABEL_KO="${LABEL_KO:-ready-for-human}"
-# Livré, PR ouverte, en attente d'un humain. Sans cet état, un ticket dont la PR est
-# refusée perd son label et n'est plus repris par personne.
+# Delivered, PR open, waiting for a human. Without this state, a ticket whose PR is
+# rejected loses its label and is picked up by nobody.
 LABEL_REVIEW="${LABEL_REVIEW:-$(label_for in-review)}"; LABEL_REVIEW="${LABEL_REVIEW:-in-review}"
 
 BASE_BRANCH="${BASE_BRANCH:-$(git symbolic-ref -q --short refs/remotes/origin/HEAD | cut -d/ -f2-)}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
-# Les worktrees partent du ref DISTANT, jamais de la branche locale : l'arbre
-# principal n'est ni checkout, ni pull, ni reset. Tu peux continuer à bosser
-# dedans, sur la branche que tu veux, pendant qu'un run tourne.
-# BASE_BRANCH reste le nom de branche — c'est la cible des PR.
+# Worktrees start from the REMOTE ref, never from the local branch: the main tree is
+# never checked out, pulled or reset. You can keep working in it, on whatever branch
+# you like, while a run is going.
+# BASE_BRANCH stays the branch name — it is the PRs' target.
 BASE_REF="origin/${BASE_BRANCH}"
 
-# ─── Garde-fous ───────────────────────────────────────────────────────────────
+# ─── Guard rails ──────────────────────────────────────────────────────────────
 
 for bin in claude gh git timeout; do
-  command -v "$bin" >/dev/null || { echo "manque : $bin"; exit 1; }
+  command -v "$bin" >/dev/null || { echo "missing: $bin"; exit 1; }
 done
 
 [[ -f docs/agents/issue-tracker.md ]] || {
-  echo "docs/agents/issue-tracker.md absent — lance /setup-matt-pocock-skills d'abord"; exit 1; }
+  echo "docs/agents/issue-tracker.md missing — run /setup-matt-pocock-skills first"; exit 1; }
 grep -qi 'github' docs/agents/issue-tracker.md || {
-  echo "tracker non-GitHub — ce script parle gh(1)"; exit 1; }
+  echo "non-GitHub tracker — this script speaks gh(1)"; exit 1; }
 [[ -d "$CLAUDE_CONFIG_DIR/plugins/cache/mattpocock" ]] || {
-  echo "plugin mattpocock introuvable dans $CLAUDE_CONFIG_DIR — /implement ne sera pas résolu"
-  echo "  cherché dans : ${CLAUDE_CONFIG_CANDIDATES[*]}"
-  echo "  force-le : CLAUDE_CONFIG_DIR=/chemin/vers/.claude $0 …"; exit 1; }
+  echo "mattpocock plugin not found in $CLAUDE_CONFIG_DIR — /implement will not resolve"
+  echo "  looked in: ${CLAUDE_CONFIG_CANDIDATES[*]}"
+  echo "  force it: CLAUDE_CONFIG_DIR=/path/to/.claude $0 …"; exit 1; }
 
-# Mémoire de projet : racine mono-contexte, ou carte + contextes par app.
+# Project memory: single-context root, or map + per-app contexts.
 memory_present() {
   [[ -f CONTEXT.md || -f CONTEXT-MAP.md || -d docs/adr ]] && return 0
   compgen -G '*/*/CONTEXT.md' >/dev/null
 }
-memory_present || echo "⚠  ni CONTEXT.md, ni CONTEXT-MAP.md, ni docs/adr/ — les agents n'auront aucune mémoire de projet"
+memory_present || echo "⚠  no CONTEXT.md, no CONTEXT-MAP.md, no docs/adr/ — the agents will have no project memory"
 
 (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && ! command -v flock >/dev/null && {
-  echo "⚠  flock absent : les vérifications tourneront en parallèle (Postgres et ports partagés)"; }
+  echo "⚠  flock missing: verifications will run in parallel (shared Postgres and ports)"; }
 
-# ─── Utilitaires ──────────────────────────────────────────────────────────────
+# ─── Utilities ────────────────────────────────────────────────────────────────
 
 fmt_dur() { local n=${1:-0}; printf '%dm%02ds' $(( n / 60 )) $(( n % 60 )); }
 
-# Statut d'un ticket : le worker tourne dans un sous-shell, il ne peut rien écrire
-# dans les tableaux du parent. Il dépose des lignes clé=valeur, le parent les relit.
+# A ticket's status: the worker runs in a subshell, it cannot write anything into the
+# parent's arrays. It drops key=value lines, the parent reads them back.
 sget() { grep -E "^$2=" "$AFK_DIR/$1.status" 2>/dev/null | tail -1 | cut -d= -f2-; }
 
-# Sérialise une commande derrière un verrou nommé, si on est en parallèle.
+# Serialise a command behind a named lock, when running in parallel.
 locked() {
   local name="$1"; shift
   if (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && command -v flock >/dev/null; then
@@ -385,17 +387,17 @@ locked() {
   fi
 }
 
-# ─── Git sans clavier ─────────────────────────────────────────────────────────
-# Le remote est en SSH, la clé porte une passphrase, et aucun ssh-agent ne tourne
-# dans le conteneur : chaque pull et chaque push réclamaient le clavier — dans un
-# outil qui veut dire "away from keyboard". Pire, en détaché le push dormait sans
-# rien afficher, indiscernable d'un ticket qui prend du temps.
-# On réécrit github.com en HTTPS pour la durée du run et on sert le token gh, déjà
-# authentifié et sans passphrase, via son propre credential helper. Rien n'est écrit
-# dans .git/config : le token ne touche jamais le disque.
+# ─── Git without a keyboard ───────────────────────────────────────────────────
+# The remote is on SSH, the key has a passphrase, and no ssh-agent runs in the
+# container: every pull and every push asked for the keyboard — in a tool that means
+# to say "away from keyboard". Worse, detached, the push slept without printing
+# anything, indistinguishable from a ticket taking its time.
+# We rewrite github.com to HTTPS for the duration of the run and serve gh's token,
+# already authenticated and passphrase-free, through its own credential helper.
+# Nothing is written into .git/config: the token never touches the disk.
 setup_git_auth() {
   gh auth token >/dev/null 2>&1 || {
-    echo "⚠  pas de token gh (gh auth login) — git restera en SSH et pourra réclamer une passphrase"
+    echo "⚠  no gh token (gh auth login) — git stays on SSH and may ask for a passphrase"
     return; }
   export GIT_TERMINAL_PROMPT=0
   export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}"
@@ -407,57 +409,57 @@ setup_git_auth() {
 }
 
 # ─── Labels ───────────────────────────────────────────────────────────────────
-# Un --add-label sur un label inexistant échoue. Avalée, l'erreur faisait perdre
-# ready-for-agent à un ticket abandonné sans rien lui donner en échange : invisible
-# de la requête de l'orchestrateur ET de celle d'un humain.
+# A --add-label on a non-existent label fails. Swallowed, the error made an abandoned
+# ticket lose ready-for-agent without giving it anything in exchange: invisible to the
+# orchestrator's query AND to a human's.
 
 ensure_label() {
   local name="$1" desc="$2"
   grep -qx -- "$name" <<<"$KNOWN_LABELS" && return 0
   if gh label create "$name" --description "$desc" >/dev/null 2>&1; then
-    echo "  · label ${name} créé"
+    echo "  · label ${name} created"
     KNOWN_LABELS+=$'\n'"$name"
   else
-    echo "⚠  label ${name} absent et non créable — l'étiquetage échouera"
+    echo "⚠  label ${name} missing and not creatable — labelling will fail"
   fi
 }
 
-relabel() {   # ticket, label retiré, label ajouté
+relabel() {   # ticket, label removed, label added
   local t="$1" old="$2" new="$3" err
   err=$(gh issue edit "$t" --remove-label "$old" --add-label "$new" 2>&1 >/dev/null) ||
-    echo "  ⚠  étiquetage #${t} (${old} → ${new}) a échoué : ${err}"
+    echo "  ⚠  labelling #${t} (${old} → ${new}) failed: ${err}"
 }
 
-# ─── Le prompt ────────────────────────────────────────────────────────────────
-# Court par construction. Si un ticket a besoin de plus pour être compris seul,
-# c'est le découpage qui est mauvais, pas le prompt qui est trop maigre.
+# ─── The prompt ───────────────────────────────────────────────────────────────
+# Short by construction. If a ticket needs more to be understood on its own, the
+# slicing is wrong, not the prompt too thin.
 
-# Ce que les bloqueurs ont déjà livré. Le worktree part de LEUR branche (cf. launch),
-# donc leur travail est déjà sur le disque ici — mais rien ne le dit à l'agent, qui
-# démarre en session neuve. Deux dégâts, tous les deux vus : il refait un travail déjà
-# fait (le ticket « absorbé » brûle ses deux essais à le redécouvrir seul), et il
-# renomme au passage un contrat typé qu'il vient d'hériter, parce qu'il n'a pas lu
-# l'ADR que son prédécesseur venait d'écrire pour lui.
-# Aucun fichier à produire, aucun format à imposer à l'agent : le prédécesseur commite
-# déjà ses décisions (voir la consigne CONTEXT.md/ADR ci-dessous), et le DAG sert de
-# filtre — la base ne contient que les ancêtres de ce ticket, rien d'autre du run.
-# L'argument est le HEAD d'AVANT la session : à l'essai 2, HEAD porte déjà le travail
-# de l'agent, qui n'a rien à apprendre de lui-même.
-inherited_note() {   # committish hérité
+# What the blockers already delivered. The worktree starts from THEIR branch (see
+# launch), so their work is already on disk here — but nothing tells the agent, and it
+# starts in a fresh session. Two kinds of damage, both seen in the wild: it redoes work
+# already done (the "absorbed" ticket burns both attempts rediscovering it alone), and
+# it renames on the way a typed contract it just inherited, because it did not read the
+# ADR its predecessor had just written for it.
+# No file to produce, no format to impose on the agent: the predecessor already commits
+# its decisions (see the CONTEXT.md/ADR instruction below), and the DAG acts as a
+# filter — the base only contains this ticket's ancestors, nothing else from the run.
+# The argument is the HEAD from BEFORE the session: on attempt 2, HEAD already carries
+# the agent's own work, which it has nothing to learn from.
+inherited_note() {   # inherited committish
   local files mem n
   files=$(git diff --name-only "$BASE_REF...$1" 2>/dev/null)
   [[ -z "$files" ]] && return 0
   n=$(wc -l <<<"$files")
 
-  printf '\n--- HÉRITÉ DE TES BLOQUEURS ---\n'
-  printf 'Ta base porte déjà leur travail (%d fichier(s)). Si un critère de ton ticket y\n' "$n"
-  printf 'est déjà satisfait, tu le signales et tu ne le réécris pas.\n'
+  printf '\n--- INHERITED FROM YOUR BLOCKERS ---\n'
+  printf 'Your base already carries their work (%d file(s)). If one of your ticket'"'"'s\n' "$n"
+  printf 'criteria is already satisfied there, say so and do not rewrite it.\n'
   mem=$(grep -E "$MEMORY_RE" <<<"$files")
   [[ -n "$mem" ]] &&
-    printf '\nLeurs décisions, à lire AVANT de coder :\n%s\n' "$(sed 's|^|  - |' <<<"$mem")"
-  printf '\nFichiers déjà touchés :\n%s\n' "$(head -n 30 <<<"$files" | sed 's|^|  - |')"
+    printf '\nTheir decisions, to read BEFORE coding:\n%s\n' "$(sed 's|^|  - |' <<<"$mem")"
+  printf '\nFiles already touched:\n%s\n' "$(head -n 30 <<<"$files" | sed 's|^|  - |')"
   (( n > 30 )) &&
-    printf '  … et %d autres : git diff --name-only %s...%s\n' "$(( n - 30 ))" "$BASE_REF" "$1"
+    printf '  … and %d more: git diff --name-only %s...%s\n' "$(( n - 30 ))" "$BASE_REF" "$1"
   return 0
 }
 
@@ -465,35 +467,36 @@ build_prompt() {
   local ticket="$1" attempt="$2" verify="$3" inherited="$4"
 
   cat <<EOF
-/implement le ticket GitHub #${ticket}.
+/implement GitHub ticket #${ticket}.
 
-Session neuve, aucun historique.
+Fresh session, no history.
 
-- Lis le ticket : gh issue view ${ticket} --comments. Il fait autorité — tu ne
-  modifies pas ses critères d'acceptation pour les faire passer.
-- Le repo est configuré par /setup-matt-pocock-skills : CLAUDE.md, docs/agents/*.md,
-  CONTEXT-MAP.md, les CONTEXT.md de chaque contexte et les ADR (docs/adr/ et
-  <contexte>/docs/adr/) sont la mémoire du projet. Tu t'y conformes.
-- Tu restes dans le périmètre du ticket. Aucun fichier hors sujet.
-- Fini = cette commande passe au vert : ${verify}
-- Si tenir le périmètre rend cette commande inatteignable (contrat typé qui traverse
-  les apps, par exemple), fais le strict minimum hors périmètre pour la rendre verte
-  et dis-le dans une ADR : c'est le découpage du ticket qui était faux, pas toi.
-- Toute décision non triviale prise en route (architecture, convention, contrainte
-  découverte, dette assumée) va dans un CONTEXT.md ou une ADR, AVANT de sortir.
-  La session suivante ne saura rien de ce run.
-- Tu commit sur la branche courante, déjà créée. Tu ne push pas, tu n'ouvres pas
-  de PR, tu ne touches pas aux labels : c'est le job de l'orchestrateur.
-- Si tu ne commit RIEN, ta dernière ligne dit lequel des deux cas c'est, à l'identique :
-  "AFK: DEJA LIVRE" — les critères du ticket sont déjà satisfaits dans cette base, il
-  n'y a rien à écrire ; ou "AFK: BLOQUE <ce qui manque>" — il est trop tôt, un prérequis
-  n'est pas dans cette base. Sans cette ligne l'orchestrateur tranche seul, avec la seule
-  chose qu'il sache faire — passer la porte sur la base — et il conclut "déjà livré".
-- Tu ne lances pas la vérification toi-même : l'orchestrateur la passe après toi. La
-  lancer, c'est la faire tourner deux fois — et une session qui rend son tour en
-  l'attendant se termine sans avoir commité.
-- D'autres tickets tournent peut-être en parallèle dans d'autres worktrees. Tu ne
-  regardes qu'ici, tu ne touches à aucune autre branche.
+- Read the ticket: gh issue view ${ticket} --comments. It is authoritative — you do
+  not change its acceptance criteria to make them pass.
+- The repo is configured by /setup-matt-pocock-skills: CLAUDE.md, docs/agents/*.md,
+  CONTEXT-MAP.md, each context's CONTEXT.md and the ADRs (docs/adr/ and
+  <context>/docs/adr/) are the project's memory. You conform to them.
+- You stay within the ticket's scope. No off-topic files.
+- Done = this command goes green: ${verify}
+- If holding the scope makes that command unreachable (a typed contract crossing the
+  apps, for instance), do the strict minimum outside the scope to make it green and
+  say so in an ADR: it is the ticket's slicing that was wrong, not you.
+- Every non-trivial decision taken on the way (architecture, convention, constraint
+  discovered, debt accepted) goes into a CONTEXT.md or an ADR, BEFORE you finish.
+  The next session will know nothing of this run.
+- You commit on the current branch, already created. You do not push, you do not open
+  a PR, you do not touch the labels: that is the orchestrator's job.
+- If you commit NOTHING, your last line says which of the two cases it is, verbatim:
+  "AFK: ALREADY DONE" — the ticket's criteria are already satisfied in this base,
+  there is nothing to write; or "AFK: BLOCKED <what is missing>" — it is too early, a
+  prerequisite is not in this base. Without that line the orchestrator decides alone,
+  with the only thing it knows how to do — run the gate on the base — and concludes
+  "already done".
+- You do not run the verification yourself: the orchestrator runs it after you.
+  Running it means running it twice — and a session that yields its turn waiting for
+  it finishes without having committed.
+- Other tickets may be running in parallel in other worktrees. You only look here, you
+  touch no other branch.
 EOF
 
   inherited_note "$inherited"
@@ -501,33 +504,33 @@ EOF
   if [[ "$attempt" -gt 1 ]]; then
     cat <<EOF
 
---- REPRISE (essai ${attempt}) ---
-Une tentative précédente a échoué à la vérification. Sortie de l'échec :
+--- RETRY (attempt ${attempt}) ---
+A previous attempt failed verification. Output of the failure:
 
-$(tail -n 60 "${AFK_DIR}/${ticket}-fail.txt" 2>/dev/null || echo "(indisponible)")
+$(tail -n 60 "${AFK_DIR}/${ticket}-fail.txt" 2>/dev/null || echo "(unavailable)")
 
-Son code est déjà commité sur la branche. Corrige-le.
+Its code is already committed on the branch. Fix it.
 EOF
   fi
 }
 
 # ─── Plan ─────────────────────────────────────────────────────────────────────
-# Une passe de lecture avant tout lancement : métadonnées en cache (le worker n'a
-# plus besoin de l'API), bloqueurs classés en "dans ce run" et "dehors et ouvert".
+# One reading pass before any launch: metadata cached (the worker no longer needs the
+# API), blockers sorted into "in this run" and "outside and open".
 
 declare -A DEPS=() EXT=() TITLE=() VERIFY=() TMO=() MDL=() EFF=()
 EXT_FETCH=(); DROPPED=()
 
 in_run() { local n="$1" t; for t in "${TICKETS[@]}"; do [[ "$t" == "$n" ]] && return 0; done; return 1; }
 
-# Branche d'une PR ouverte qui livre ce ticket, si elle existe. On cherche d'abord
-# la convention que l'orchestrateur impose lui-même (feat/<n>), puis, pour une
-# branche nommée autrement, une PR ouverte dont le corps ferme ce ticket.
+# Branch of an open PR delivering this ticket, if there is one. We first look for the
+# convention the orchestrator imposes itself (feat/<n>), then, for a branch named
+# otherwise, an open PR whose body closes this ticket.
 open_pr_branch() {
   local b="$1" br
   [[ "$STACK_ON_OPEN_PR" == "1" ]] || return 0
-  # `-q '.[0].x'` sur une liste vide imprime "null" : sans le `// empty`, un bloqueur
-  # sans PR donnerait la base "origin/null".
+  # `-q '.[0].x'` on an empty list prints "null": without the `// empty`, a blocker
+  # with no PR would give the base "origin/null".
   br=$(gh pr list --state open --head "feat/$b" --json headRefName \
          --jq '.[0].headRefName // empty' 2>/dev/null)
   [[ "$br" == "null" ]] && br=""
@@ -541,7 +544,7 @@ open_pr_branch() {
 plan_run() {
   local t body deps ext b pb
   for t in "${TICKETS[@]}"; do
-    body=$(gh issue view "$t" --json body -q .body 2>/dev/null) || { echo "✗ #${t} introuvable"; exit 1; }
+    body=$(gh issue view "$t" --json body -q .body 2>/dev/null) || { echo "✗ #${t} not found"; exit 1; }
     TITLE[$t]=$(gh issue view "$t" --json title -q .title 2>/dev/null)
     printf '%s' "$body"          > "$AFK_DIR/$t.body"
     printf '%s' "${TITLE[$t]}"   > "$AFK_DIR/$t.title"
@@ -551,21 +554,21 @@ plan_run() {
     printf '%s' "${VERIFY[$t]}"  > "$AFK_DIR/$t.verify"
     TMO[$t]=$(meta_line Timeout "$RE_TIMEOUT" <<<"$body"); TMO[$t]="${TMO[$t]:-$TIMEOUT}"
     printf '%s' "${TMO[$t]}"     > "$AFK_DIR/$t.timeout"
-    # Un nom de modèle bien formé mais faux fait échouer la session tout de suite, comme
-    # une ligne "Verify:" qui ne compile pas : même surface de confiance.
+    # A well-formed but wrong model name fails the session immediately, just like a
+    # "Verify:" line that does not compile: same trust surface.
     MDL[$t]=$(meta_line Model "$RE_MODEL" <<<"$body"); MDL[$t]="${MDL[$t]:-$MODEL}"
     printf '%s' "${MDL[$t]}"     > "$AFK_DIR/$t.model"
     EFF[$t]=$(meta_line Effort "$RE_EFFORT" <<<"$body"); EFF[$t]="${EFF[$t]:-$EFFORT}"
     printf '%s' "${EFF[$t]}"     > "$AFK_DIR/$t.effort"
 
-    # Déjà livré, PR ouverte : le relancer ouvrirait une seconde PR sur la même
-    # branche. Le retirer de la liste vaut mieux que de le découvrir au gh pr create.
+    # Already delivered, PR open: running it again would open a second PR on the same
+    # branch. Dropping it from the list beats discovering it at gh pr create.
     if [[ "$ALLOW_REVIEW" != "1" && " $(cat "$AFK_DIR/$t.labels") " == *" $LABEL_REVIEW "* ]]; then
-      echo "  ⏭  #${t} est ${LABEL_REVIEW} — ignoré (ALLOW_REVIEW=1 pour forcer)"
+      echo "  ⏭  #${t} is ${LABEL_REVIEW} — skipped (ALLOW_REVIEW=1 to force)"
       DROPPED+=("$t"); continue
     fi
 
-    # Dépendances natives GitHub d'abord ; sinon la section "Blocked by" du corps.
+    # Native GitHub dependencies first; otherwise the body's "Blocked by" section.
     local raw
     raw=$(gh api "repos/{owner}/{repo}/issues/$t/dependencies/blocked_by" --jq '.[].number' 2>/dev/null)
     [[ -z "$raw" ]] && raw=$(blocked_refs <<<"$body")
@@ -574,33 +577,33 @@ plan_run() {
     for b in $raw; do
       if in_run "$b"; then deps+="$b "; continue; fi
       [[ "$(gh issue view "$b" --json state -q .state 2>/dev/null)" == "OPEN" ]] || continue
-      # Ouvert et hors run. S'il a une PR, sa branche est une base valable : le geler
-      # jusqu'au merge, c'est refuser d'empiler sur du travail déjà poussé.
+      # Open and outside the run. If it has a PR, its branch is a valid base: freezing
+      # until it merges means refusing to stack on work already pushed.
       pb=$(open_pr_branch "$b")
       if [[ -n "$pb" ]]; then
         deps+="$b "; BRANCH_OF[$b]="origin/$pb"; EXT_FETCH+=("$pb")
-        echo "  · #${t} : bloqueur #${b} livré hors run (PR ouverte) → base origin/${pb}"
+        echo "  · #${t}: blocker #${b} delivered outside the run (open PR) → base origin/${pb}"
       else
         ext+="$b "
       fi
     done
     DEPS[$t]="$deps"; EXT[$t]="$ext"
 
-    # Une branche ne peut être checkout que dans un seul worktree. Si tu bosses
-    # justement sur feat/<t>, le worktree du ticket est impossible : mieux vaut
-    # l'apprendre maintenant que sur une erreur de git au milieu du run.
+    # A branch can only be checked out in one worktree. If you happen to be working on
+    # feat/<t>, the ticket's worktree is impossible: better to learn it now than on a
+    # git error in the middle of the run.
     local held
     held=$(git worktree list --porcelain |
       awk -v b="refs/heads/feat/$t" '$1=="worktree"{p=$2} $1=="branch"&&$2==b{print p}')
     [[ -n "$held" && "$held" != "$WORKTREE_DIR/$t" ]] &&
-      echo "  ⚠  #${t} : feat/${t} est déjà checkout dans ${held} — libère la branche, sinon ce ticket échouera"
+      echo "  ⚠  #${t}: feat/${t} is already checked out in ${held} — free the branch, or this ticket will fail"
   done
 }
 
 # ─── Worktree ─────────────────────────────────────────────────────────────────
-# Un ticket = un worktree. C'est ce qui rend le parallèle possible sans que deux
-# agents se piétinent, et ça libère l'arbre principal : plus de git reset --hard
-# entre deux tickets, plus de contamination.
+# One ticket = one worktree. That is what makes parallelism possible without two
+# agents trampling each other, and it frees the main tree: no more git reset --hard
+# between two tickets, no more contamination.
 
 seed_worktree() {
   local wt="$1" f n=0
@@ -611,7 +614,7 @@ seed_worktree() {
   echo "$n"
 }
 
-make_worktree() {   # ticket, base, branches à absorber… → chemin sur stdout
+make_worktree() {   # ticket, base, branches to absorb… → path on stdout
   local ticket="$1" base="$2"; shift 2
   local wt="$WORKTREE_DIR/$ticket" branch="feat/$ticket" extra
 
@@ -620,10 +623,10 @@ make_worktree() {   # ticket, base, branches à absorber… → chemin sur stdou
   rm -rf "$wt"
   git worktree add -q -B "$branch" "$wt" "$base" 2>"$AFK_DIR/$ticket-wt.err" || return 1
   for extra in "$@"; do
-    # `-q` ne tait PAS les « Auto-merging <fichier> » du moteur de fusion, et ils sortent
-    # sur stdout — celui-là même dont l'appelant lit le chemin du worktree. Sans cette
-    # redirection, `wt=$(make_worktree …)` rend « Auto-merging x\n/chemin » et le `cd`
-    # échoue : tout ticket qui absorbe une branche meurt en 0s (défaut 35).
+    # `-q` does NOT silence the merge engine's "Auto-merging <file>", and they go to
+    # stdout — the very one the caller reads the worktree path from. Without this
+    # redirection, `wt=$(make_worktree …)` yields "Auto-merging x\n/path" and the `cd`
+    # fails: any ticket absorbing a branch dies in 0s (defect 35).
     git -C "$wt" merge -q --no-edit "$extra" >>"$AFK_DIR/$ticket-wt.err" 2>&1 \
       || { git -C "$wt" merge --abort; return 2; }
   done
@@ -638,13 +641,13 @@ drop_worktree() {
   rm -rf "$WORKTREE_DIR/$ticket"
 }
 
-# ─── Sortie ───────────────────────────────────────────────────────────────────
-# drop_worktree ne tournait que dans reap, donc dans la boucle de l'orchestrateur :
-# tuer celui-ci entre la sortie d'un worker et sa récolte laissait le worktree en
-# place, feat/<n> checkout dedans. Un outil qui tourne des heures se fait interrompre.
-# Ici on tue la descendance (le worker est un sous-shell, claude et pnpm sont
-# dessous : tuer le sous-shell seul les laisse orphelins et vivants), puis on récolte
-# les worktrees des tickets qui n'ont plus rien à raconter.
+# ─── Exit ─────────────────────────────────────────────────────────────────────
+# drop_worktree only ran inside reap, so inside the orchestrator's loop: killing it
+# between a worker's exit and its reaping left the worktree in place, with feat/<n>
+# checked out in it. A tool that runs for hours gets interrupted.
+# Here we kill the descendants (the worker is a subshell, claude and pnpm are under it:
+# killing the subshell alone leaves them orphaned and alive), then we collect the
+# worktrees of the tickets that have nothing left to say.
 
 kill_tree() {
   local pid="$1" child
@@ -659,14 +662,14 @@ finish() {
   trap - EXIT INT TERM
 
   if (( ${#PID[@]} )); then
-    echo; echo "⚠  interruption — ${#PID[@]} session(s) en cours tuée(s) : ${!PID[*]}"
+    echo; echo "⚠  interrupted — ${#PID[@]} running session(s) killed: ${!PID[*]}"
     for t in "${!PID[@]}"; do kill_tree "${PID[$t]}"; done
     sleep 1
     for t in "${!PID[@]}"; do kill -KILL "${PID[$t]}" 2>/dev/null; done
   fi
 
-  # Un ticket vert (ou absorbé) n'a plus besoin de son worktree ; un rouge le garde,
-  # c'est là qu'on va lire ce qui s'est passé. Un ticket interrompu compte comme rouge.
+  # A green (or absorbed) ticket no longer needs its worktree; a red one keeps it,
+  # that is where we go to read what happened. An interrupted ticket counts as red.
   if (( ${#TICKETS[@]} )); then
     for t in "${TICKETS[@]}"; do
       res=$(sget "$t" result)
@@ -677,20 +680,21 @@ finish() {
   exit $rc
 }
 
-# ─── Un ticket ────────────────────────────────────────────────────────────────
-# Tourne dans un sous-shell, cwd = son worktree. Écrit son verdict dans
-# $AFK_DIR/<t>.status ; n'écrit jamais dans les tableaux du parent.
+# ─── One ticket ───────────────────────────────────────────────────────────────
+# Runs in a subshell, cwd = its worktree. Writes its verdict into
+# $AFK_DIR/<t>.status; never writes into the parent's arrays.
 
 worker() {
   local ticket="$1" base="$2" wt="$3"
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
   local title labels verify tmo mdl eff head0 rc crashed netted attempt
   local out sid why c cost=0 cut=0 blocked
-  # Le bilan ne chronométrait que le ticket : « c'est lent » sans savoir si le temps part
-  # dans SETUP_CMD, dans la session ou dans la porte — et trois des quatre phases sont
-  # réglables (JOBS, TIMEOUT, VERIFY_CMD, SETUP_CMD). Sérialiser la porte n'a aucun effet
-  # là où elle dure une minute ; le savoir demandait d'ouvrir les .json un par un
-  # (défaut 43). La quatrième phase, l'attente d'un verrou, se déduit : dur moins la somme.
+  # The summary only timed the ticket: "it is slow" without knowing whether the time
+  # goes into SETUP_CMD, into the session or into the gate — and three of the four
+  # phases are tunable (JOBS, TIMEOUT, VERIFY_CMD, SETUP_CMD). Serialising the gate has
+  # no effect where it lasts a minute; knowing that meant opening the .json files one
+  # by one (defect 43). The fourth phase, waiting on a lock, is deduced: dur minus the
+  # sum.
   local s0 vrc t_setup=0 t_session=0 t_verify=0
   local -a copts
   local suspect pr_url pr_num pr_body
@@ -704,15 +708,15 @@ worker() {
   tmo=$(cat "$AFK_DIR/$ticket.timeout" 2>/dev/null); tmo="${tmo:-$TIMEOUT}"
   mdl=$(cat "$AFK_DIR/$ticket.model" 2>/dev/null)
   eff=$(cat "$AFK_DIR/$ticket.effort" 2>/dev/null)
-  # `result_initial`, pas `result` : le fichier est append-only et `sget` lit la
-  # DERNIÈRE ligne, mais un humain qui fait `cat` ou `grep result=` sur un ticket vert
-  # lisait `result=ko` en tête. Absent = rouge de toute façon (cf. `reap`).
+  # `result_initial`, not `result`: the file is append-only and `sget` reads the LAST
+  # line, but a human running `cat` or `grep result=` on a green ticket used to read
+  # `result=ko` at the top. Missing = red anyway (see `reap`).
   st "result_initial=ko"; st "branch=$branch"; st "base=$base"
 
-  # Les drapeaux de la session. --output-format json parce que le code de retour ne
-  # dit pas POURQUOI une session s'est arrêtée, et que le bilan a besoin du coût, du
-  # modèle réellement utilisé et de l'identifiant de session pour qu'un ticket rouge
-  # se reprenne à la main (claude --resume) au lieu de se relire dans un log.
+  # The session's flags. --output-format json because the return code does not say WHY
+  # a session stopped, and because the summary needs the cost, the model actually used
+  # and the session id so a red ticket can be resumed by hand (claude --resume) instead
+  # of being reread in a log.
   copts=(--permission-mode bypassPermissions --output-format json)
   [[ -n "$mdl" ]] && copts+=(--model "$mdl")
   [[ -n "$eff" ]] && copts+=(--effort "$eff")
@@ -720,33 +724,33 @@ worker() {
 
   echo "  worktree    : ${wt#$REPO_ROOT/}"
   echo "  base        : ${base}"
-  [[ "$verify" != "$VERIFY_CMD" ]] && echo "  vérification: ${verify}   (Verify: du ticket)"
-  [[ "$tmo" != "$TIMEOUT" ]] && echo "  budget      : ${tmo}   (Timeout: du ticket)"
-  [[ -n "$mdl" ]] && echo "  modèle      : ${mdl}"
+  [[ "$verify" != "$VERIFY_CMD" ]] && echo "  gate        : ${verify}   (ticket Verify:)"
+  [[ "$tmo" != "$TIMEOUT" ]] && echo "  budget      : ${tmo}   (ticket Timeout:)"
+  [[ -n "$mdl" ]] && echo "  model       : ${mdl}"
   [[ -n "$eff" ]] && echo "  effort      : ${eff}"
   local seeded; seeded=$(cat "$AFK_DIR/$ticket-seed.n" 2>/dev/null || echo 0)
-  (( seeded )) && echo "  semé        : ${seeded} fichier(s) ignoré(s) recopié(s) depuis l'arbre principal"
+  (( seeded )) && echo "  seeded      : ${seeded} ignored file(s) copied from the main tree"
 
-  cd "$wt" || { echo "  ✗ worktree inaccessible"; return; }
+  cd "$wt" || { echo "  ✗ worktree unreachable"; return; }
 
   if [[ -n "$SETUP_CMD" ]]; then
-    echo "  → dépendances (${SETUP_CMD})"
-    # `AFK_TICKET` / `AFK_WORKTREE` sont exportés pour que `SETUP_CMD` puisse ISOLER ce
-    # worktree de ses voisins. Le besoin est venu d'un vrai dégât (défaut 17, docs/defauts*.md) :
-    # plusieurs worktrees partageaient une base de test fixée en dur dans un `.env.test` versionné,
-    # donc chaque `migrate()`/`rollback()` d'un voisin cassait la suite d'ici — et le ticket
-    # courant était noté rouge pour la migration d'un autre.
+    echo "  → dependencies (${SETUP_CMD})"
+    # `AFK_TICKET` / `AFK_WORKTREE` are exported so `SETUP_CMD` can ISOLATE this
+    # worktree from its neighbours. The need came from real damage (defect 17,
+    # docs/defects*.md): several worktrees shared a test database hardcoded in a
+    # versioned `.env.test`, so every neighbour's `migrate()`/`rollback()` broke the
+    # suite here — and the current ticket was marked red for someone else's migration.
     #
-    # C'est le projet qui sait de quoi il doit s'isoler (une base, un port, un bucket), pas
-    # afk : il enchaîne son propre script devant `SETUP_CMD` dans son `.afk.env` et lit ces
-    # deux variables. `SETUP_CMD` tourne déjà dans le worktree et sous le verrou `install`,
-    # donc sérialisé — deux créations de base ne se croisent pas.
+    # It is the project that knows what it must isolate (a database, a port, a bucket),
+    # not afk: it chains its own script in front of `SETUP_CMD` in its `.afk.env` and
+    # reads these two variables. `SETUP_CMD` already runs in the worktree and under the
+    # `install` lock, so serialised — two database creations do not cross.
     s0=$SECONDS
     AFK_TICKET="$ticket" AFK_WORKTREE="$wt" \
       locked install bash -c "$SETUP_CMD" > "$AFK_DIR/$ticket-setup.log" 2>&1; vrc=$?
     t_setup=$(( SECONDS - s0 )); st "t_setup=$t_setup"
     if (( vrc )); then
-      echo "  ✗ installation des dépendances échouée — ${AFK_DIR##*/}/${ticket}-setup.log"
+      echo "  ✗ dependency install failed — ${AFK_DIR##*/}/${ticket}-setup.log"
       st "result=ko"; st "reason=setup"; return
     fi
   fi
@@ -754,121 +758,122 @@ worker() {
   head0=$(git rev-parse HEAD)
 
   for (( attempt=1; attempt<=MAX_ATTEMPTS; attempt++ )); do
-    echo "  → run ${attempt}/${MAX_ATTEMPTS} (session neuve)"
+    echo "  → run ${attempt}/${MAX_ATTEMPTS} (fresh session)"
     st "attempt=$attempt"
 
-    # Jamais --resume : reprendre une session qui vient d'échouer, c'est repartir
-    # du contexte pollué qui a échoué.
+    # Never --resume: resuming a session that just failed means restarting from the
+    # polluted context that failed.
     out="$AFK_DIR/$ticket-$attempt.json"
     s0=$SECONDS
     timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
       "${copts[@]}" > "$out" 2>&1
     rc=$?; crashed=0; netted=0; cut=0
-    # Cumulé sur les essais, comme le coût. Et mesuré par afk, donc sous-agents en
-    # arrière-plan compris — le duration_ms de la session, lui, ne couvre que sa boucle
-    # principale et rate les 18 minutes d'une revue lancée à côté.
+    # Cumulative over the attempts, like the cost. And measured by afk, so background
+    # subagents included — the session's own duration_ms only covers its main loop and
+    # misses the 18 minutes of a review launched alongside.
     t_session=$(( t_session + SECONDS - s0 )); st "t_session=$t_session"
 
-    # Ce que la session raconte d'elle-même. `subtype` nomme la panne
-    # (error_during_execution, error_max_turns…) là où le code de retour ne donne qu'un
-    # chiffre ; `session_id` la rend reprenable à la main ; le coût s'additionne sur les
-    # essais, le modèle est celui du dernier — c'est lui qui a produit la branche.
+    # What the session says about itself. `subtype` NAMES the failure
+    # (error_during_execution, error_max_turns…) where the return code gives only a
+    # number; `session_id` makes it resumable by hand; the cost adds up over the
+    # attempts, the model is the last one's — it is the one that produced the branch.
     sid=$(jval session_id < "$out"); why=$(jval subtype < "$out")
     st "session=$sid"; st "model=$(jmodels < "$out")"; st "subagents=$(jspawned < "$out")"
-    # Rien lu = rien à dire : une session tuée avant d'écrire son objet doit laisser le
-    # coût VIDE au bilan, pas un "0,0000 $" qui se lirait comme une session gratuite.
+    # Nothing read = nothing to say: a session killed before writing its object must
+    # leave the cost EMPTY in the summary, not a "$0.0000" that would read as a free
+    # session.
     c=$(jval total_cost_usd < "$out")
     [[ -n "$c" ]] && { cost=$(awk -v a="$cost" -v b="$c" 'BEGIN{printf "%.4f", a+b}'); st "cost=$cost"; }
 
-    (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — le ticket peut porter sa propre ligne \"Timeout:\""; crashed=1; cut=1; }
+    (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — the ticket can carry its own \"Timeout:\" line"; crashed=1; cut=1; }
     (( rc != 0 && rc != 124 )) && {
-      echo "  ⚠  session terminée anormalement (${why:-code ${rc}}) — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
+      echo "  ⚠  session ended abnormally (${why:-code ${rc}}) — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
       crashed=1; }
 
-    # Filet : /implement doit commiter, mais on ne perd pas le travail s'il oublie.
-    # Le message vient du ticket, pas d'un "wip" générique : c'est lui que la base
-    # garderait quand le filet produit le seul commit du lot.
+    # Safety net: /implement is supposed to commit, but we do not lose the work if it
+    # forgets. The message comes from the ticket, not from a generic "wip": it is the
+    # one the base would keep when the net produces the batch's only commit.
     [[ -n "$(git status --porcelain)" ]] && {
-      echo "  ⚠  agent n'a pas commité — je commit"
+      echo "  ⚠  agent did not commit — committing for it"
       local type=feat; grep -qw bug <<<"$labels" && type=fix
       git add -A && git commit -qm "${type}(#${ticket}): ${title}"
       netted=1; }
 
     if [[ "$(git rev-parse HEAD)" == "$head0" ]]; then
-      # Défaut 40 : la porte sur la base ne dit rien du CONTENU du ticket — elle est verte
-      # parce que le dépôt compile, pas parce que la suppression demandée a eu lieu. Un
-      # ticket que l'agent juge trop tôt sortait donc "absorbé", donc en in-review avec un
-      # commentaire l'invitant à la fermeture : il disparaissait du lot suivant sans que
-      # rien n'ait été fait. Le seul témoin de la différence est la session, qui la dit —
-      # le prompt lui demande de la dire à l'identique. C'est le même fait qu'un bloqueur
-      # non levé, donc le même verdict : gelé, label inchangé, il revient au prochain run.
-      # Un second essai serait la même session sur la même base, avec la même conclusion.
-      if grep -q 'AFK: BLOQUE' "$out"; then
-        blocked=$(grep -o 'AFK: BLOQUE[^"\\]*' "$out" | head -1)
-        echo "  ⏸  gelé — la session dit qu'un prérequis manque dans cette base : ${blocked#AFK: BLOQUE }"
+      # Defect 40: the gate on the base says nothing about the ticket's CONTENT — it is
+      # green because the repo compiles, not because the requested deletion happened. A
+      # ticket the agent judges too early therefore came out "absorbed", so in-review
+      # with a comment inviting closure: it disappeared from the next batch without
+      # anything having been done. The only witness to the difference is the session,
+      # which says it — the prompt asks it to say it verbatim. It is the same fact as an
+      # unlifted blocker, so the same verdict: frozen, label unchanged, it comes back on
+      # the next run. A second attempt would be the same session on the same base, with
+      # the same conclusion.
+      if grep -q 'AFK: BLOCKED' "$out"; then
+        blocked=$(grep -o 'AFK: BLOCKED[^"\\]*' "$out" | head -1)
+        echo "  ⏸  frozen — the session says a prerequisite is missing from this base: ${blocked#AFK: BLOCKED }"
         st "result=frozen"; st "reason=blocked"
-        gh issue comment "$ticket" --body "$(printf '> *Généré par une session agent AFK.*\n\nSession sortie sans aucun commit, en disant que la base `%s` ne porte pas encore un prérequis : *« %s »*. Rien à revoir, rien à fermer — le ticket garde son label et repart au prochain run, après le merge de ce qui lui manque.' \
-          "${base#origin/}" "${blocked#AFK: BLOQUE }")" >/dev/null 2>&1
+        gh issue comment "$ticket" --body "$(printf '> *Generated by an AFK agent session.*\n\nSession exited without a single commit, saying that the base `%s` does not carry a prerequisite yet: *"%s"*. Nothing to review, nothing to close — the ticket keeps its label and comes back on the next run, once what it is missing has merged.' \
+          "${base#origin/}" "${blocked#AFK: BLOCKED }")" >/dev/null 2>&1
         return
       fi
-      # "L'agent a échoué" et "il n'y avait plus rien à faire" sortaient tous les deux
-      # en "aucun commit" : un ticket vidé par son prédécesseur brûlait ses deux essais
-      # puis partait en ready-for-human, pour une raison fausse. La base est déjà là et
-      # la porte tourne déjà — on la passe sur la base, et elle tranche entre les deux.
-      echo "  · aucun commit — je passe la porte sur la base pour trancher"
+      # "The agent failed" and "there was nothing left to do" both came out as "no
+      # commit": a ticket emptied by its predecessor burned both attempts then went to
+      # ready-for-human, for a false reason. The base is already here and the gate
+      # already runs — we run it on the base, and it decides between the two.
+      echo "  · no commit — running the gate on the base to decide"
       s0=$SECONDS
       locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
       t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
       if (( vrc == 0 )); then
-        echo "  ≡ absorbé — rien à faire et la base est verte : déjà livré par un prédécesseur"
+        echo "  ≡ absorbed — nothing to do and the base is green: already delivered by a predecessor"
         st "result=absorbed"; st "base_ref=$base"
         relabel "$ticket" "$LABEL" "$LABEL_REVIEW"
-        gh issue comment "$ticket" --body "$(printf '> *Généré par une session agent AFK.*\n\nSession sortie sans aucun commit, **et** la porte (`%s`) est déjà verte sur `%s` : le contenu de ce ticket semble avoir été livré par un prédécesseur. Aucune PR ouverte, rien à revoir — vérifier puis fermer.' \
+        gh issue comment "$ticket" --body "$(printf '> *Generated by an AFK agent session.*\n\nSession exited without a single commit, **and** the gate (`%s`) is already green on `%s`: the content of this ticket seems to have been delivered by a predecessor. No PR opened, nothing to review — check then close.' \
           "$verify" "${base#origin/}")" >/dev/null 2>&1
         return
       fi
-      echo "  ✗ aucun commit — l'agent n'a rien produit (et la base n'est pas verte)"
-      { printf 'aucun commit produit (rc=%s). Porte sur la base :\n\n' "$rc"
+      echo "  ✗ no commit — the agent produced nothing (and the base is not green)"
+      { printf 'no commit produced (rc=%s). Gate on the base:\n\n' "$rc"
         tail -n 40 "$AFK_DIR/$ticket-verify.txt"; } > "$AFK_DIR/$ticket-fail.txt"
       continue
     fi
 
-    echo "  → vérification"
+    echo "  → verification"
     s0=$SECONDS
     locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
     t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
     if (( vrc == 0 )); then
       git diff --name-only "$head0" | grep -qE "$MEMORY_RE" ||
-        echo "  ⚠  aucun CONTEXT.md ni ADR touché — décisions non capturées, relire de près"
+        echo "  ⚠  no CONTEXT.md or ADR touched — decisions not captured, read closely"
 
-      # Une session plantée passe la vérification exactement comme une session saine :
-      # typecheck et lint ne savent pas ce qui manque. Le travail n'est pas jeté, mais
-      # il sort en draft et ne compte pas comme un vert au premier essai.
+      # A crashed session passes verification exactly like a healthy one: typecheck and
+      # lint do not know what is missing. The work is not thrown away, but it comes out
+      # as a draft and does not count as a green on the first attempt.
       suspect=$(( crashed || netted ))
-      pr_body="Closes #${ticket}"$'\n\n'"Vérifié localement par afk : \`${verify}\`"
-      # Le périmètre d'un ticket est une PRÉDICTION : un ticket étiqueté sur une app peut
-      # très bien en toucher deux (une clé partagée emporte tout ce qui indexe dessus), et
-      # sa ligne `Verify:` a été taillée avant qu'on le sache. Quand la porte locale est
-      # remplacée, c'est la CI qui est la seule porte complète — le relecteur doit le lire
-      # sur la PR, pas le déduire du corps du ticket.
-      [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Porte locale remplacée** par la ligne \`Verify:\` du ticket. La porte complète du dépôt est \`${VERIFY_CMD}\` : ce qu'elle couvre et que cette ligne ne couvre pas n'a été vérifié QUE par la CI de cette PR." 
-      # Une session COUPÉE au timeout peut l'avoir été au milieu d'un fichier ; une session
-      # qui a rendu son tour s'est arrêtée entre deux actions. La porte ne dit ni l'un ni
-      # l'autre — elle dit que ce qui existe compile. Ce n'est pas la même relecture.
+      pr_body="Closes #${ticket}"$'\n\n'"Verified locally by afk: \`${verify}\`"
+      # A ticket's scope is a PREDICTION: a ticket labelled on one app may well touch
+      # two (a shared key drags along everything indexing on it), and its `Verify:` line
+      # was cut before we knew. When the local gate is replaced, CI is the only complete
+      # gate — the reviewer must read that on the PR, not deduce it from the ticket body.
+      [[ "$verify" != "$VERIFY_CMD" ]] && pr_body+=$'\n\n'"> ⚠ **Local gate replaced** by the ticket's \`Verify:\` line. The repo's complete gate is \`${VERIFY_CMD}\`: what it covers and this line does not was verified ONLY by this PR's CI."
+      # A session CUT at the timeout may have been cut in the middle of a file; a
+      # session that yielded its turn stopped between two actions. The gate says neither
+      # — it says that what exists compiles. That is not the same review.
       if (( cut )); then
-        pr_body+=$'\n\n'"> ⚠ **La session agent a été COUPÉE** au bout de \`${tmo}\` (ligne \`Timeout:\` du ticket). Elle peut l'avoir été au milieu d'un fichier : la porte dit que ce qui existe compile, pas que le travail est complet. Session : \`.afk/${ticket}-${attempt}.json\`."
+        pr_body+=$'\n\n'"> ⚠ **The agent session was CUT** after \`${tmo}\` (ticket's \`Timeout:\` line). It may have been cut in the middle of a file: the gate says that what exists compiles, not that the work is complete. Session: \`.afk/${ticket}-${attempt}.json\`."
       elif (( crashed )); then
-        pr_body+=$'\n\n'"> ⚠ **La session agent s'est terminée anormalement** (${why:-code ${rc}}). Le travail présent passe la vérification, mais rien ne garantit qu'il soit complet — d'où le draft. Session : \`.afk/${ticket}-${attempt}.json\`."
+        pr_body+=$'\n\n'"> ⚠ **The agent session ended abnormally** (${why:-code ${rc}}). The work present passes verification, but nothing guarantees it is complete — hence the draft. Session: \`.afk/${ticket}-${attempt}.json\`."
       fi
-      (( netted ))  && pr_body+=$'\n\n'"> ⚠ L'agent n'a pas commité lui-même : l'orchestrateur a rattrapé l'arbre de travail."
+      (( netted ))  && pr_body+=$'\n\n'"> ⚠ The agent did not commit by itself: the orchestrator caught up the working tree."
 
-      # La branche est complète, verte et commitée : ce qui a échoué est le transport
-      # (jeton sans la portée `workflow`, branche déjà sur le remote), pas le travail.
-      # Un second essai échouerait à l'identique, et la ranger avec les rouges la fait
-      # reprendre de zéro au run suivant. Elle a sa propre ligne au bilan, et son
-      # worktree est gardé comme celui d'un rouge.
+      # The branch is complete, green and committed: what failed is the transport (token
+      # without the `workflow` scope, branch already on the remote), not the work. A
+      # second attempt would fail identically, and filing it with the reds makes it start
+      # over from scratch on the next run. It gets its own line in the summary, and its
+      # worktree is kept like a red one's.
       if ! git push -qu origin "$branch" 2>"$AFK_DIR/$ticket-push.txt"; then
-        echo "  ✗ push refusé — ${AFK_DIR##*/}/${ticket}-push.txt"
+        echo "  ✗ push refused — ${AFK_DIR##*/}/${ticket}-push.txt"
         sed 's/^/     /' "$AFK_DIR/$ticket-push.txt" | head -n 5
         cp "$AFK_DIR/$ticket-push.txt" "$AFK_DIR/$ticket-fail.txt"
         st "result=ko"; st "reason=push"; return
@@ -876,44 +881,44 @@ worker() {
 
       local draft=(); (( suspect )) && draft=(--draft)
       pr_url=$(gh pr create --base "${base#origin/}" --head "$branch" "${draft[@]}" \
-        --title "$title" --body "$pr_body") || { echo "  ✗ gh pr create a échoué"; st "result=ko"; st "reason=pr"; return; }
+        --title "$title" --body "$pr_body") || { echo "  ✗ gh pr create failed"; st "result=ko"; st "reason=pr"; return; }
       pr_num="${pr_url##*/}"
       relabel "$ticket" "$LABEL" "$LABEL_REVIEW"
 
       local dwhy=""
-      (( cut )) && dwhy="coupée"; (( crashed && ! cut )) && dwhy="anormale"
-      (( netted )) && dwhy="${dwhy:+$dwhy, }non commité"
+      (( cut )) && dwhy="cut"; (( crashed && ! cut )) && dwhy="abnormal"
+      (( netted )) && dwhy="${dwhy:+$dwhy, }not committed"
       st "result=ok"; st "pr=$pr_num"; st "draft=$suspect"; st "draft_why=$dwhy"
       if (( suspect )); then
-        echo "  ✓ vert (essai ${attempt}) — PR #${pr_num} en DRAFT sur ${base#origin/}"
-        echo "     ⚠  ${dwhy} : relire avant de sortir du draft"
+        echo "  ✓ green (attempt ${attempt}) — PR #${pr_num} as DRAFT on ${base#origin/}"
+        echo "     ⚠  ${dwhy}: read it before leaving draft"
       else
-        echo "  ✓ vert (essai ${attempt}) — PR #${pr_num} sur ${base#origin/}"
+        echo "  ✓ green (attempt ${attempt}) — PR #${pr_num} on ${base#origin/}"
       fi
       return
     fi
 
     cp "$AFK_DIR/$ticket-verify.txt" "$AFK_DIR/$ticket-fail.txt"
-    echo "  ✗ rouge"
+    echo "  ✗ red"
     tail -n 8 "$AFK_DIR/$ticket-fail.txt" | sed 's/^/     /'
   done
 
-  echo "  ✗ abandonné après ${MAX_ATTEMPTS} essais → ${AFK_DIR##*/}/${ticket}-fail.txt"
+  echo "  ✗ gave up after ${MAX_ATTEMPTS} attempts → ${AFK_DIR##*/}/${ticket}-fail.txt"
   st "result=ko"; st "reason=verify"
   relabel "$ticket" "$LABEL" "$LABEL_KO"
-  gh issue comment "$ticket" --body "$(printf '> *Généré par une session agent AFK.*\n\n%d tentatives, vérification toujours rouge (`%s`). Branche `%s` (non poussée). Dernière sortie :\n\n```\n%s\n```' \
+  gh issue comment "$ticket" --body "$(printf '> *Generated by an AFK agent session.*\n\n%d attempts, verification still red (`%s`). Branch `%s` (not pushed). Last output:\n\n```\n%s\n```' \
     "$MAX_ATTEMPTS" "$verify" "$branch" "$(tail -n 40 "$AFK_DIR/$ticket-fail.txt")")" >/dev/null 2>&1
 }
 
-# ─── Ordonnanceur ─────────────────────────────────────────────────────────────
-# Lance jusqu'à JOBS tickets à la fois, dans l'ordre donné, en ne démarrant que
-# ceux dont tous les bloqueurs de ce run sont déjà verts. Un bloqueur rouge gèle
-# ses dépendants : leur base n'existe pas.
+# ─── Scheduler ────────────────────────────────────────────────────────────────
+# Launches up to JOBS tickets at a time, in the given order, only starting those whose
+# blockers in this run are already green. A red blocker freezes its dependants: their
+# base does not exist.
 
 declare -A BRANCH_OF=() PID=() START=() WT=() CONFLICT_FILES=()
 OK=(); KO=(); SKIP=(); DRAFT=(); ABSORBED=(); PUSH_KO=(); CONFLICT=(); FIRST_TRY=0
 
-deps_state() {   # 0 = prêt, 1 = attendre, 2 = gelé
+deps_state() {   # 0 = ready, 1 = wait, 2 = frozen
   local t="$1" b state=0
   [[ -n "${EXT[$t]}" ]] && return 2
   for b in ${DEPS[$t]}; do
@@ -931,7 +936,7 @@ launch() {
     base=$(deepest_branch "${stack[@]}")
     for b in "${stack[@]}"; do
       [[ "$b" == "$base" ]] && continue
-      git merge-base --is-ancestor "$b" "$base" 2>/dev/null && continue  # déjà dedans
+      git merge-base --is-ancestor "$b" "$base" 2>/dev/null && continue  # already in
       rest+=("$b")
     done
     stack=("${rest[@]}")
@@ -939,17 +944,17 @@ launch() {
 
   wt=$(make_worktree "$t" "$base" "${stack[@]}"); rc=$?
   if (( rc == 2 )); then
-    # Reste dans SKIP — ses dépendants gèlent pareil — mais le bilan ne dit plus « gelé »,
-    # qui est le mot d'un bloqueur JAMAIS livré. Ici c'est l'inverse : ils sont tous là et
-    # ne tiennent pas ensemble. Les chemins sont dans <n>-wt.err, seul fichier du run que
-    # la légende ne citait pas ; lu sans lui, le bilan fait chercher un bloqueur manquant
-    # qui n'existe pas (défaut 45).
+    # It stays in SKIP — its dependants freeze the same — but the summary no longer says
+    # "frozen", which is the word for a blocker NEVER delivered. Here it is the opposite:
+    # they are all there and do not hold together. The paths are in <n>-wt.err, the only
+    # file of the run the legend did not cite; read without it, the summary sends you
+    # looking for a missing blocker that does not exist (defect 45).
     CONFLICT_FILES[$t]=$(sed -n 's/^CONFLICT ([^)]*): \(Merge conflict in \)\?//p' \
       "$AFK_DIR/$t-wt.err" 2>/dev/null | sort -u | paste -sd' ' -)
-    echo "  ⏸  #${t} : conflit entre bloqueurs — à faire à la main${CONFLICT_FILES[$t]:+ : ${CONFLICT_FILES[$t]}}"
+    echo "  ⏸  #${t}: conflict between blockers — to be done by hand${CONFLICT_FILES[$t]:+ : ${CONFLICT_FILES[$t]}}"
     CONFLICT+=("$t"); SKIP+=("$t"); return
   elif (( rc != 0 )); then
-    echo "  ✗ #${t} : worktree impossible — $(cat "$AFK_DIR/$t-wt.err" 2>/dev/null | head -1)"
+    echo "  ✗ #${t}: worktree impossible — $(cat "$AFK_DIR/$t-wt.err" 2>/dev/null | head -1)"
     KO+=("$t"); return
   fi
 
@@ -958,13 +963,13 @@ launch() {
     echo; echo "═══ #${t} — ${TITLE[$t]} ═══"
     ( worker "$t" "$base" "$wt" 2>&1 | tee "$AFK_DIR/$t.out" ) &
   else
-    echo "  ▸ #${t} démarré  (base ${base}$( (( ${#stack[@]} )) && echo ", absorbe ${stack[*]}" ))"
+    echo "  ▸ #${t} started  (base ${base}$( (( ${#stack[@]} )) && echo ", absorbs ${stack[*]}" ))"
     ( worker "$t" "$base" "$wt" > "$AFK_DIR/$t.out" 2>&1 ) &
   fi
   PID[$t]=$!
 }
 
-reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
+reap() {   # collects the finished tickets; returns 0 if at least one finished
   local t got=1
   for t in "${TICKETS[@]}"; do
     [[ -n "${PID[$t]:-}" ]] || continue
@@ -977,13 +982,13 @@ reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
     if (( JOBS > 1 )); then
       echo; echo "═══ #${t} — ${TITLE[$t]}  ($(fmt_dur "$dur")) ═══"
       sed 's/^/  /' "$AFK_DIR/$t.out" 2>/dev/null
-      # La dernière ligne du dump est celle du lanceur de tests du projet, avec sa propre
-      # mesure (« Time: 2m3.821s » chez Japa) : elle chronomètre la PORTE, pas le ticket,
-      # et c'est celle-là que l'œil lit en bas de trente lignes. On redit la nôtre après
-      # (défaut 37) — l'en-tête, lui, est déjà remonté hors de l'écran.
-      echo "  ⏱  #${t} : $(fmt_dur "$dur") au total (les durées ci-dessus sont celles de la porte)"
+      # The dump's last line is the project test runner's, with its own measurement
+      # ("Time: 2m3.821s" in Japa): it times the GATE, not the ticket, and that is the
+      # one the eye reads at the bottom of thirty lines. We repeat ours after it
+      # (defect 37) — the header has already scrolled off the screen.
+      echo "  ⏱  #${t}: $(fmt_dur "$dur") in total (the durations above are the gate's)"
     else
-      echo "  ⏱  $(fmt_dur "$dur") au total"
+      echo "  ⏱  $(fmt_dur "$dur") in total"
     fi
 
     if [[ "$res" == "ok" ]]; then
@@ -992,19 +997,19 @@ reap() {   # récolte les tickets finis ; renvoie 0 si au moins un a fini
       elif [[ "$(sget "$t" attempt)" == "1" ]]; then FIRST_TRY=$(( FIRST_TRY + 1 )); fi
       drop_worktree "$t"
     elif [[ "$res" == "absorbed" ]]; then
-      # Rien à livrer, donc pas de branche à lui : ses dépendants s'empilent sur la
-      # base qu'il a lui-même utilisée, sinon ils gèleraient derrière un faux échec.
+      # Nothing to deliver, so no branch of its own: its dependants stack on the base it
+      # used itself, otherwise they would freeze behind a false failure.
       ABSORBED+=("$t"); BRANCH_OF[$t]=$(sget "$t" base_ref)
       drop_worktree "$t"; git branch -qD "feat/$t" 2>/dev/null
     elif [[ "$res" == "frozen" ]]; then
-      # Même liste que les tickets gelés par un bloqueur non levé : c'est la même chose,
-      # dite par la session au lieu de l'ordonnanceur. Pas de branche à garder — elle est
-      # vide — et pas de dépendant à laisser partir : ce qui manque ici leur manque aussi.
+      # Same list as the tickets frozen by an unlifted blocker: it is the same thing,
+      # said by the session instead of the scheduler. No branch to keep — it is empty —
+      # and no dependant to let go: what is missing here is missing for them too.
       SKIP+=("$t"); drop_worktree "$t"; git branch -qD "feat/$t" 2>/dev/null
     elif [[ "$(sget "$t" reason)" == "push" ]]; then
-      PUSH_KO+=("$t")   # branche verte et commitée en local, seulement pas poussée
+      PUSH_KO+=("$t")   # branch green and committed locally, only not pushed
     else
-      KO+=("$t")   # worktree gardé : c'est là qu'on va lire ce qui s'est passé
+      KO+=("$t")   # worktree kept: that is where we go to read what happened
     fi
   done
   return $got
@@ -1022,19 +1027,19 @@ schedule() {
         0) unset 'todo[$i]'; launch "$t"; progress=1 ;;
         2) unset 'todo[$i]'
            if [[ -n "${EXT[$t]}" ]]; then
-             echo "  ⏸  #${t} gelé — bloqueurs ouverts hors run : ${EXT[$t]% }"
+             echo "  ⏸  #${t} frozen — blockers open outside the run: ${EXT[$t]% }"
            else
-             echo "  ⏸  #${t} gelé — un bloqueur du run n'a pas été livré"
+             echo "  ⏸  #${t} frozen — a blocker in this run was not delivered"
            fi
            SKIP+=("$t"); progress=1 ;;
       esac
     done
-    todo=("${todo[@]}")   # recompacte
+    todo=("${todo[@]}")   # recompact
 
     if (( ${#PID[@]} == 0 )); then
       (( progress )) && continue
       for t in "${todo[@]}"; do
-        echo "  ⏸  #${t} gelé — cycle de dépendances ou bloqueur non livrable"
+        echo "  ⏸  #${t} frozen — dependency cycle or undeliverable blocker"
         SKIP+=("$t")
       done
       break
@@ -1046,23 +1051,23 @@ schedule() {
       if (( JOBS > 1 && hb >= 120 && ${#PID[@]} )); then
         hb=0; local line=""
         for t in "${!PID[@]}"; do line+="#${t} ($(fmt_dur $(( SECONDS - START[$t] )))) "; done
-        echo "  …  en cours : ${line}"
+        echo "  …  running: ${line}"
       fi
     done
   done
 }
 
-# ─── CI du repo ───────────────────────────────────────────────────────────────
-# VERIFY_CMD tourne en local. Sans ce garde-fou, un ticket peut être livré, étiqueté
-# et mergé alors que la CI du repo n'a jamais passé dessus — et c'est arrivé sur cinq
-# tickets d'affilée, runner bloqué, sans que rien ne le signale.
-# En fin de run, pas dans le worker : attendre 15 minutes de CI immobiliserait un
-# slot de parallélisme pour du polling.
+# ─── The repo's CI ────────────────────────────────────────────────────────────
+# VERIFY_CMD runs locally. Without this guard rail, a ticket can be delivered, labelled
+# and merged although the repo's CI never ran on it — and that happened on five tickets
+# in a row, runner stuck, with nothing flagging it.
+# At the end of the run, not in the worker: waiting 15 minutes of CI would tie up a
+# parallelism slot for polling.
 
-# « Aucune CI déclarée » et « CI toujours en cours » sortaient dans le même panier. Ce
-# n'est pas la même information : la seconde est un verdict qui manque, la première est
-# une propriété du DÉPÔT, vraie pour tous les tickets de tous les runs. Confondues, elles
-# marquaient « vert non prouvé » les quinze tickets d'un lot sur un dépôt sans workflow.
+# "No CI declared" and "CI still running" came out in the same bucket. It is not the
+# same information: the second is a verdict that is missing, the first is a property of
+# the REPO, true for every ticket of every run. Conflated, they marked "unproven green"
+# the fifteen tickets of a batch on a repo without a workflow.
 CI_RED=(); CI_UNKNOWN=(); CI_NONE=()
 
 ci_phase() {
@@ -1073,11 +1078,11 @@ ci_phase() {
   local t pr pids=()
   for t in "${OK[@]}"; do
     pr=$(sget "$t" pr)
-    # `--watch` ne surveille que des check runs DÉJÀ enregistrés : avec zéro, il ne
-    # patiente pas, il sort tout de suite. Or GitHub met quelques secondes à enregistrer
-    # le run après `gh pr create` (mesuré : ~4 s), ce qui expose la dernière PR créée.
-    # « Le dépôt n'a pas de CI » et « la CI n'est pas encore enregistrée » rendaient donc
-    # la même phrase, alors que la seconde se répare en réessayant.
+    # `--watch` only watches check runs ALREADY registered: with zero of them, it does
+    # not wait, it exits immediately. But GitHub takes a few seconds to register the run
+    # after `gh pr create` (measured: ~4 s), which exposes the last PR created.
+    # "The repo has no CI" and "CI is not registered yet" therefore produced the same
+    # sentence, although the second is fixed by retrying.
     ( local crc; for _ in 1 2 3 4; do
         timeout "$CI_TIMEOUT" gh pr checks "$pr" --watch $CI_FAILFAST > "$AFK_DIR/$t-ci.txt" 2>&1
         crc=$?
@@ -1092,36 +1097,36 @@ ci_phase() {
   for t in "${OK[@]}"; do
     pr=$(sget "$t" pr); local rc; rc=$(cat "$AFK_DIR/$t-ci.rc" 2>/dev/null || echo 1)
     case "$rc" in
-      0)   echo "  ✓ #${t} (PR #${pr}) CI verte" ;;
-      124) echo "  ⚠  #${t} (PR #${pr}) CI toujours en cours après ${CI_TIMEOUT} — non concluant"
+      0)   echo "  ✓ #${t} (PR #${pr}) CI green" ;;
+      124) echo "  ⚠  #${t} (PR #${pr}) CI still running after ${CI_TIMEOUT} — inconclusive"
            CI_UNKNOWN+=("$t") ;;
       *)   if grep -qi 'no checks' "$AFK_DIR/$t-ci.txt" 2>/dev/null; then
-             echo "  ⚠  #${t} (PR #${pr}) aucune CI déclarée"; CI_NONE+=("$t")
+             echo "  ⚠  #${t} (PR #${pr}) no CI declared"; CI_NONE+=("$t")
            else
-             echo "  ✗ #${t} (PR #${pr}) CI rouge"
+             echo "  ✗ #${t} (PR #${pr}) CI red"
              grep -iE 'fail|error' "$AFK_DIR/$t-ci.txt" 2>/dev/null | head -n 3 | sed 's/^/       /'
              CI_RED+=("$t")
              relabel "$t" "$LABEL_REVIEW" "$LABEL_KO"
-             gh issue comment "$t" --body "$(printf '> *Généré par une session agent AFK.*\n\nPR #%s ouverte et vérification locale verte, mais **la CI du repo est rouge**. Repassé en `%s`.\n\n```\n%s\n```' \
+             gh issue comment "$t" --body "$(printf '> *Generated by an AFK agent session.*\n\nPR #%s opened and local verification green, but **the repo CI is red**. Moved back to `%s`.\n\n```\n%s\n```' \
                "$pr" "$LABEL_KO" "$(tail -n 30 "$AFK_DIR/$t-ci.txt")")" >/dev/null 2>&1
            fi ;;
     esac
   done
 }
 
-# ─── Intégration ──────────────────────────────────────────────────────────────
-# Chaque ticket est vérifié sur sa branche seule. Deux lots verts isolément peuvent
-# produire une base rouge — ou refuser de merger, sur un CLAUDE.md et un composant
-# que ni l'un ni l'autre n'annonçait. On merge tout dans un worktree jetable et on
-# repasse la porte. On ne touche à aucune PR : on rapporte.
+# ─── Integration ──────────────────────────────────────────────────────────────
+# Each ticket is verified on its branch alone. Two batches green in isolation can
+# produce a red base — or refuse to merge, over a CLAUDE.md and a component neither of
+# them announced. We merge everything into a throwaway worktree and run the gate again.
+# We touch no PR: we report.
 
 INTEG_CONFLICTS=(); INTEG_MERGED=(); INTEG_VERDICT="—"
-declare -A INTEG_FILES=()   # branche → fichiers en conflit, pour le résumé
-INTEG_NOTES=""              # numéros en double, chemins créés deux fois, renvois au futur
+declare -A INTEG_FILES=()   # branch → conflicting files, for the summary
+INTEG_NOTES=""              # duplicate numbers, paths created twice, stale references
 
-# Les fichiers ajoutés par chaque branche verte, une ligne "<branche> <chemin>".
-# Contre SA base, pas contre BASE_REF : une branche empilée porte les commits de son
-# bloqueur, elle « ajoute » donc aussi les fichiers de celui-ci.
+# The files added by each green branch, one "<branch> <path>" line.
+# Against ITS base, not against BASE_REF: a stacked branch carries its blocker's
+# commits, so it also "adds" that one's files.
 added_files() {
   local t b
   for t in "${OK[@]}"; do
@@ -1133,21 +1138,21 @@ added_files() {
 
 numbering_clashes() { added_files | cut -d' ' -f2- | clashing_numbers; }
 
-# Deux branches qui CRÉENT le même chemin sont vertes chacune de son côté — le fichier
-# répond au même besoin vu des deux bouts, avec deux API différentes et toutes deux
-# justes. Aucune porte ne peut le voir. `clashing_numbers` non plus : son `sort -u`
-# d'entrée écrase justement les deux lignes identiques qu'on cherche, et son awk ne
-# regarde que les noms qui commencent par un chiffre.
+# Two branches that CREATE the same path are each green on their own — the file answers
+# the same need seen from both ends, with two different APIs and both of them right. No
+# gate can see it. Neither can `clashing_numbers`: its input `sort -u` crushes exactly
+# the two identical lines we are looking for, and its awk only looks at names starting
+# with a digit.
 same_path_adds() {
   added_files | sort -u |
     awk '{ b[$2] = b[$2] " " $1; n[$2]++ } END { for (p in n) if (n[p] > 1) printf "%s :%s\n", p, b[p] }' |
     sort
 }
 
-# Merger une branche empilée AVANT sa base est un conflit par construction, et il se lit
-# comme un vrai recouvrement. La liste des verts est remplie dans l'ordre d'ACHÈVEMENT ;
-# on la retrie par nombre de commits depuis la base commune — une branche empilée en a
-# strictement plus que la sienne, donc elle passe après.
+# Merging a stacked branch BEFORE its base is a conflict by construction, and it reads
+# like a real overlap. The green list is filled in COMPLETION order; we re-sort it by
+# number of commits since the common base — a stacked branch has strictly more than its
+# own, so it comes after.
 merge_order() {
   local t
   for t in "${OK[@]}"; do
@@ -1155,12 +1160,13 @@ merge_order() {
   done | sort -n | cut -d' ' -f2
 }
 
-# Une branche écrit « c'est #116 qui ouvrira cette liste » ; #116 livre dans le même run ;
-# personne ne réécrit la phrase — ni celle qui l'a écrite (elle est finie), ni #116 (elle
-# ne sait pas qu'elle est citée). Les deux côtés sont d'accord, git fusionne en silence,
-# et la doc affirme au futur ce qui est livré depuis dix minutes. On ne juge pas la
-# phrase, on montre où elle est. `git grep` : les fichiers suivis seulement.
-stale_refs() {   # $1 = worktree d'intégration
+# One branch writes "#116 is the one that will open this list"; #116 delivers in the
+# same run; nobody rewrites the sentence — neither the branch that wrote it (it is
+# finished), nor #116 (it does not know it is quoted). Both sides agree, git merges in
+# silence, and the docs state in the future tense what has been delivered for ten
+# minutes. We do not judge the sentence, we show where it is. `git grep`: tracked files
+# only.
+stale_refs() {   # $1 = integration worktree
   local nums; nums=$(IFS='|'; echo "${OK[*]}")
   git -C "$1" grep -nE "#(${nums})([^0-9]|$)" -- '*.md' ':!CHANGELOG.md' ':!RUNS.md' 2>/dev/null |
     head -n 20
@@ -1168,12 +1174,12 @@ stale_refs() {   # $1 = worktree d'intégration
 
 integration_check() {
   { (( ${#OK[@]} < 2 )) || [[ "$INTEGRATION" != "1" ]]; } && return 0
-  echo; echo "═══ Intégration (${#OK[@]} branches vertes) ═══"
+  echo; echo "═══ Integration (${#OK[@]} green branches) ═══"
 
   local wt="$WORKTREE_DIR/_integration" t b clashes
   git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
   git worktree add -q -B afk-integration "$wt" "$BASE_REF" || {
-    echo "  ✗ worktree d'intégration impossible"; return 0; }
+    echo "  ✗ integration worktree impossible"; return 0; }
   seed_worktree "$wt" >/dev/null
 
   for t in $(merge_order); do
@@ -1184,85 +1190,85 @@ integration_check() {
     else
       local files; files=$(git -C "$wt" diff --name-only --diff-filter=U | tr '\n' ' ')
       git -C "$wt" merge --abort 2>/dev/null
-      # Sans fichier en conflit, le merge a été REFUSÉ (arbre sale, base absente) — ce
-      # n'est pas la même information qu'un vrai recouvrement, et l'écrire « CONFLIT »
-      # envoie chercher au mauvais endroit.
+      # With no conflicting file, the merge was REFUSED (dirty tree, missing base) —
+      # that is not the same information as a real overlap, and writing it "CONFLICT"
+      # sends you looking in the wrong place.
       if [[ -n "$files" ]]; then
-        echo "  merge ${b} ✗ CONFLIT — ${files}"
+        echo "  merge ${b} ✗ CONFLICT — ${files}"
       else
-        files="REFUSÉ — $(head -n 1 "$AFK_DIR/integration-merge.err")"
+        files="REFUSED — $(head -n 1 "$AFK_DIR/integration-merge.err")"
         echo "  merge ${b} ✗ ${files}"
       fi
-      # Écrit, pas seulement affiché : c'est la donnée dont la revue a besoin en premier
-      # — elle dit lesquels des conflits sont de la doc et lesquels sont du code, donc
-      # combien la résolution va coûter. Le terminal, lui, se ferme.
+      # Written, not just printed: it is the data the review needs first — it says which
+      # of the conflicts are docs and which are code, so how much resolving will cost.
+      # The terminal, on the other hand, gets closed.
       INTEG_FILES[$b]="$files"
       INTEG_CONFLICTS+=("$b")
     fi
   done
 
-  # Les collisions de numéro et les chemins créés deux fois se lisent sur les branches,
-  # pas sur l'arbre mergé : deux fichiers de noms différents y coexistent sans rien dire,
-  # et un `add/add` résolu n'en garde qu'un.
+  # Number clashes and paths created twice are read on the branches, not on the merged
+  # tree: two files with different names coexist there without saying anything, and a
+  # resolved `add/add` keeps only one.
   clashes=$(numbering_clashes)
   if [[ -n "$clashes" ]]; then
-    echo "  ⚠  numéros pris deux fois (aucune porte ne le verra) :"
+    echo "  ⚠  numbers taken twice (no gate will see it):"
     sed 's/^/       /' <<<"$clashes"
-    INTEG_NOTES+=$'\n'"- numéros pris deux fois :"$'\n'"$(sed 's/^/  - /' <<<"$clashes")"
+    INTEG_NOTES+=$'\n'"- numbers taken twice:"$'\n'"$(sed 's/^/  - /' <<<"$clashes")"
   fi
   local dupes; dupes=$(same_path_adds)
   if [[ -n "$dupes" ]]; then
-    echo "  ⚠  même chemin créé par plusieurs branches :"
+    echo "  ⚠  same path created by several branches:"
     sed 's/^/       /' <<<"$dupes"
-    INTEG_NOTES+=$'\n'"- même chemin créé par plusieurs branches :"$'\n'"$(sed 's/^/  - /' <<<"$dupes")"
+    INTEG_NOTES+=$'\n'"- same path created by several branches:"$'\n'"$(sed 's/^/  - /' <<<"$dupes")"
   fi
 
   local stale; stale=$(stale_refs "$wt")
   if [[ -n "$stale" ]]; then
-    echo "  ⚠  tickets du run cités dans la doc mergée — relire, la phrase peut être au futur :"
+    echo "  ⚠  tickets from this run cited in the merged docs — read them, the sentence may be in the future tense:"
     sed 's/^/       /' <<<"$stale"
-    INTEG_NOTES+=$'\n'"- tickets du run cités dans la doc mergée (phrase au futur ?) :"$'\n'"$(sed 's/^/  - /' <<<"$stale")"
+    INTEG_NOTES+=$'\n'"- tickets from this run cited in the merged docs (future tense?):"$'\n'"$(sed 's/^/  - /' <<<"$stale")"
   fi
 
-  # `_integration` comme numéro de ticket : la passe rejoue la porte, donc elle migre
-  # comme un worker et doit s'isoler pareil (cf. `AFK_TICKET` dans le worker).
+  # `_integration` as a ticket number: the pass replays the gate, so it migrates like a
+  # worker and must isolate itself the same way (see `AFK_TICKET` in the worker).
   [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_integration AFK_WORKTREE="$wt" \
     locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/integration-setup.log" 2>&1
 
-  echo "  → vérification de l'ensemble"
+  echo "  → verifying the whole"
   [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
-    echo "     porte d'intégration : ${INTEGRATION_VERIFY_CMD}"
+    echo "     integration gate: ${INTEGRATION_VERIFY_CMD}"
   local ok=0
   ( cd "$wt" && locked verify bash -c "$INTEGRATION_VERIFY_CMD" ) \
     > "$AFK_DIR/integration-verify.txt" 2>&1 && ok=1
 
-  # Le verdict PORTE SON PÉRIMÈTRE. « L'ensemble compile » après une branche écartée au
-  # merge se lit au bilan comme « toutes les branches se combinent », ce qui est
-  # précisément la question à laquelle la passe existe pour répondre.
+  # The verdict CARRIES ITS SCOPE. "The whole compiles" after a branch was set aside at
+  # merge reads in the summary as "all the branches combine", which is precisely the
+  # question the pass exists to answer.
   local scope="" n=${#INTEG_MERGED[@]} m=${#OK[@]}
-  (( ${#INTEG_CONFLICTS[@]} )) && scope=" — PARTIEL : ${n}/${m} branches, sans ${INTEG_CONFLICTS[*]}"
+  (( ${#INTEG_CONFLICTS[@]} )) && scope=" — PARTIAL: ${n}/${m} branches, without ${INTEG_CONFLICTS[*]}"
   if (( ok )); then
-    INTEG_VERDICT="vert"; echo "  ✓ l'ensemble compile${scope}"
+    INTEG_VERDICT="green"; echo "  ✓ the whole compiles${scope}"
   else
-    INTEG_VERDICT="rouge"; echo "  ✗ rouge à l'intégration${scope} — .afk/integration-verify.txt"
+    INTEG_VERDICT="red"; echo "  ✗ red at integration${scope} — .afk/integration-verify.txt"
     tail -n 10 "$AFK_DIR/integration-verify.txt" | sed 's/^/     /'
   fi
-  (( ${#INTEG_CONFLICTS[@]} )) && INTEG_VERDICT="$INTEG_VERDICT (partiel : ${n}/${m})"
-  [[ -n "$clashes" ]] && INTEG_VERDICT="$INTEG_VERDICT + numéros en double"
-  [[ -n "$dupes"   ]] && INTEG_VERDICT="$INTEG_VERDICT + chemins en double"
+  (( ${#INTEG_CONFLICTS[@]} )) && INTEG_VERDICT="$INTEG_VERDICT (partial: ${n}/${m})"
+  [[ -n "$clashes" ]] && INTEG_VERDICT="$INTEG_VERDICT + duplicate numbers"
+  [[ -n "$dupes"   ]] && INTEG_VERDICT="$INTEG_VERDICT + duplicate paths"
 
   if [[ "$KEEP_WORKTREES" != "1" && "$ok" == "1" && ${#INTEG_CONFLICTS[@]} -eq 0 && -z "$clashes" && -z "$dupes" ]]; then
     git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"
     git branch -qD afk-integration 2>/dev/null
   else
-    echo "  · worktree gardé pour inspection : .afk/wt/_integration"
+    echo "  · worktree kept for inspection: .afk/wt/_integration"
   fi
 }
 
-# ─── Bilan ────────────────────────────────────────────────────────────────────
+# ─── Summary ──────────────────────────────────────────────────────────────────
 
-# Transcripts de ce run pour un ticket. Claude Code les range sous
-# $CLAUDE_CONFIG_DIR/projects/<cwd de la session, / et . remplacés par ->.
+# This run's transcripts for a ticket. Claude Code files them under
+# $CLAUDE_CONFIG_DIR/projects/<the session's cwd, / and . replaced by ->.
 ctx_of() {
   local t="$1" d
   d="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$WORKTREE_DIR/$t" | sed 's#[/._]#-#g')"
@@ -1271,35 +1277,41 @@ ctx_of() {
     peak_context
 }
 
-# Une ligne par run dans le dépôt d'afk. `.afk/summary.md` est ÉCRASÉ au run suivant :
-# sans ce journal, aucun historique n'existe nulle part, et le taux de vert d'une nuit
-# ne se compare à rien. Il traverse les projets, ce dépôt étant monté dans chacun.
-# Aucun LLM : ce sont des faits, pas un jugement — le jugement est dans /afk-debrief,
-# qui écrit les défauts d'afk lui-même dans docs/defauts.md (corrigés : defauts-corriges.md).
+# One line per run in afk's own repo. `.afk/summary.md` is OVERWRITTEN on the next run:
+# without this log, no history exists anywhere, and a night's green rate compares to
+# nothing. It travels across projects, this repo being mounted in each of them.
+# No LLM: these are facts, not a judgement — the judgement is in /afk-debrief, which
+# writes afk's own defects into docs/defects.md (fixed ones: defects-fixed.md).
 append_run_log() {
-  local f="$AFK_HOME/RUNS.md" t models total
-  # Dépôt monté en lecture seule : on ne journalise pas, ce n'est pas une erreur de run.
+  local f="$AFK_HOME/RUNS.md" t models total project
+  # Repo mounted read-only: we do not log, it is not a run error.
   [[ -w "$AFK_HOME" ]] || return 0
 
   models=$(for t in "${TICKETS[@]}"; do sget "$t" model; done | tr ' ' '\n' | awk 'NF' |
     sort -u | paste -sd' ' -)
   total=$(for t in "${TICKETS[@]}"; do sget "$t" cost; done | awk '{s+=$1} END{if(s) printf "$%.2f", s}')
+  # The project is not named here: this log lives in afk's repo, which is public and
+  # read out of context. A stable digest keeps one project's rows grouped — which is the
+  # only thing the column is read for — without disclosing which project it is.
+  project="project-$(printf '%s' "${REPO_ROOT##*/}" | sha1sum | cut -c1-8)"
 
   [[ -f "$f" ]] || {
-    printf '# Journal des runs\n\n'
-    printf "Une ligne par run d'\`afk.sh\`, ajoutée automatiquement à la fin. \`.afk/summary.md\`\n"
-    printf "est écrasé au run suivant : c'est ici, et seulement ici, que l'historique survit — et\n"
-    printf "il traverse les projets, ce dépôt étant monté dans chacun.\n\n"
-    printf "Les faits seulement. Ce qui demande un jugement va dans\n"
-    printf '[docs/defauts.md](docs/defauts.md), écrit par `/afk-debrief`.\n\n'
-    printf '| Date | Projet | Tickets | Vert | Non prouvé | Draft | Rouge | Push refusé | Gelé | Absorbé | 1er essai | Modèle | Coût | Durée | Intégration |\n'
+    printf '# Run log\n\n'
+    printf "One line per \`afk.sh\` run, appended automatically at the end. \`.afk/summary.md\`\n"
+    printf "is overwritten on the next run: here, and only here, is where the history survives —\n"
+    printf "and it spans projects, this repo being mounted in each of them.\n\n"
+    printf "Facts only. Anything needing judgement goes into\n"
+    printf '[docs/defects.md](docs/defects.md), written by `/afk-debrief`.\n\n'
+    printf 'The project column is a stable digest of the repo directory name, not its name:\n'
+    printf 'the same project always yields the same value, and nothing else is disclosed.\n\n'
+    printf '| Date | Project | Tickets | Green | Unproven | Draft | Red | Push refused | Frozen | Absorbed | 1st try | Model | Cost | Duration | Integration |\n'
     printf '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n'
   } > "$f"
 
-  # Un seul printf, une seule ligne courte : deux runs lancés depuis deux projets
-  # peuvent l'ajouter en même temps sans se marcher dessus.
+  # A single printf, a single short line: two runs launched from two projects can append
+  # at the same time without stepping on each other.
   printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-    "$(date +%Y-%m-%d\ %H:%M)" "${REPO_ROOT##*/}" "${#TICKETS[@]}" \
+    "$(date +%Y-%m-%d\ %H:%M)" "$project" "${#TICKETS[@]}" \
     "${#GREEN[@]}" "${#UNPROVEN[@]}" "${#DRAFT[@]}" "${#KO[@]}" "${#PUSH_KO[@]}" \
     "${#SKIP[@]}" "${#ABSORBED[@]}" \
     "${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))" "${models:-—}" "${total:-—}" \
@@ -1309,8 +1321,8 @@ append_run_log() {
 write_summary() {
   local f="$AFK_DIR/summary.md" t b
   {
-    printf '# Run afk — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
-    printf '| Ticket | Résultat | PR | Essai | Modèle | Contexte | Coût | Durée | Phases | Titre |\n'
+    printf '# afk run — %s tickets, %s\n\n' "${#TICKETS[@]}" "$(fmt_dur $SECONDS)"
+    printf '| Ticket | Result | PR | Attempt | Model | Context | Cost | Duration | Phases | Title |\n'
     printf '|---|---|---|---|---|---|---|---|---|---|\n'
     for t in "${TICKETS[@]}"; do
       local res pr att d ctx mdl cost sa ph
@@ -1318,120 +1330,120 @@ write_summary() {
       d=$(sget "$t" dur); d=${d:+$(fmt_dur "$d")}; d=${d:-—}
       ctx=$(ctx_of "$t"); ctx=${ctx:+$(( ctx / 1000 ))k}; ctx=${ctx:-—}
       mdl=$(sget "$t" model); mdl=${mdl:-—}
-      # Le nombre de sous-agents va avec les modèles, pas dans sa propre colonne : c'est
-      # lui qui dit si un second modèle est un repli ou une revue, et il explique du même
-      # coup une part du coût.
-      sa=$(sget "$t" subagents); (( ${sa:-0} > 0 )) && mdl+=" (+${sa} sous-agents)"
+      # The number of subagents goes with the models, not in its own column: it is what
+      # says whether a second model is a fallback or a review, and it explains part of
+      # the cost at the same time.
+      sa=$(sget "$t" subagents); (( ${sa:-0} > 0 )) && mdl+=" (+${sa} subagents)"
       cost=$(sget "$t" cost); cost=${cost:+\$$cost}; cost=${cost:-—}
-      # Une durée par ticket ne dit pas où elle passe. Les trois phases mesurables la
-      # découpent, la quatrième (l'attente d'un verrou) est ce qui reste (défaut 43).
+      # A per-ticket duration does not say where it goes. The three measurable phases cut
+      # it up, the fourth (waiting on a lock) is what is left (defect 43).
       local tse; tse=$(sget "$t" t_session)
       if [[ -n "$tse" ]]; then
         ph="$(fmt_dur "$(sget "$t" t_setup)") / $(fmt_dur "$tse") / $(fmt_dur "$(sget "$t" t_verify)")"
       else ph="—"; fi
-      [[ " ${SKIP[*]} " == *" $t "* ]] && res="gelé"
-      [[ " ${CONFLICT[*]} " == *" $t "* ]] && res="conflit"
+      [[ " ${SKIP[*]} " == *" $t "* ]] && res="frozen"
+      [[ " ${CONFLICT[*]} " == *" $t "* ]] && res="conflict"
       [[ " ${DRAFT[*]} " == *" $t "* ]] && res="draft"
-      [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbé"
-      [[ " ${UNPROVEN[*]} " == *" $t "* ]] && res="vert non prouvé"
-      [[ " ${PUSH_KO[*]} " == *" $t "* ]] && res="poussée refusée"
-      [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI rouge"
+      [[ " ${ABSORBED[*]} " == *" $t "* ]] && res="absorbed"
+      [[ " ${UNPROVEN[*]} " == *" $t "* ]] && res="unproven green"
+      [[ " ${PUSH_KO[*]} " == *" $t "* ]] && res="push refused"
+      [[ " ${CI_RED[*]} " == *" $t "* ]] && res="$res / CI red"
       [[ -n "${VERIFY[$t]:-}" && "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && res="$res ⚠"
       printf '| #%s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
         "$t" "${res:-—}" "${pr:+#$pr}" "${att:-—}" "$mdl" "$ctx" "$cost" "$d" "$ph" "${TITLE[$t]:-}"
     done
-    printf -- '\n- intégration : %s%s\n' "$INTEG_VERDICT" \
-      "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — écartées au merge : ${INTEG_CONFLICTS[*]} ; mergées : ${INTEG_MERGED[*]}" )"
-    # Le SUR QUOI, pas seulement le QUI : `integration-merge.err` est écrasé à chaque
-    # branche et git rapporte les CONFLICT sur stdout, donc sans ça la liste des fichiers
-    # se reconstruit à coups de `git merge-tree` en devinant l'ordre de merge d'origine.
+    printf -- '\n- integration: %s%s\n' "$INTEG_VERDICT" \
+      "$( (( ${#INTEG_CONFLICTS[@]} )) && echo " — set aside at merge: ${INTEG_CONFLICTS[*]} ; merged: ${INTEG_MERGED[*]}" )"
+    # The ON WHAT, not just the WHO: `integration-merge.err` is overwritten at each
+    # branch and git reports the CONFLICTs on stdout, so without this the file list gets
+    # rebuilt with `git merge-tree` while guessing the original merge order.
     for b in "${INTEG_CONFLICTS[@]}"; do
-      printf -- '  - `%s` : %s\n' "$b" "${INTEG_FILES[$b]:-—}"
+      printf -- '  - `%s`: %s\n' "$b" "${INTEG_FILES[$b]:-—}"
     done
-    # Le SUR QUOI vaut pour l'empilement d'un ticket comme pour le merge d'intégration :
-    # « conflit » sans les chemins renvoie encore à un fichier que la légende ne nommait pas.
+    # The ON WHAT holds for a ticket's stacking as much as for the integration merge:
+    # "conflict" without the paths still points at a file the legend did not name.
     for b in "${CONFLICT[@]}"; do
-      printf -- '- #%s : conflit à l'"'"'empilement de ses bloqueurs — %s (`.afk/%s-wt.err`)\n' \
-        "$b" "${CONFLICT_FILES[$b]:-chemins dans le journal}" "$b"
+      printf -- '- #%s: conflict stacking its blockers — %s (`.afk/%s-wt.err`)\n' \
+        "$b" "${CONFLICT_FILES[$b]:-paths in the log}" "$b"
     done
     [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
-    (( BASE_RED )) && printf -- '- **la base (`%s`) était déjà rouge avant le run** (`.afk/base-verify.txt`) : un ticket rouge dont l\'échec y figure aussi n\'est pas le sien.\n' "$BASE_REF"
-    printf -- '- porte : %s%s\n' "$VERIFY_CMD" \
-      "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · intégration : $INTEGRATION_VERIFY_CMD" )"
-    # La même phrase que le bilan, pas son contraire (défaut 36) : sur un dépôt sans
-    # workflow, renvoyer le relecteur à « leur CI » l'envoie chercher un verdict qui
-    # n'existe pas — et c'est ce fichier-là qu'il ouvre en premier.
+    (( BASE_RED )) && printf -- '- **the base (`%s`) was already red before the run** (`.afk/base-verify.txt`): a red ticket whose failure also appears there is not its own.\n' "$BASE_REF"
+    printf -- '- gate: %s%s\n' "$VERIFY_CMD" \
+      "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · integration: $INTEGRATION_VERIFY_CMD" )"
+    # The same sentence as the summary, not its opposite (defect 36): on a repo without a
+    # workflow, pointing the reviewer at "their CI" sends them looking for a verdict that
+    # does not exist — and this is the file they open first.
     if (( ${#CI_NONE[@]} == ${#OK[@]} && ${#OK[@]} )); then
-      printf -- '- aucune CI sur ce dépôt : la porte locale est la seule qui ait joué, y compris pour les tickets marqués ⚠ (porte REMPLACÉE par leur ligne `Verify:`).\n'
+      printf -- '- no CI on this repo: the local gate is the only one that ran, including for the tickets marked ⚠ (gate REPLACED by their `Verify:` line).\n'
     else
-      printf -- '- les tickets marqués ⚠ ont eu une porte locale REMPLACÉE par leur ligne `Verify:` : seule leur CI a joué la porte complète du dépôt.\n'
+      printf -- '- the tickets marked ⚠ had a local gate REPLACED by their `Verify:` line: only their CI ran the repo'"'"'s complete gate.\n'
     fi
-    printf -- '- vert au 1er essai : %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
-    printf -- '- contexte : le pic de la session. Il mesure la TAILLE du travail, pas sa qualité —\n'
-    printf -- '  un pic haut sur un ticket bien cadré reste vert. À lire avec le périmètre livré.\n'
-    printf -- '- modèle : ceux qui ont réellement tourné. Plusieurs modèles SANS sous-agent = un repli\n'
-    printf -- '  (`FALLBACK_MODEL=%s`) a joué, le modèle voulu était indisponible. Avec des sous-agents,\n' "${FALLBACK_MODEL:-aucun}"
-    printf -- '  ils portent le modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket :\n'
-    printf -- '  un modèle de plus vient d'"'"'eux, et une part du coût aussi (défaut 41).\n'
-    printf -- '- coût : prix catalogue cumulé sur les essais du ticket, tel que rendu par la session.\n'
-    printf -- '- phases : installation / session / porte, cumulées sur les essais. Ce que « durée »\n'
-    printf -- '  porte en plus est l'"'"'attente d'"'"'un verrou (`JOBS=%s`). La session est chronométrée par\n' "$JOBS"
-    printf -- '  afk, sous-agents en arrière-plan compris — son propre `duration_ms` les rate (défaut 43).\n'
+    printf -- '- green on 1st attempt: %s/%s\n' "$FIRST_TRY" "$(( ${#OK[@]} + ${#KO[@]} ))"
+    printf -- '- context: the session peak. It measures the SIZE of the work, not its quality —\n'
+    printf -- '  a high peak on a well-scoped ticket stays green. To be read with the scope delivered.\n'
+    printf -- '- model: the ones that actually ran. Several models WITHOUT a subagent = a fallback\n'
+    printf -- '  (`FALLBACK_MODEL=%s`) kicked in, the wanted model was unavailable. With subagents,\n' "${FALLBACK_MODEL:-none}"
+    printf -- '  they carry the model of their definition (`.claude/agents/*.md`) and not the ticket'"'"'s:\n'
+    printf -- '  one extra model comes from them, and part of the cost too (defect 41).\n'
+    printf -- '- cost: list price, cumulated over the ticket'"'"'s attempts, as reported by the session.\n'
+    printf -- '- phases: install / session / gate, cumulated over the attempts. What "duration"\n'
+    printf -- '  carries on top is the wait on a lock (`JOBS=%s`). The session is timed by afk,\n' "$JOBS"
+    printf -- '  background subagents included — its own `duration_ms` misses them (defect 43).\n'
 
-    # Un ticket rendu à un humain se relit aujourd'hui dans un fichier. La session qui l'a
-    # produit existe toujours et son worktree est gardé : on donne de quoi y RENTRER, et
-    # lui demander ce qu'un log ne dira jamais — pourquoi il a pris ce chemin-là.
-    # Les rouges seulement : `claude --resume` cherche la session dans le répertoire où
-    # elle a tourné, et le worktree d'un vert est jeté.
+    # A ticket handed back to a human is reread today in a file. The session that
+    # produced it still exists and its worktree is kept: we give what it takes to GET
+    # BACK IN, and ask it what a log will never say — why it took that path.
+    # Reds only: `claude --resume` looks for the session in the directory where it ran,
+    # and a green ticket's worktree is thrown away.
     local sid resumable=0
     for t in "${TICKETS[@]}"; do
       [[ " ${KO[*]} ${PUSH_KO[*]} " == *" $t "* ]] || continue
       sid=$(sget "$t" session); [[ -n "$sid" ]] || continue
-      (( resumable++ == 0 )) && printf '\nReprendre une session à la main :\n\n'
-      printf -- '- #%s : `(cd %s/%s && claude --resume %s)`\n' \
+      (( resumable++ == 0 )) && printf '\nResume a session by hand:\n\n'
+      printf -- '- #%s: `(cd %s/%s && claude --resume %s)`\n' \
         "$t" "${WORKTREE_DIR#$REPO_ROOT/}" "$t" "$sid"
     done
 
-    printf '\nLogs par ticket : `.afk/<n>.out` (orchestrateur), `.afk/<n>-<essai>.json` (session),\n'
-    printf '`.afk/<n>-verify.txt` (porte), `.afk/<n>-ci.txt` (CI), `.afk/<n>-wt.err` (empilement\n'
-    printf 'des branches de ses bloqueurs — le seul journal d'"'"'un ticket sorti « conflit »).\n'
+    printf '\nPer-ticket logs: `.afk/<n>.out` (orchestrator), `.afk/<n>-<attempt>.json` (session),\n'
+    printf '`.afk/<n>-verify.txt` (gate), `.afk/<n>-ci.txt` (CI), `.afk/<n>-wt.err` (stacking of\n'
+    printf 'its blockers'"'"' branches — the only log of a ticket that came out "conflict").\n'
   } > "$f"
-  echo "  résumé : .afk/summary.md"
+  echo "  summary: .afk/summary.md"
 }
 
-# ─── Boucle ───────────────────────────────────────────────────────────────────
+# ─── The loop ─────────────────────────────────────────────────────────────────
 
 if (( ${#ARGV[@]} )); then
   TICKETS=("${ARGV[@]}")
 else
-  # --limit explicite : `gh issue list` plafonne à 30 SANS le dire, et rend les plus
-  # RÉCENTS. Sur un dépôt à plus de 30 tickets ouverts, le run partait donc sur une
-  # tranche arbitraire, et les tickets tombés hors tranche apparaissaient comme des
-  # « bloqueurs ouverts hors run » — un gel silencieux, pas une erreur.
+  # Explicit --limit: `gh issue list` caps at 30 WITHOUT saying so, and returns the most
+  # RECENT ones. On a repo with more than 30 open tickets, the run therefore started on
+  # an arbitrary slice, and the tickets that fell outside it showed up as "blockers open
+  # outside the run" — a silent freeze, not an error.
   mapfile -t TICKETS < <(gh issue list --label "$LABEL" --state open --limit 500 \
     --json number -q '.[].number' | sort -n)
 fi
 
-(( ${#TICKETS[@]} == 0 )) && { echo "aucun ticket ${LABEL}."; exit 0; }
+(( ${#TICKETS[@]} == 0 )) && { echo "no ${LABEL} ticket."; exit 0; }
 
 CI_FAILFAST=""; KNOWN_LABELS=""
 mkdir -p "$AFK_DIR"; printf '*\n' > "$AFK_DIR/.gitignore"
-# Les transcripts s'accumulent d'un run à l'autre dans le même dossier : ce marqueur
-# sert à ne relire que ceux de ce run-ci.
+# Transcripts pile up from one run to the next in the same folder: this marker is what
+# limits the reading to this run's.
 RUN_MARKER="$AFK_DIR/.runstart"; : > "$RUN_MARKER"
 
-echo "${#TICKETS[@]} ticket(s) : ${TICKETS[*]}"
-echo "base : ${BASE_REF} → PR sur ${BASE_BRANCH}   labels : ${LABEL} → ${LABEL_REVIEW} / ${LABEL_KO}"
-echo "vérification : ${VERIFY_CMD}"
-echo "modèle : ${MODEL:-défaut de claude}${EFFORT:+ · effort ${EFFORT}}${FALLBACK_MODEL:+ · repli ${FALLBACK_MODEL}}"
+echo "${#TICKETS[@]} ticket(s): ${TICKETS[*]}"
+echo "base: ${BASE_REF} → PR onto ${BASE_BRANCH}   labels: ${LABEL} → ${LABEL_REVIEW} / ${LABEL_KO}"
+echo "verification: ${VERIFY_CMD}"
+echo "model: ${MODEL:-claude default}${EFFORT:+ · effort ${EFFORT}}${FALLBACK_MODEL:+ · fallback ${FALLBACK_MODEL}}"
 [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
-  echo "  · intégration : ${INTEGRATION_VERIFY_CMD}"
-echo -n "parallélisme : ${JOBS} session(s)"
-(( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && echo -n "   vérifications sérialisées (ressources partagées)"
+  echo "  · integration: ${INTEGRATION_VERIFY_CMD}"
+echo -n "parallelism: ${JOBS} session(s)"
+(( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && echo -n "   verifications serialised (shared resources)"
 echo
-[[ "$CI_TIMEOUT" == "0" ]] && echo "CI : non consultée" || echo "CI : attendue en fin de run (${CI_TIMEOUT})"
+[[ "$CI_TIMEOUT" == "0" ]] && echo "CI: not consulted" || echo "CI: awaited at the end of the run (${CI_TIMEOUT})"
 
-echo; echo "→ lecture des ${#TICKETS[@]} tickets…"
+echo; echo "→ reading the ${#TICKETS[@]} tickets…"
 plan_run
 
 if (( ${#DROPPED[@]} )); then
@@ -1440,39 +1452,39 @@ if (( ${#DROPPED[@]} )); then
     [[ " ${DROPPED[*]} " == *" $t "* ]] || keep+=("$t")
   done
   TICKETS=(${keep[@]+"${keep[@]}"})
-  (( ${#TICKETS[@]} == 0 )) && { echo; echo "plus rien à faire."; exit 0; }
+  (( ${#TICKETS[@]} == 0 )) && { echo; echo "nothing left to do."; exit 0; }
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
-  # Le plan, sans rien lancer. Les vagues montrent exactement où le parallélisme
-  # est possible et où le DAG l'interdit.
+  # The plan, without launching anything. The waves show exactly where parallelism is
+  # possible and where the DAG forbids it.
   echo; echo "═══ Plan ═══"
-  declare -A LIVERED=()
-  # Même question que deps_state : un bloqueur hors run qui porte déjà une branche (PR
-  # ouverte) est livrable, on s'empile dessus. Sans cette amorce le plan annonçait
-  # « gelé — bloqueur non livrable » ce que le run lance sans broncher, et il se
-  # contredisait dans la même sortie : il venait d'imprimer « bloqueur #N livré hors run
-  # (PR ouverte) ». C'est exactement en reprise d'un run interrompu — lot à moitié livré
-  # — qu'on lit le plan avant de relancer (défaut 44).
-  for b in "${!BRANCH_OF[@]}"; do LIVERED[$b]=1; done
+  declare -A DELIVERED=()
+  # Same question as deps_state: a blocker outside the run that already carries a branch
+  # (open PR) is deliverable, we stack on it. Without this priming the plan announced
+  # "frozen — undeliverable blocker" for what the run launches without blinking, and it
+  # contradicted itself in the same output: it had just printed "blocker #N delivered
+  # outside the run (open PR)". It is exactly when resuming an interrupted run — batch
+  # half delivered — that the plan is read before relaunching (defect 44).
+  for b in "${!BRANCH_OF[@]}"; do DELIVERED[$b]=1; done
   local_wave=1; remaining=("${TICKETS[@]}")
   while (( ${#remaining[@]} )); do
     wave=(); frozen=(); next=()
     for t in "${remaining[@]}"; do
       ready=1; froze=0
       [[ -n "${EXT[$t]}" ]] && froze=1
-      for b in ${DEPS[$t]}; do [[ -n "${LIVERED[$b]:-}" ]] || ready=0; done
+      for b in ${DEPS[$t]}; do [[ -n "${DELIVERED[$b]:-}" ]] || ready=0; done
       if   (( froze )); then frozen+=("$t")
       elif (( ready )); then wave+=("$t")
       else next+=("$t"); fi
     done
-    for t in "${frozen[@]}"; do echo "  ⏸  #${t} gelé — bloqueurs ouverts hors run : ${EXT[$t]}"; done
-    (( ${#wave[@]} == 0 )) && { for t in "${next[@]}"; do echo "  ⏸  #${t} gelé — bloqueur non livrable"; done; break; }
-    echo "  vague ${local_wave} ($( (( ${#wave[@]} > 1 && JOBS > 1 )) && echo "parallèle, ${JOBS} à la fois" || echo "séquentiel" )) :"
+    for t in "${frozen[@]}"; do echo "  ⏸  #${t} frozen — blockers open outside the run: ${EXT[$t]}"; done
+    (( ${#wave[@]} == 0 )) && { for t in "${next[@]}"; do echo "  ⏸  #${t} frozen — undeliverable blocker"; done; break; }
+    echo "  wave ${local_wave} ($( (( ${#wave[@]} > 1 && JOBS > 1 )) && echo "parallel, ${JOBS} at a time" || echo "sequential" )):"
     for t in "${wave[@]}"; do
-      # Même calcul que launch() : la base, puis ce qui reste à merger par-dessus.
-      # Les branches du run n'existent pas encore, deepest_branch retombe donc sur la
-      # dernière listée — c'est le pire cas, et c'est celui qu'il faut montrer.
+      # Same computation as launch(): the base, then what is left to merge on top.
+      # The run's branches do not exist yet, so deepest_branch falls back to the last
+      # one listed — that is the worst case, and the one to show.
       stack=(); for b in ${DEPS[$t]}; do stack+=("${BRANCH_OF[$b]:-feat/$b}"); done
       base="$BASE_REF"; absorb=()
       if (( ${#stack[@]} )); then
@@ -1484,69 +1496,69 @@ if [[ "$DRY_RUN" == "1" ]]; then
         done
       fi
       printf '    #%-4s base %-14s %s\n' "$t" "$base" "${TITLE[$t]}"
-      (( ${#absorb[@]} )) && printf '          absorbe : %s\n' "${absorb[*]}"
+      (( ${#absorb[@]} )) && printf '          absorbs: %s\n' "${absorb[*]}"
       [[ "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && printf '          Verify: %s\n' "${VERIFY[$t]}"
       [[ "${TMO[$t]}"    != "$TIMEOUT"    ]] && printf '          Timeout: %s\n' "${TMO[$t]}"
       [[ "${MDL[$t]}"    != "$MODEL"      ]] && printf '          Model: %s\n' "${MDL[$t]}"
       [[ "${EFF[$t]}"    != "$EFFORT"     ]] && printf '          Effort: %s\n' "${EFF[$t]}"
-      LIVERED[$t]=1
+      DELIVERED[$t]=1
     done
     remaining=("${next[@]}"); local_wave=$(( local_wave + 1 ))
   done
-  echo; echo "(dry run — rien lancé)"
+  echo; echo "(dry run — nothing launched)"
   exit 0
 fi
 
 setup_git_auth
-git fetch -q origin "$BASE_BRANCH" || { echo "✗ fetch de origin/${BASE_BRANCH} impossible"; exit 1; }
-# Les branches des bloqueurs livrés hors run : sans ce fetch, origin/<branche> peut
-# être absente ou périmée, et le worktree partirait d'un état qui n'existe plus.
+git fetch -q origin "$BASE_BRANCH" || { echo "✗ cannot fetch origin/${BASE_BRANCH}"; exit 1; }
+# The branches of blockers delivered outside the run: without this fetch, origin/<branch>
+# may be absent or stale, and the worktree would start from a state that no longer exists.
 (( ${#EXT_FETCH[@]} )) && { git fetch -q origin "${EXT_FETCH[@]}" ||
-  echo "⚠  fetch des branches hors run (${EXT_FETCH[*]}) incomplet — leurs dépendants peuvent échouer"; }
+  echo "⚠  fetch of the out-of-run branches (${EXT_FETCH[*]}) incomplete — their dependants may fail"; }
 [[ -n "$(git status --porcelain)" ]] &&
-  echo "· arbre principal sale — sans effet : le script travaille dans .afk/wt/, il n'y touche pas"
+  echo "· main tree dirty — no effect: the script works in .afk/wt/, it does not touch it"
 gh pr checks --help 2>&1 | grep -q -- '--fail-fast' && CI_FAILFAST="--fail-fast"
 
 KNOWN_LABELS=$(gh label list --limit 200 --json name -q '.[].name' 2>/dev/null)
-ensure_label "$LABEL_REVIEW" "Livré par un agent, PR ouverte, en attente de revue humaine"
-ensure_label "$LABEL_KO"     "Rendu à un humain : l'agent n'a pas abouti"
+ensure_label "$LABEL_REVIEW" "Delivered by an agent, PR open, awaiting human review"
+ensure_label "$LABEL_KO"     "Handed back to a human: the agent did not get there"
 
 mkdir -p "$WORKTREE_DIR"
 trap finish EXIT INT TERM
 
-# ─── La base, une fois ────────────────────────────────────────────────────────
-# La porte ne juge jamais que « base + ticket », et rien ne sépare les deux termes : un
-# test rouge poussé directement sur la base (donc sans PR, donc sans CI) fait échouer
-# tout le lot, chacun à ses frais. Onze tickets l'ont diagnostiqué onze fois, six ont
-# brûlé un second essai complet, sept ont corrigé le même fichier de leur côté avec sept
-# messages différents (défaut 38). La porte tournait déjà sur la base — mais dans le seul
-# cas où la session n'a rien commité. On l'avance donc au début du run : c'est
-# l'exécution que la passe d'intégration fait déjà à la fin.
-# Un rouge n'arrête pas le run : le lanceur est parti. Il est dit dans l'en-tête, au
-# bilan et dans `summary.md`, et un rouge de ticket dont l'échec figure aussi dans
-# `base-verify.txt` n'est pas imputable au ticket.
+# ─── The base, once ───────────────────────────────────────────────────────────
+# The gate only ever judges "base + ticket", and nothing separates the two terms: a red
+# test pushed straight onto the base (so no PR, so no CI) fails the whole batch, each at
+# its own expense. Eleven tickets diagnosed it eleven times, six burned a full second
+# attempt, seven fixed the same file on their own side with seven different messages
+# (defect 38). The gate already ran on the base — but only in the case where the session
+# committed nothing. So we move it to the start of the run: it is the execution the
+# integration pass already does at the end.
+# A red does not stop the run: whoever launched it has gone. It is said in the header,
+# in the summary and in `summary.md`, and a ticket red with a failure that also appears
+# in `base-verify.txt` is not the ticket's fault.
 BASE_RED=0
 base_check() {
   local wt="$WORKTREE_DIR/_base"
-  echo; echo "═══ La base (${BASE_REF}) ═══"
+  echo; echo "═══ Base (${BASE_REF}) ═══"
   git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
-  # Détaché : pas de branche à nettoyer derrière, on ne commite rien ici.
+  # Detached: no branch to clean up behind, we commit nothing here.
   git worktree add -q --detach "$wt" "$BASE_REF" 2>"$AFK_DIR/base-wt.err" || {
-    echo "  ⚠  worktree impossible — base non vérifiée : $(head -1 "$AFK_DIR/base-wt.err")"
+    echo "  ⚠  worktree impossible — base not verified: $(head -1 "$AFK_DIR/base-wt.err")"
     return 0; }
   seed_worktree "$wt" >/dev/null
-  # `_base` comme numéro de ticket : la base migre comme un worker, elle doit s'isoler
-  # pareil (cf. `AFK_TICKET` dans le worker).
+  # `_base` as a ticket number: the base migrates like a worker, it must isolate itself
+  # the same way (see `AFK_TICKET` in the worker).
   [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
     locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1
   if ( cd "$wt" && locked verify bash -c "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
-    echo "  ✓ verte — un rouge de ticket sera bien le sien"
+    echo "  ✓ green — a red ticket will really be its own"
   else
     BASE_RED=1
-    echo "  ✗ ROUGE AVANT LE RUN — .afk/base-verify.txt"
+    echo "  ✗ RED BEFORE THE RUN — .afk/base-verify.txt"
     tail -n 10 "$AFK_DIR/base-verify.txt" | sed 's/^/     /'
-    echo "  · le run continue quand même : chaque ticket va rencontrer cet échec, et"
-    echo "    réparer la base est hors de son périmètre. Un rouge peut ne pas être le sien."
+    echo "  · the run continues anyway: every ticket is going to hit this failure, and"
+    echo "    fixing the base is outside its scope. A red may not be its own."
   fi
   git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
 }
@@ -1556,10 +1568,10 @@ schedule
 ci_phase
 integration_check
 
-# Un ticket à porte locale remplacée dont la CI n'a pas conclu n'a été vu par AUCUNE porte
-# complète, et une PR en draft ne se merge pas. Les deux faits étaient imprimés, à trois
-# lignes d'écart, sans jamais être croisés : c'était au lecteur de rapprocher deux listes
-# de numéros pour s'apercevoir qu'un « vert » ne l'était pas.
+# A ticket with a replaced local gate whose CI did not conclude was seen by NO complete
+# gate, and a draft PR does not get merged. Both facts were printed, three lines apart,
+# without ever being crossed: it was up to the reader to match two lists of numbers to
+# notice that a "green" was not one.
 GREEN=(); UNPROVEN=(); REDUCED=()
 for t in "${OK[@]}"; do
   [[ "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]] && REDUCED+=("$t")
@@ -1569,41 +1581,41 @@ for t in "${OK[@]}"; do
 done
 
 echo
-echo "═══ Bilan  ($(fmt_dur $SECONDS)) ═══"
+echo "═══ Summary  ($(fmt_dur $SECONDS)) ═══"
 (( BASE_RED )) &&
-  echo "  base rouge AVANT le run : un rouge de ticket peut ne pas être le sien — comparer .afk/<n>-fail.txt à .afk/base-verify.txt"
-echo "  vert   (${#GREEN[@]}) : ${GREEN[*]:-—}"
+  echo "  base red BEFORE the run: a red ticket may not be its own — compare .afk/<n>-fail.txt with .afk/base-verify.txt"
+echo "  green  (${#GREEN[@]}): ${GREEN[*]:-—}"
 (( ${#UNPROVEN[@]} )) &&
-  echo "  vert non prouvé (${#UNPROVEN[@]}) : ${UNPROVEN[*]}  → porte locale remplacée ET CI non concluante : rien n'a joué la porte complète"
+  echo "  unproven green (${#UNPROVEN[@]}): ${UNPROVEN[*]}  → local gate replaced AND CI inconclusive: nothing ran the complete gate"
 (( ${#DRAFT[@]} )) &&
-  echo "  draft  (${#DRAFT[@]}) : $(for t in "${DRAFT[@]}"; do printf '#%s (%s) ' "$t" "$(sget "$t" draft_why)"; done) → relire avant de sortir du draft"
+  echo "  draft  (${#DRAFT[@]}): $(for t in "${DRAFT[@]}"; do printf '#%s (%s) ' "$t" "$(sget "$t" draft_why)"; done) → read before leaving draft"
 (( ${#ABSORBED[@]} )) &&
-  echo "  absorbé (${#ABSORBED[@]}) : ${ABSORBED[*]}  → rien à faire, base déjà verte : livrés par un prédécesseur, à fermer"
-echo "  rouge  (${#KO[@]}) : ${KO[*]:-—}  → passés en ${LABEL_KO}, worktrees gardés dans .afk/wt/"
+  echo "  absorbed (${#ABSORBED[@]}): ${ABSORBED[*]}  → nothing to do, base already green: delivered by a predecessor, to close"
+echo "  red    (${#KO[@]}): ${KO[*]:-—}  → moved to ${LABEL_KO}, worktrees kept in .afk/wt/"
 (( ${#PUSH_KO[@]} )) && {
-  echo "  poussée refusée (${#PUSH_KO[@]}) : ${PUSH_KO[*]}  → branche verte et commitée en local, aucun label changé :"
+  echo "  push refused (${#PUSH_KO[@]}): ${PUSH_KO[*]}  → branch green and committed locally, no label changed:"
   for t in "${PUSH_KO[@]}"; do
-    echo "     #${t} : $(head -n 3 "$AFK_DIR/$t-push.txt" 2>/dev/null | tr '\n' ' ')"
+    echo "     #${t}: $(head -n 3 "$AFK_DIR/$t-push.txt" 2>/dev/null | tr '\n' ' ')"
   done; }
-echo "  gelé   (${#SKIP[@]}) : ${SKIP[*]:-—}  → bloqueurs non levés, relance après merge"
+echo "  frozen (${#SKIP[@]}): ${SKIP[*]:-—}  → blockers not lifted, relaunch after merge"
 (( ${#CI_RED[@]} )) &&
-  echo "  CI rouge (${#CI_RED[@]}) : ${CI_RED[*]}  → repassés en ${LABEL_KO}"
+  echo "  CI red (${#CI_RED[@]}): ${CI_RED[*]}  → moved back to ${LABEL_KO}"
 (( ${#CI_UNKNOWN[@]} )) &&
-  echo "  CI non concluante (${#CI_UNKNOWN[@]}) : ${CI_UNKNOWN[*]}"
-# Une seule ligne pour tout le run : sur un dépôt sans workflow, le dire ticket par
-# ticket n'apprend rien de plus au quinzième qu'au premier.
+  echo "  CI inconclusive (${#CI_UNKNOWN[@]}): ${CI_UNKNOWN[*]}"
+# A single line for the whole run: on a repo without a workflow, saying it ticket by
+# ticket teaches the fifteenth nothing the first did not.
 (( ${#CI_NONE[@]} == ${#OK[@]} && ${#OK[@]} )) &&
-  echo "  aucune CI sur ce dépôt : la porte locale est la seule qui ait joué$( (( ${#REDUCED[@]} )) && echo " — et elle était REMPLACÉE sur ${REDUCED[*]}" )"
-# Une seule ligne « intégration » : le verdict porte déjà son périmètre, une seconde ligne
-# du même nom juste au-dessus se lisait comme deux verdicts contradictoires.
+  echo "  no CI on this repo: the local gate is the only one that ran$( (( ${#REDUCED[@]} )) && echo " — and it was REPLACED on ${REDUCED[*]}" )"
+# A single "integration" line: the verdict already carries its scope, a second line of
+# the same name right above read as two contradictory verdicts.
 [[ "$INTEG_VERDICT" != "—" ]] &&
-  echo "  intégration : ${INTEG_VERDICT}$( (( ${#INTEG_CONFLICTS[@]} )) && echo "  → conflit sur ${INTEG_CONFLICTS[*]}, à résoudre à la main avant merge" )"
+  echo "  integration: ${INTEG_VERDICT}$( (( ${#INTEG_CONFLICTS[@]} )) && echo "  → conflict on ${INTEG_CONFLICTS[*]}, to resolve by hand before merging" )"
 (( ${#OK[@]} + ${#KO[@]} > 0 )) &&
-  echo "  vert au 1er essai : ${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))"
+  echo "  green on 1st attempt: ${FIRST_TRY}/$(( ${#OK[@]} + ${#KO[@]} ))"
 write_summary
 append_run_log
 
 echo
-echo "Sous ~50% de vert au premier essai, le problème est dans /to-tickets, pas ici."
-echo "100% de vert n'est pas mieux si la porte ne vérifie rien : \"vert\" veut dire"
-echo "\"ça compile\" tant qu'un ticket n'a pas sa propre ligne Verify:."
+echo "Below ~50% green on the first attempt, the problem is in /to-tickets, not here."
+echo "100% green is no better if the gate verifies nothing: \"green\" means"
+echo "\"it compiles\" until a ticket has its own Verify: line."

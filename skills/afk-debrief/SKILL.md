@@ -1,185 +1,183 @@
 ---
 name: afk-debrief
-description: "Dépouille un run afk terminé — lit .afk/summary.md et les traces, classe chaque non-vert par cause (porte fausse, ticket trop gros, vrai échec), propose quoi corriger et quoi relancer, et consigne les défauts d'afk lui-même dans son docs/defauts.md. À lancer au réveil, avant de merger. Déclencheurs : /afk-debrief, « dépouille le run », « qu'est-ce qui a raté cette nuit ? », « pourquoi #48 est rouge ? »."
+description: "Goes through a finished afk run — reads .afk/summary.md and the traces, sorts each non-green by cause (wrong gate, ticket too big, real failure), proposes what to fix and what to relaunch, and records afk's own defects in its docs/defects.md. Run on waking up, before merging. Triggers: /afk-debrief, \"go through the run\", \"what failed last night?\", \"why is #48 red?\"."
 ---
 
 # /afk-debrief
 
-Le run est fini. Ce skill lit ce qu'il a laissé, dit **pourquoi** chaque ticket n'est
-pas vert, et propose quoi corriger avant de relancer.
+The run is over. This skill reads what it left behind, says **why** each ticket is not
+green, and proposes what to fix before relaunching.
 
-Un rouge n'est pas un verdict sur le ticket : la porte peut avoir été fausse, le
-worktree mal amorcé, le modèle indisponible. Trier ça est tout le travail.
+A red is not a verdict on the ticket: the gate may have been wrong, the worktree badly
+seeded, the model unavailable. Sorting that out is the whole job.
 
-## 1 — Le bilan
+## 1 — The summary
 
 ```bash
 cat .afk/summary.md
 ```
 
-Pas de fichier → aucun run n'est allé jusqu'au bout ; passe à `.afk/<n>.out`.
+No file → no run made it to the end; go to `.afk/<n>.out`.
 
-Colonnes : résultat, PR, essai, modèle, contexte, coût, durée. Sous le tableau :
-verdict d'intégration, portes employées, taux de vert au 1er essai, et les commandes
-de reprise des rouges.
+Columns: result, PR, attempt, model, context, cost, duration. Below the table:
+integration verdict, gates used, green rate on the 1st attempt, and the resume commands
+for the reds.
 
-## 2 — Lire le run avant les tickets
+## 2 — Read the run before the tickets
 
-Quatre choses se lisent sur l'ensemble, et une seule d'entre elles peut expliquer
-tous les rouges à la fois :
+Four things are read on the whole, and a single one of them can explain every red at
+once:
 
-| Ce que tu vois au bilan | Ce que ça dit |
+| What you see in the summary | What it says |
 |---|---|
-| **intégration rouge alors que les tickets sont verts** | ce n'est pas N problèmes, c'en est un : la combinaison. `.afk/integration-verify.txt`, worktree gardé dans `.afk/wt/_integration` |
-| **« numéros en double »** | deux branches ont pris le même numéro d'ADR ou de migration. Aucune porte ne peut le voir, git non plus : renuméroter avant de merger. Le numéro reste à qui le cite le plus (`git grep -c` tranche) |
-| **« même chemin créé par plusieurs branches »** | deux branches ont créé le même fichier, avec deux API toutes deux justes. Chacune compile sans l'autre : seule la combinaison le dit |
-| **« tickets du run cités dans la doc mergée »** | une phrase peut être au futur sur ce qui est livré depuis dix minutes. Aucun conflit git, aucune porte : relire les lignes citées |
-| **colonne « Modèle » ≠ le modèle demandé, sans `(+N sous-agents)`** | `FALLBACK_MODEL` a joué : le principal était indisponible. Les verts de cette nuit ont tourné sur le modèle de secours, relis-les de plus près |
-| **colonne « Modèle » avec `(+N sous-agents)`** | la session a lancé N sous-agents ; ils portent le modèle de leur définition (`.claude/agents/*.md`) et pas celui du ticket. Un modèle de plus vient d'eux, pas d'un repli — et une part du coût aussi (défaut 41) |
-| **colonne « Contexte » proche de la fenêtre** | ticket trop gros, même vert. C'est le thermomètre du découpage, pas une note de qualité |
-| **« la base était déjà rouge avant le run »** | la porte échouait sur `origin/<base>` avant qu'aucun ticket ne tourne. Ouvrir `.afk/base-verify.txt` **avant** de juger un rouge : un ticket dont le `<n>-fail.txt` nomme le même échec n'y est pour rien, et se relance tel quel une fois la base réparée |
-| **« aucune CI sur ce dépôt »** | la porte locale est la seule qui ait joué du run entier. Si elle était remplacée sur certains tickets, ceux-là n'ont eu aucune porte complète — la ligne les nomme |
+| **integration red while the tickets are green** | it is not N problems, it is one: the combination. `.afk/integration-verify.txt`, worktree kept in `.afk/wt/_integration` |
+| **"duplicate numbers"** | two branches took the same ADR or migration number. No gate can see it, git neither: renumber before merging. The number stays with whoever cites it most (`git grep -c` decides) |
+| **"same path created by several branches"** | two branches created the same file, with two APIs both of them right. Each compiles without the other: only the combination says so |
+| **"tickets from this run cited in the merged docs"** | a sentence may be in the future tense about something delivered ten minutes ago. No git conflict, no gate: reread the cited lines |
+| **"Model" column ≠ the requested model, without `(+N subagents)`** | `FALLBACK_MODEL` kicked in: the main one was unavailable. Last night's greens ran on the backup model, read them more closely |
+| **"Model" column with `(+N subagents)`** | the session spawned N subagents; they carry the model of their definition (`.claude/agents/*.md`) and not the ticket's. One extra model comes from them, not from a fallback — and part of the cost too (defect 41) |
+| **"Context" column close to the window** | ticket too big, even green. It is the thermometer of the slicing, not a quality grade |
+| **"the base was already red before the run"** | the gate was failing on `origin/<base>` before any ticket ran. Open `.afk/base-verify.txt` **before** judging a red: a ticket whose `<n>-fail.txt` names the same failure is not to blame, and relaunches as-is once the base is fixed |
+| **"no CI on this repo"** | the local gate is the only one that ran for the whole run. If it was replaced on some tickets, those had no complete gate at all — the line names them |
 
-Et une mise en garde : **un taux de vert de 100 % ne veut rien dire si la porte ne
-vérifie rien.** Les tickets marqués `⚠` ont eu une porte locale remplacée par leur ligne
-`Verify:` — sur un dépôt qui a une CI, elle seule a joué la porte complète du dépôt ; sans
-CI, personne ne l'a jouée.
+And one warning: **a 100% green rate means nothing if the gate verifies nothing.** The
+tickets marked `⚠` had a local gate replaced by their `Verify:` line — on a repo that
+has CI, only CI ran the repo's complete gate; without CI, nobody ran it.
 
-## 3 — Classer chaque non-vert
+## 3 — Sort each non-green
 
-Pour chaque ticket qui n'est pas vert, `sget` a laissé la cause dans `.afk/<n>.status`
-(`reason=`), et le détail est dans un fichier précis :
+For each ticket that is not green, `sget` left the cause in `.afk/<n>.status`
+(`reason=`), and the detail is in a specific file:
 
 ```bash
 cat .afk/<n>.status          # result, reason, session, model, cost
-cat .afk/<n>.out             # la trace de l'orchestrateur pour ce ticket
+cat .afk/<n>.out             # the orchestrator's trace for this ticket
 ```
 
-| Résultat / `reason` | Où c'est écrit | Cause probable | Quoi faire |
+| Result / `reason` | Where it is written | Likely cause | What to do |
 |---|---|---|---|
-| `ko` / `setup` | `<n>-setup.log` | l'installation a échoué **dans le worktree** : lockfile absent à la racine, fichier gitignoré indispensable non semé | corriger `SETUP_CMD` ou `SEED_GLOBS` dans `.afk.env`, puis relancer le ticket |
-| `ko` / `verify` | `<n>-fail.txt` (dernier échec conservé) | à trancher : porte fausse ou vrai échec — voir l'étape 4 | selon le verdict |
-| `ko` / `pr` | `<n>.out` | une PR est déjà ouverte sur cette branche | fermer la PR, ou fermer le ticket |
-| `ko`, aucun commit | `<n>-verify.txt` | l'agent n'a rien produit **et** la base était rouge : le repo était déjà cassé avant lui | réparer la base d'abord, tout le lot en dépend |
-| `draft` / `coupée` | la PR elle-même | le `timeout` a tiré : la session a pu être coupée **au milieu d'un fichier** | relire en entier avant de sortir du draft, et regarder si le ticket mérite une ligne `Timeout:` |
-| `draft` / `anormale` | la PR + `<n>-<essai>.json` | la session s'est arrêtée entre deux actions, `subtype` dit laquelle | relire ; le travail présent compile, sa complétude n'est pas garantie |
-| `draft` / `non commité` | la PR elle-même | l'orchestrateur a rattrapé un arbre de travail que l'agent n'avait pas commité | le travail est là ; vérifier le message de commit, il porte le titre du ticket et pas le format du dépôt |
-| `vert non prouvé` | le bilan | porte locale remplacée (`Verify:`) **et** CI non concluante : rien n'a joué la porte complète | relancer la CI, ou passer la porte complète à la main sur la branche |
-| `poussée refusée` | `<n>-push.txt` | le remote a refusé la branche (jeton sans la portée `workflow`, branche déjà présente). Le travail est complet et vert en local | pousser à la main depuis le worktree gardé ; **ne pas** relancer le ticket, la session referait le même travail |
-| `gelé` | `<n>.out` | son bloqueur n'a pas été livré — ou la session elle-même a dit qu'un prérequis manquait dans sa base (`result=frozen`, la raison est dans un commentaire sur l'issue et dans `<n>-<essai>.json`) | rien à faire sur lui : livrer ce qui manque, il repartira. Le label n'a pas bougé |
-| `absorbé` | le commentaire posé sur l'issue | rien à faire, la base était déjà verte : un prédécesseur avait livré son contenu | vérifier puis fermer le ticket |
-| `/ CI rouge` | `<n>-ci.txt` | la porte locale était verte, la CI du dépôt non : la porte locale est plus étroite que la CI | élargir `VERIFY_CMD`, ou la ligne `Verify:` du ticket |
+| `ko` / `setup` | `<n>-setup.log` | the install failed **in the worktree**: no lockfile at the root, an indispensable gitignored file not seeded | fix `SETUP_CMD` or `SEED_GLOBS` in `.afk.env`, then relaunch the ticket |
+| `ko` / `verify` | `<n>-fail.txt` (last failure kept) | to be decided: wrong gate or real failure — see step 4 | depending on the verdict |
+| `ko` / `pr` | `<n>.out` | a PR is already open on this branch | close the PR, or close the ticket |
+| `ko`, no commit | `<n>-verify.txt` | the agent produced nothing **and** the base was red: the repo was already broken before it | fix the base first, the whole batch depends on it |
+| `draft` / `cut` | the PR itself | the `timeout` fired: the session may have been cut **in the middle of a file** | reread it in full before leaving draft, and see whether the ticket deserves a `Timeout:` line |
+| `draft` / `abnormal` | the PR + `<n>-<attempt>.json` | the session stopped between two actions, `subtype` says which | reread; the work present compiles, its completeness is not guaranteed |
+| `draft` / `not committed` | the PR itself | the orchestrator caught up a working tree the agent had not committed | the work is there; check the commit message, it carries the ticket title and not the repo's format |
+| `unproven green` | the summary | local gate replaced (`Verify:`) **and** CI inconclusive: nothing ran the complete gate | rerun CI, or run the complete gate by hand on the branch |
+| `push refused` | `<n>-push.txt` | the remote refused the branch (token without the `workflow` scope, branch already there). The work is complete and green locally | push by hand from the kept worktree; **do not** relaunch the ticket, the session would redo the same work |
+| `frozen` | `<n>.out` | its blocker was not delivered — or the session itself said a prerequisite was missing from its base (`result=frozen`, the reason is in a comment on the issue and in `<n>-<attempt>.json`) | nothing to do about it: deliver what is missing and it will start. The label has not moved |
+| `absorbed` | the comment left on the issue | nothing to do, the base was already green: a predecessor had delivered its content | check then close the ticket |
+| `/ CI red` | `<n>-ci.txt` | the local gate was green, the repo's CI was not: the local gate is narrower than CI | widen `VERIFY_CMD`, or the ticket's `Verify:` line |
 
-## 4 — Porte fausse ou vrai échec
+## 4 — Wrong gate or real failure
 
-Un `ko / verify` ne dit pas encore de qui c'est la faute. Le worktree du rouge est
-**gardé**, dépendances installées :
+A `ko / verify` does not yet say whose fault it is. The red ticket's worktree is
+**kept**, dependencies installed:
 
 ```bash
 cd .afk/wt/<n>
-git log --oneline origin/<base>..HEAD      # ce que l'agent a produit
-<la porte du ticket>                        # la relancer à la main
-git stash list; git status                  # ce qu'il a laissé en plan
+git log --oneline origin/<base>..HEAD      # what the agent produced
+<the ticket's gate>                         # rerun it by hand
+git stash list; git status                  # what it left hanging
 ```
 
-Puis compare ce que la porte reproche à ce que l'agent a touché :
+Then compare what the gate complains about with what the agent touched:
 
 ```bash
 git -C .afk/wt/<n> diff --name-only origin/<base>..HEAD
 ```
 
-La porte se plaint de fichiers **absents de cette liste** → c'est l'environnement ou la
-porte, pas le ticket : le worktree n'a pas ce qu'il faut, ou la porte est plus large que
-le périmètre. Elle se plaint de fichiers **de la liste** → vrai échec, et `<n>-fail.txt`
-dit lequel.
+The gate complains about files **absent from that list** → it is the environment or the
+gate, not the ticket: the worktree does not have what it needs, or the gate is wider than
+the scope. It complains about files **from the list** → real failure, and `<n>-fail.txt`
+says which one.
 
-Ne remets pas le worktree sur la base pour trancher : ça détruit l'état de l'échec, qui
-est justement ce qu'on est venu lire.
+Do not reset the worktree onto the base to decide: that destroys the state of the
+failure, which is exactly what you came to read.
 
-## 5 — Demander à la session
+## 5 — Ask the session
 
-Le bilan donne, pour chaque rouge, de quoi rentrer dans la session qui l'a produit :
+The summary gives, for each red, what it takes to get back into the session that
+produced it:
 
 ```bash
 (cd .afk/wt/<n> && claude --resume <id>)
 ```
 
-C'est le seul moyen d'obtenir ce qu'aucune trace ne contient : **pourquoi** l'agent a
-pris ce chemin-là. Utile quand l'échec est un choix de conception, inutile quand
-l'environnement était cassé — dans ce cas, la réponse est dans `.afk.env`.
+It is the only way to get what no trace contains: **why** the agent took that path.
+Useful when the failure is a design choice, useless when the environment was broken — in
+that case the answer is in `.afk.env`.
 
-## 6 — Décider, puis proposer
+## 6 — Decide, then propose
 
-Un tableau, un ticket par ligne : **à relancer tel quel** / **corriger la porte puis
-relancer** / **redécouper** / **à prendre à la main**, chacun avec la raison en une
-ligne.
+A table, one ticket per line: **relaunch as-is** / **fix the gate then relaunch** /
+**re-slice** / **take it by hand**, each with the reason in one line.
 
-Puis les actions, prêtes à coller — le nom exact des labels est dans
-`docs/agents/triage-labels.md` :
+Then the actions, ready to paste — the exact label names are in
+`docs/agents/triage-labels.md`:
 
 ```bash
 gh issue edit <n> --add-label <ready-for-agent> --remove-label <ready-for-human>
 ```
 
-Et, quand un ticket doit être redécoupé, dis-le explicitement : c'est `/to-tickets`
-qui le fait, pas ce skill.
+And when a ticket has to be re-sliced, say so explicitly: that is `/to-tickets`'s job,
+not this skill's.
 
-**Propose, attends validation, ne réétiquette rien d'office.** Un ticket remis en
-`ready-for-agent` repart la nuit suivante : c'est une décision de run.
+**Propose, wait for approval, relabel nothing unprompted.** A ticket put back to
+`ready-for-agent` starts again the next night: it is a run decision.
 
-## 7 — Consigner ce qui est un défaut d'afk
+## 7 — Record what is an afk defect
 
-Le dépôt d'afk est monté dans chaque projet : c'est le seul endroit qui traverse les
-runs **et** les projets. `RUNS.md` y reçoit déjà les faits de chaque run, ajoutés par
-`afk.sh`. Ce qui demande un jugement va dans `docs/defauts.md`, et c'est toi qui l'y
-mets.
+afk's repo is mounted in every project: it is the only place that spans the runs **and**
+the projects. `RUNS.md` already receives each run's facts, appended by `afk.sh`. What
+needs judgement goes into `docs/defects.md`, and you are the one who puts it there.
 
-Le chemin est celui du script, pas celui du projet :
+The path is the script's, not the project's:
 
 ```bash
 d=$(dirname "$(readlink -f "$(command -v afk.sh || echo ./afk.sh)")")
-tail -40 "$d/docs/defauts.md"      # le format d'une entrée
-grep -h '^## ' "$d"/docs/defauts*.md | tail -3   # le dernier numéro pris (l'archive le porte)
+tail -40 "$d/docs/defects.md"      # the format of an entry
+grep -h '^## ' "$d"/docs/defects*.md | tail -3   # the last number taken (the archive carries it)
 ```
 
-**Le tri est tout le travail.** N'y écris que ce qui aurait cassé **de la même façon sur
-n'importe quel dépôt** : l'orchestrateur, les worktrees, la porte, le prompt, le
-protocole parent/enfant. Un test instable, un `.afk.env` mal réglé, un ticket mal
-découpé sont des problèmes **du projet** — ils se corrigent là-bas et n'ont rien à faire
-dans ce registre.
+**The sorting is the whole job.** Only write in what would have broken **the same way on
+any repo**: the orchestrator, the worktrees, the gate, the prompt, the parent/child
+protocol. A flaky test, a badly tuned `.afk.env`, a badly sliced ticket are **project**
+problems — they get fixed over there and have no business in this register.
 
-Un défaut d'afk se reconnaît à une chose : la trace accuse le mauvais coupable. Un
-ticket sain noté rouge, un gel sans bloqueur réel, un vert qui n'a rien compilé, un
-ticket qui brûle ses essais pour une raison qui n'est pas la sienne.
+An afk defect is recognised by one thing: the trace blames the wrong culprit. A healthy
+ticket marked red, a freeze with no real blocker, a green that compiled nothing, a ticket
+burning its attempts for a reason that is not its own.
 
-Numéro suivant, verdict dans le titre (**corrigé** si tu as déjà la correction,
-**ouvert** sinon), et trois paragraphes : ce qu'on a vu, la cause, ce qu'on en a fait.
-Une entrée s'écrit dans `docs/defauts.md`, qui ne garde que les défauts vivants ; un
-défaut **corrigé** va dans `docs/defauts-corriges.md`, et celui qu'une correction ferme
-plus tard y déménage tel quel, sans changer de numéro.
-Puis **montre l'entrée écrite**. Contrairement aux tickets et aux PR, tu n'attends pas
-validation pour celle-ci : un défaut qu'on ne consigne pas se retrouve, et se
-rediagnostique en entier.
+Next number, verdict in the title (**fixed** if you already have the fix, **open**
+otherwise), and three paragraphs: what was seen, the cause, what was done about it.
+An entry is written in `docs/defects.md`, which only keeps the live defects; a **fixed**
+defect goes into `docs/defects-fixed.md`, and one that a later fix closes moves there
+as-is, keeping its number.
+Then **show the entry you wrote**. Unlike tickets and PRs, you do not wait for approval
+on this one: a defect that is not recorded comes back, and gets re-diagnosed from
+scratch.
 
-Rien à consigner est le cas normal. Ne remplis pas le registre pour le remplir.
+Nothing to record is the normal case. Do not fill the register for the sake of filling
+it.
 
-## 8 — Nettoyage
+## 8 — Cleanup
 
-Les worktrees rouges sont gardés exprès. Une fois le ticket compris :
+Red worktrees are kept on purpose. Once the ticket is understood:
 
 ```bash
 git worktree remove --force .afk/wt/<n>
 ```
 
-Ne les supprime pas avant d'avoir conclu — ils contiennent l'état exact de l'échec,
-`node_modules` compris.
+Do not delete them before you have concluded — they contain the exact state of the
+failure, `node_modules` included.
 
-## Ce que ce skill ne fait pas
+## What this skill does not do
 
-- Il ne merge aucune PR et ne relit pas le code des verts : ça, c'est la revue.
-- Il ne relance pas `afk.sh`.
-- Il ne réétiquette ni ne ferme aucun ticket sans validation.
-- Il ne conclut pas d'un rouge que le ticket était mauvais : la moitié des rouges sont
-  des portes, pas des tickets.
-- Il n'écrit pas dans `docs/defauts.md` les problèmes du projet travaillé : ce registre
-  ne concerne qu'afk, il est lu depuis tous les projets.
+- It merges no PR and does not review the greens' code: that is the review.
+- It does not relaunch `afk.sh`.
+- It relabels and closes no ticket without approval.
+- It does not conclude from a red that the ticket was bad: half the reds are gates, not
+  tickets.
+- It does not write the worked-on project's problems into `docs/defects.md`: that
+  register is about afk only, it is read from every project.

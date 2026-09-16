@@ -1,90 +1,90 @@
 ---
 name: afk-wave
-description: "Ouvre la vague suivante de tickets ready-for-agent à partir de docs/spec.md et de l'état réel du dépôt — choisit les critères non cochés du jalon courant, les découpe en tickets d'une session, les sérialise, et s'arrête quand il n'y a plus rien à ouvrir. Tourne entre deux runs afk, sans personne. Déclencheurs : /afk-wave, « ouvre la vague suivante », « les tickets du jalon courant », « qu'est-ce qu'on construit maintenant ? »."
+description: "Opens the next wave of ready-for-agent tickets from docs/spec.md and the repo's real state — picks the unchecked criteria of the current milestone, slices them into one-session tickets, serialises them, and stops when there is nothing left to open. Runs between two afk runs, with nobody watching. Triggers: /afk-wave, \"open the next wave\", \"the tickets for the current milestone\", \"what are we building now?\"."
 ---
 
 # /afk-wave
 
-Entre deux runs. Il lit ce que le spec demande encore, ce que le dépôt contient
-**vraiment**, et ouvre les tickets de la vague suivante.
+Between two runs. It reads what the spec still asks for, what the repo **really**
+contains, and opens the next wave's tickets.
 
-On ne découpe pas tout d'avance parce qu'on ne peut pas : les tickets d'une vague
-dépendent du code que la vague précédente a réellement écrit, pas de celui qu'on
-imaginait.
+We do not slice everything up front because we cannot: a wave's tickets depend on the
+code the previous wave actually wrote, not on the code we imagined.
 
-## 0 — La garde, avant tout le reste
+## 0 — The guard, before anything else
 
 ```bash
 git fetch -q origin && git switch -q dev && git pull -q
 diff <(git show afk-spec:docs/spec.md | sed 's/\[x\]/[ ]/g') <(sed 's/\[x\]/[ ]/g' docs/spec.md)
 ```
 
-Une différence autre que des cases → **arrête-toi et dis-le**. Le spec a dérivé : à
-partir de là, plus rien ne juge la boucle, elle se décerne sa propre victoire. C'est un
-arrêt, pas un avertissement.
+Any difference other than boxes → **stop and say so**. The spec has drifted: from then
+on nothing judges the loop, it awards itself its own victory. It is a stop, not a
+warning.
 
-Pas de tag `afk-spec` → le dépôt n'est pas passé par `/afk-spec`. Arrête-toi aussi.
+No `afk-spec` tag → the repo has not been through `/afk-spec`. Stop too.
 
-## 1 — Ce qui reste
+## 1 — What is left
 
 ```bash
-grep -n '^- \[ \]' docs/spec.md          # les critères non cochés
-grep -n '^## Jalon' docs/spec.md
+grep -n '^- \[ \]' docs/spec.md          # the unchecked criteria
+grep -n '^## Milestone' docs/spec.md
 gh issue list --state open --json number,title,labels,milestone
 ```
 
-Le **jalon courant** est le premier qui a encore un critère non coché. On ne travaille
-que celui-là. Tous cochés dans tous les jalons → **il n'y a rien à ouvrir**, dis-le et
-arrête-toi : c'est la fin normale de la boucle.
+The **current milestone** is the first one that still has an unchecked criterion. We
+only work on that one. All checked in every milestone → **there is nothing to open**,
+say so and stop: that is the loop's normal end.
 
-## 2 — Ce que le dépôt contient vraiment
+## 2 — What the repo really contains
 
-Le spec dit ce qu'on veut ; il ne dit pas ce qui existe. Avant de découper :
+The spec says what we want; it does not say what exists. Before slicing:
 
 ```bash
 git log --oneline afk-spec..dev | head -40
 git diff --stat afk-spec..dev
 ```
 
-Un ticket écrit contre un dépôt imaginé part chercher des fichiers qui n'existent pas et
-brûle sa session. C'est la différence entre cette vague et la précédente.
+A ticket written against an imagined repo goes looking for files that do not exist and
+burns its session. That is the difference between this wave and the previous one.
 
-## 3 — Les rouges de la vague d'avant
+## 3 — The reds from the previous wave
 
 ```bash
 gh issue list --state open --label ready-for-human --json number,title,comments
 ```
 
-Un critère non coché dont le ticket est déjà passé une fois : **recoupe-le plus petit**,
-ne le rouvre pas tel quel — il échouera pareil.
+An unchecked criterion whose ticket has already been through once: **re-slice it
+smaller**, do not reopen it as-is — it will fail the same way.
 
-Deux vagues sans qu'un critère atterrisse → laisse-le en `ready-for-human`, ne le remets
-pas dans la vague, et **nomme-le dans ton rapport**. C'est une des trois conditions
-d'arrêt de la boucle ; la faire passer en silence coûte toutes les nuits suivantes.
+Two waves without a criterion landing → leave it in `ready-for-human`, do not put it
+back in the wave, and **name it in your report**. It is one of the loop's three stopping
+conditions; letting it pass silently costs every night that follows.
 
-## 4 — Choisir
+## 4 — Choosing
 
-**3 à 6 critères**, pas plus. Le plan porte sur du code qui n'existe pas encore : au
-delà, il est deviné, et la vague suivante le jettera.
+**3 to 6 criteria**, no more. The plan covers code that does not exist yet: beyond that
+it is guessed, and the next wave will throw it away.
 
-Un ticket qui ne livre **aucun critère du spec** ne s'ouvre pas. Pas d'exception — c'est
-exactement par là que la boucle part construire ce que personne n'a demandé.
+A ticket that delivers **no criterion from the spec** does not get opened. No exceptions
+— that is exactly the door through which the loop goes off building what nobody asked
+for.
 
-## 5 — Écrire les tickets
+## 5 — Writing the tickets
 
-Une tranche verticale par ticket — schéma, code, écran, test — sinon la porte ne peut
-pas le juger seul.
+One vertical slice per ticket — schema, code, screen, test — otherwise the gate cannot
+judge it on its own.
 
 ```bash
-gh issue create -t "<titre>" -l ready-for-agent -m "<jalon courant>" -F - <<'EOF'
+gh issue create -t "<title>" -l ready-for-agent -m "<current milestone>" -F - <<'EOF'
 ## What to build
 
-<en une phrase, puis ce qu'il ne faut pas toucher>
+<in one sentence, then what must not be touched>
 
 ## Acceptance criteria
 
-- [ ] **A3** — `POST /tasks` avec un titre renvoie 201 et l'id créé
-- [ ] le test vit dans `tests/api/tasks.spec.ts`
+- [ ] **A3** — `POST /tasks` with a title returns 201 and the created id
+- [ ] the test lives in `tests/api/tasks.spec.ts`
 
 ## Blocked by
 
@@ -94,75 +94,73 @@ Verify: pnpm vitest run tests/api/tasks.spec.ts
 EOF
 ```
 
-Les critères recopiés **mot pour mot** depuis le spec, numéro compris. C'est ce qui
-permet à `/afk-merge` de cocher mécaniquement, et à toi de relire sans ouvrir deux
-fichiers.
+The criteria copied **word for word** from the spec, number included. That is what lets
+`/afk-merge` check them off mechanically, and lets you review without opening two files.
 
-La ligne `Verify:` est la commande du critère. Si le ticket en porte plusieurs, les
-commandes enchaînées par `&&`. Éprouve-la avant de l'écrire — sur un fichier de test qui
-n'existe pas encore, elle doit échouer proprement, pas rester bloquée :
+The `Verify:` line is the criterion's command. If the ticket carries several, chain the
+commands with `&&`. Prove it before writing it — on a test file that does not exist yet,
+it must fail cleanly, not hang:
 
 ```bash
-timeout 120 bash -c '<la commande>'; echo "rc=$?"
+timeout 120 bash -c '<the command>'; echo "rc=$?"
 ```
 
-`rc=124` = elle ne rend jamais la main (`vitest` sans `run`, `jest --watch`) : le ticket
-mourra sur `TIMEOUT` pour une raison qui n'est pas la sienne.
+`rc=124` = it never returns (`vitest` without `run`, `jest --watch`): the ticket will die
+on `TIMEOUT` for a reason that is not its own.
 
-## 6 — Sérialiser ce qui se marche dessus
+## 6 — Serialising what steps on what
 
-Deux tickets de la même vague partent chacun d'une base qui ne contient pas l'autre :
-les deux sont verts et la casse n'apparaît qu'à l'intégration — ou jamais, quand les
-deux créent le **même chemin** avec deux API justes chacune de son côté.
+Two tickets of the same wave each start from a base that does not contain the other:
+both are green and the breakage only shows at integration — or never, when both create
+the **same path** with two APIs each right on its own side.
 
-Deux tickets qui annoncent les mêmes fichiers → un `Blocked by` sur celui qui peut
-attendre. Pas une fusion : le second part alors de la branche du premier et voit son
-travail.
+Two tickets announcing the same files → a `Blocked by` on whichever can wait. Not a
+merge: the second then starts from the first one's branch and sees its work.
 
-Et les numéros qui se disputent (ADR, migration) se donnent **dans le corps**, avant le
-run :
+And the numbers that get fought over (ADR, migration) are handed out **in the body**,
+before the run:
 
 ```bash
 ls docs/adr | tail -3
 ```
 
-## 7 — Relire son propre lot
+## 7 — Rereading your own batch
 
 ```bash
 ./afk.sh -n
 ```
 
-Lis-en : les vagues, les bases, les gels, la porte effective par ticket. Un ticket
-**gelé** dans ta propre vague est une erreur de découpe que tu viens de commettre —
-corrige le `Blocked by`.
+Read from it: the waves, the bases, the freezes, the effective gate per ticket. A
+**frozen** ticket in your own wave is a slicing mistake you just made — fix the
+`Blocked by`.
 
-Si une ligne `Verify:` n'apparaît pas dans le `-n` là où le ticket en écrit une, elle a
-été refusée par le motif de validation : elle finit par `:`, ou par un backtick.
+If a `Verify:` line does not show up in the `-n` where the ticket writes one, it was
+refused by the validation pattern: it ends in `:`, or in a backtick.
 
-Le reste des pièges de contenu est dans `/afk-preflight` — **lis-le plutôt que de le
-refaire**, c'est le même travail sur des tickets qui viennent d'ailleurs.
+The rest of the content traps are in `/afk-preflight` — **read it rather than redo it**,
+it is the same work on tickets coming from elsewhere.
 
-## 8 — Rendre
+## 8 — Reporting
 
-Un tableau : ticket, critères livrés, `Blocked by`, porte. Puis la commande de
-lancement, **sans la lancer** :
+A table: ticket, criteria delivered, `Blocked by`, gate. Then the launch command,
+**without running it**:
 
 ```bash
 nohup ./afk.sh -j 3 &
 ```
 
-Contrairement à `/afk-preflight`, ce skill **ouvre** les tickets sans attendre
-validation : il tourne dans une boucle où personne n'est réveillé. C'est pour ça que ses
-interdits sont mécaniques et pas affaire de jugement — voir plus bas.
+Unlike `/afk-preflight`, this skill **opens** the tickets without waiting for approval:
+it runs in a loop where nobody is awake. That is why its prohibitions are mechanical and
+not a matter of judgement — see below.
 
-## Ce que ce skill ne fait pas
+## What this skill does not do
 
-- **Il ne touche jamais `docs/spec.md`.** Ni une case, ni un mot. Cocher est le travail
-  de `/afk-merge`, après avoir fait tourner la commande du critère.
-- **Il n'invente aucun critère.** Un besoin découvert en route qui n'est pas dans le
-  spec se dit dans le rapport ; il ne devient pas un ticket.
-- Il ne rouvre pas un critère déjà coché.
-- Il ne travaille pas deux jalons à la fois.
-- Il ne lance pas `afk.sh` : un run dure des heures, ça n'a rien à faire dans une
-  session. C'est la boucle au-dessus qui l'appelle.
-- Il ne merge rien et ne ferme aucun ticket.
+- **It never touches `docs/spec.md`.** Not a box, not a word. Checking off is
+  `/afk-merge`'s job, after running the criterion's command.
+- **It invents no criterion.** A need discovered on the way that is not in the spec goes
+  into the report; it does not become a ticket.
+- It does not reopen an already checked criterion.
+- It does not work two milestones at once.
+- It does not run `afk.sh`: a run takes hours, it has no business inside a session. It
+  is the loop above that calls it.
+- It merges nothing and closes no ticket.

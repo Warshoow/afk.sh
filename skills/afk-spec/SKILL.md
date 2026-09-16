@@ -1,174 +1,168 @@
 ---
 name: afk-spec
-description: "Transforme une idée d'app en un dépôt qu'afk peut travailler tout seul — choisit la stack, écrit docs/spec.md dont chaque critère porte la commande qui le prouve, monte le squelette qui démarre, la CI, le .afk.env, et pose le jalonnage. À lancer une fois, au tout début, avant la première vague. Déclencheurs : /afk-spec, « je veux construire <idée> », « monte le dépôt pour cette idée », « écris le spec », « vague 0 »."
+description: "Turns an app idea into a repo afk can work on alone — picks the stack, writes docs/spec.md where every criterion carries the command that proves it, builds the skeleton that starts, the CI, the .afk.env, and sets up the milestones. Run once, at the very beginning, before the first wave. Triggers: /afk-spec, \"I want to build <idea>\", \"set up the repo for this idea\", \"write the spec\", \"wave 0\"."
 ---
 
 # /afk-spec
 
-Une idée n'est pas exécutable. Ce skill la rend exécutable : un dépôt qui démarre, une
-porte qui passe, et une liste de critères dont **chacun nomme la commande qui le
-prouve**. Après ça, `/afk-wave` et `/afk-merge` tournent en boucle sans personne.
+An idea is not executable. This skill makes it executable: a repo that starts, a gate
+that passes, and a list of criteria where **each one names the command that proves it**.
+After that, `/afk-wave` and `/afk-merge` loop with nobody watching.
 
-C'est la seule étape de la boucle qui mérite d'être relue réveillé : elle choisit la
-stack pour tout le reste, et elle écrit le seul juge que la boucle aura.
+It is the only step of the loop worth reviewing awake: it picks the stack for everything
+else, and it writes the only judge the loop will ever have.
 
-## La règle qui tient tout le reste
+## The rule that holds up all the rest
 
-**`docs/spec.md` s'écrit ici et ne change plus jamais.** Les vagues suivantes n'ont le
-droit que de cocher des cases — pas d'ajouter, pas de reformuler, pas de retirer un
-critère.
+**`docs/spec.md` is written here and never changes again.** The later waves are only
+allowed to check boxes — not to add, not to reword, not to remove a criterion.
 
-Sinon la boucle se déclare gagnante toute seule : celui qui écrit les critères et celui
-qui les remplit sont le même modèle. C'est le seul mode d'échec qui ne se voit nulle
-part dans le bilan.
+Otherwise the loop declares itself the winner all by itself: whoever writes the criteria
+and whoever fills them are the same model. It is the only failure mode that shows up
+nowhere in the summary.
 
-## 1 — L'idée, et ce qu'elle exclut
+## 1 — The idea, and what it excludes
 
-Une phrase pour ce que l'app fait. Puis, explicitement, **ce qu'elle ne fera pas** :
-tout ce qui n'est pas dans le spec ne sera jamais construit, et c'est voulu — l'agent ne
-rattrapera pas un oubli, il inventera.
+One sentence for what the app does. Then, explicitly, **what it will not do**:
+anything not in the spec will never be built, and that is deliberate — the agent will
+not catch an omission, it will invent.
 
-Trop gros pour un spec (« un Notion », « un CRM ») → dis-le et propose la première
-tranche qui se tient debout seule. Une boucle sur cinquante critères passe ses nuits à
-empiler du code que rien ne relit.
+Too big for a spec ("a Notion", "a CRM") → say so and propose the first slice that stands
+on its own. A loop over fifty criteria spends its nights piling up code nobody reviews.
 
-## 2 — La stack
+## 2 — The stack
 
-La plus ennuyeuse qui tienne. Deux contraintes, dans cet ordre :
+The most boring one that holds. Two constraints, in this order:
 
-- **la porte tourne sans service externe.** Chaque ticket tourne dans un worktree
-  jetable : un Postgres vivant, un Redis, un `docker compose` et tous les tickets
-  meurent rouges pour une raison qui n'est pas la leur. SQLite sur fichier, serveur en
-  mémoire, faux client — c'est une décision de vague 0, pas un détail.
-- **le modèle la connaît sans chercher.** Une stack pointue coûte une session de
-  documentation par ticket, toutes les nuits.
+- **the gate runs with no external service.** Each ticket runs in a throwaway worktree:
+  a live Postgres, a Redis, a `docker compose` and every ticket dies red for a reason
+  that is not its own. File-backed SQLite, in-memory server, fake client — it is a wave-0
+  decision, not a detail.
+- **the model knows it without looking things up.** A niche stack costs one documentation
+  session per ticket, every night.
 
-Une ligne de justification par choix, dans le `README.md`. Personne ne la relira avant
-six mois.
+One line of justification per choice, in the `README.md`. Nobody will reread it before
+six months.
 
-## 3 — Les critères
+## 3 — The criteria
 
-Le cœur du skill. Un critère s'écrit comme ceci :
+The heart of the skill. A criterion is written like this:
 
 ```markdown
-- [ ] **A3** — `POST /tasks` avec un titre renvoie 201 et l'id créé.
-      `pnpm vitest run tests/api/tasks.spec.ts -t "création"`
+- [ ] **A3** — `POST /tasks` with a title returns 201 and the created id.
+      `pnpm vitest run tests/api/tasks.spec.ts -t "creation"`
 ```
 
-Trois parties : un numéro stable, la phrase, **et la commande qui rend 0 quand c'est
-vrai**. Le fichier de test n'existe pas encore : le chemin est une consigne pour le
-ticket qui prendra ce critère.
+Three parts: a stable number, the sentence, **and the command that returns 0 when it is
+true**. The test file does not exist yet: the path is an instruction for the ticket that
+will take this criterion.
 
-**Le test, avant d'écrire quoi que ce soit : quelle commande rend 0 si c'est vrai, et
-non-0 sinon ?** Pas de réponse → ce n'est pas un critère, c'est un souhait. Réécris-le
-ou jette-le.
+**The test, before writing anything: which command returns 0 if it is true, and non-0
+otherwise?** No answer → it is not a criterion, it is a wish. Rewrite it or drop it.
 
-| Souhait | Critère |
+| Wish | Criterion |
 |---|---|
-| « l'utilisateur peut créer une tâche » | `POST /tasks` renvoie 201, et la tâche apparaît dans `GET /tasks` |
-| « l'interface est agréable » | (pas un critère — voir plus bas) |
-| « c'est rapide » | `GET /tasks` sur 1000 lignes répond en moins de 200 ms |
-| « les erreurs sont gérées » | `POST /tasks` sans titre renvoie 400 et un corps `{error}` |
+| "the user can create a task" | `POST /tasks` returns 201, and the task shows up in `GET /tasks` |
+| "the interface is pleasant" | (not a criterion — see below) |
+| "it is fast" | `GET /tasks` over 1000 rows answers in under 200 ms |
+| "errors are handled" | `POST /tasks` without a title returns 400 and an `{error}` body |
 
-Ce qu'aucune commande ne juge — une mise en page, une animation, un ton — **ne va pas
-dans le spec**. Ça se traite plus tard, ticket par ticket, par une ligne
-`Gauntlet: <référence>` quand tu auras une référence à viser. Un critère de goût dans le
-spec bloque la boucle pour toujours ou se coche à l'aveugle.
+What no command judges — a layout, an animation, a tone — **does not go in the spec**. It
+gets handled later, ticket by ticket, with a `Gauntlet: <reference>` line once you have a
+reference to aim at. A taste criterion in the spec blocks the loop forever or gets
+checked off blind.
 
-Le premier critère est toujours le même : **A0 — l'app démarre**, avec la commande qui
-le prouve. C'est lui qui attrape « tous les tickets sont verts et rien ne tourne ».
+The first criterion is always the same: **A0 — the app starts**, with the command that
+proves it. It is the one that catches "every ticket is green and nothing runs".
 
-Vise 10 à 30 critères. En dessous, le spec ne décrit pas une app ; au-dessus, découpe
-l'idée.
+Aim for 10 to 30 criteria. Below that, the spec does not describe an app; above it, slice
+the idea.
 
-## 4 — Les jalons
+## 4 — The milestones
 
-Groupe les critères en jalons ordonnés, chacun une chose qui se tient debout seule
-(« l'API répond », « on peut se connecter », « l'écran de liste »). Un jalon est fini
-quand tous ses critères sont cochés. `/afk-wave` ne travaille jamais deux jalons à la
-fois.
+Group the criteria into ordered milestones, each one a thing that stands on its own
+("the API answers", "you can log in", "the list screen"). A milestone is done when all
+its criteria are checked. `/afk-wave` never works two milestones at once.
 
-Un jalon ne dépend que des précédents. Si deux jalons se réclament l'un l'autre, c'est
-un seul jalon.
+A milestone only depends on the previous ones. If two milestones claim each other, it is
+one milestone.
 
 ```markdown
-## Jalon 1 — L'API répond
+## Milestone 1 — The API answers
 - [ ] **A0** — …
 - [ ] **A1** — …
 
-## Jalon 2 — Persistance
+## Milestone 2 — Persistence
 - [ ] **A4** — …
 ```
 
-## 5 — Le squelette
+## 5 — The skeleton
 
-Le minimum pour que **A0 passe et rien d'autre**. Pas d'écran vide « pour plus tard »,
-pas de dossier `utils/` sans contenu : chaque fichier qui existe ici est un fichier
-qu'un agent croira devoir respecter.
+The minimum for **A0 to pass and nothing else**. No empty screen "for later", no `utils/`
+folder with nothing in it: every file that exists here is a file an agent will believe it
+has to respect.
 
 ```bash
-<la commande de A0>; echo "rc=$?"
+<A0's command>; echo "rc=$?"
 ```
 
-`rc=0` ou le squelette n'est pas fini.
+`rc=0` or the skeleton is not done.
 
-## 6 — Le reste de l'appareillage
+## 6 — The rest of the apparatus
 
-Dans cet ordre, chacun est un prérequis du suivant :
+In this order, each one a prerequisite for the next:
 
 ```bash
-/mattpocock-skills:setup-matt-pocock-skills   # docs/agents/issue-tracker.md, les labels
-/afk-setup                                     # .afk.env, la porte éprouvée
+/mattpocock-skills:setup-matt-pocock-skills   # docs/agents/issue-tracker.md, the labels
+/afk-setup                                     # .afk.env, the proven gate
 ```
 
-Sans le premier, `afk.sh` refuse de démarrer. Sans le second, la porte sera celle d'un
-monorepo pnpm.
+Without the first, `afk.sh` refuses to start. Without the second, the gate will be a pnpm
+monorepo's.
 
-Puis une CI qui joue la même porte que `VERIFY_CMD` — c'est elle qui vérifiera les PR,
-et `/afk-merge` ne merge rien sans elle.
+Then a CI that runs the same gate as `VERIFY_CMD` — it is what will verify the PRs, and
+`/afk-merge` merges nothing without it.
 
-## 7 — Poser les repères
+## 7 — Setting the markers
 
 ```bash
-git commit -am "chore: spec, squelette et porte"
-git tag afk-spec                     # la version de référence du spec
+git commit -am "chore: spec, skeleton and gate"
+git tag afk-spec                     # the spec's reference version
 git branch dev && git push -u origin dev
-echo 'BASE_BRANCH="${BASE_BRANCH:-dev}"   # la boucle atterrit sur dev, jamais sur master' >> .afk.env
+echo 'BASE_BRANCH="${BASE_BRANCH:-dev}"   # the loop lands on dev, never on master' >> .afk.env
 ```
 
-`BASE_BRANCH=dev` n'est pas optionnel : sans lui, les worktrees partent de `master` et
-les PR la visent — chaque ticket ignorerait alors tout ce que les vagues précédentes ont
-livré.
+`BASE_BRANCH=dev` is not optional: without it the worktrees start from `master` and the
+PRs target it — every ticket would then ignore everything the previous waves delivered.
 
-Le tag est la garde : `/afk-wave` et `/afk-merge` comparent `docs/spec.md` à
-`git show afk-spec:docs/spec.md` et refusent de tourner si autre chose que des cases a
-bougé.
+The tag is the guard: `/afk-wave` and `/afk-merge` compare `docs/spec.md` with
+`git show afk-spec:docs/spec.md` and refuse to run if anything other than boxes moved.
 
-`dev` est la branche d'atterrissage. **`master` n'est jamais touchée par la boucle** —
-c'est toi qui merges `dev`, réveillé.
+`dev` is the landing branch. **`master` is never touched by the loop** — you merge `dev`
+yourself, awake.
 
-Enfin, une milestone GitHub par jalon, dans l'ordre :
+Finally, one GitHub milestone per milestone, in order:
 
 ```bash
-gh api repos/{owner}/{repo}/milestones -f title="Jalon 1 — L'API répond"
+gh api repos/{owner}/{repo}/milestones -f title="Milestone 1 — The API answers"
 ```
 
-C'est là que `/afk-wave` accrochera ses tickets. Pas de fichier d'état en plus : le spec
-porte les critères, GitHub porte les tickets et les jalons, git porte le reste.
+That is where `/afk-wave` will hang its tickets. No extra state file: the spec carries
+the criteria, GitHub carries the tickets and the milestones, git carries the rest.
 
-## 8 — Montrer, puis attendre
+## 8 — Show, then wait
 
-Montre le spec et la stack, **attends validation**. C'est le seul point d'arrêt de toute
-la boucle — après, plus personne ne relit avant le réveil.
+Show the spec and the stack, **wait for approval**. It is the only stopping point of the
+whole loop — after it, nobody reviews anything before you wake up.
 
-Ce qui compte dans cette relecture : est-ce que la liste des critères, une fois tous
-cochés, décrit l'app que tu voulais ? Si non, c'est maintenant, pas dans trois vagues.
+What matters in that review: does the list of criteria, once all checked, describe the
+app you wanted? If not, it is now, not in three waves.
 
-## Ce que ce skill ne fait pas
+## What this skill does not do
 
-- Il ne lance pas `afk.sh` et n'ouvre aucun ticket : c'est `/afk-wave`, une fois le spec
-  validé.
-- Il n'écrit aucun code applicatif — seulement le squelette qui fait passer A0.
-- Il ne met pas dans le spec ce qu'aucune commande ne juge.
-- Il ne revient jamais sur `docs/spec.md` après le tag. Si le spec est faux, c'est une
-  décision humaine : corriger, retaguer, et le dire.
+- It does not run `afk.sh` and opens no ticket: that is `/afk-wave`, once the spec is
+  approved.
+- It writes no application code — only the skeleton that makes A0 pass.
+- It does not put in the spec what no command judges.
+- It never comes back to `docs/spec.md` after the tag. If the spec is wrong, that is a
+  human decision: fix it, re-tag, and say so.

@@ -1,170 +1,169 @@
 ---
 name: afk-preflight
-description: "Relit le lot de tickets ready-for-agent juste avant un run afk, et corrige ce qui ferait perdre la nuit — gel par un bloqueur hors run, critères qu'aucune porte ne peut vérifier, ticket trop gros pour son budget de temps. Il recoupe aussi le lot : couper un ticket qui ne tient pas dans une session, sérialiser deux tickets qui écrivent dans les mêmes fichiers, donner les numéros (ADR, migration) avant le run. À lancer entre /triage et ./afk.sh, sur des tickets déjà publiés d'où qu'ils viennent. Déclencheurs : /afk-preflight, « est-ce que mes tickets sont prêts pour afk ? », « relis le lot avant de lancer », « redécoupe le lot pour afk », « pourquoi ce ticket serait gelé ? »."
+description: "Rereads the batch of ready-for-agent tickets just before an afk run, and fixes what would cost the night — a freeze from an out-of-run blocker, criteria no gate can check, a ticket too big for its time budget. It also re-slices the batch: cut a ticket that does not fit in one session, serialise two tickets writing into the same files, hand out the numbers (ADR, migration) before the run. Run between /triage and ./afk.sh, on already published tickets whatever their origin. Triggers: /afk-preflight, \"are my tickets ready for afk?\", \"reread the batch before launching\", \"re-slice the batch for afk\", \"why would this ticket be frozen?\"."
 ---
 
 # /afk-preflight
 
-Un ticket mal rédigé ne coûte pas cinq minutes, il coûte `MAX_ATTEMPTS × TIMEOUT` de
-nuit — et s'il bloque les autres, il coûte leur nuit aussi. Ce skill relit le lot avant
-le run et rend une liste de corrections.
+A badly written ticket does not cost five minutes, it costs `MAX_ATTEMPTS × TIMEOUT` of
+the night — and if it blocks the others, it costs their night too. This skill rereads
+the batch before the run and returns a list of corrections.
 
-`./afk.sh -n` donne déjà toute la mécanique : vagues, bases, piles, gelés, porte
-effective par ticket. **Ne la refais pas.** Ce skill juge le *contenu* des tickets,
-ce que le script ne peut pas faire.
+`./afk.sh -n` already gives the whole mechanism: waves, bases, stacks, frozen, effective
+gate per ticket. **Do not redo it.** This skill judges the *content* of the tickets,
+which the script cannot do.
 
-## 1 — Prérequis
-
-```bash
-test -f .afk.env || echo "pas de .afk.env — lance /afk-setup d'abord"
-```
-
-Pas de `.afk.env` → la porte sera celle d'un monorepo pnpm, fausse partout ailleurs.
-Arrête-toi là.
-
-## 2 — Le plan
+## 1 — Prerequisites
 
 ```bash
-./afk.sh -n            # tout le lot ready-for-agent
-./afk.sh -n 43 48 49   # ou un lot explicite
+test -f .afk.env || echo "no .afk.env — run /afk-setup first"
 ```
 
-Lis-en, sans les recalculer : les tickets **gelés**, les **vagues** (qui tourne en même
-temps que qui), les **bases** (qui s'empile sur qui), et les lignes `Verify:` /
-`Timeout:` / `Model:` / `Effort:` que les tickets se sont données.
+No `.afk.env` → the gate will be a pnpm monorepo's, wrong everywhere else.
+Stop there.
 
-## 3 — Les corps
+## 2 — The plan
+
+```bash
+./afk.sh -n            # the whole ready-for-agent batch
+./afk.sh -n 43 48 49   # or an explicit batch
+```
+
+Read from it, without recomputing: the **frozen** tickets, the **waves** (who runs at
+the same time as whom), the **bases** (who stacks on whom), and the `Verify:` /
+`Timeout:` / `Model:` / `Effort:` lines the tickets gave themselves.
+
+## 3 — The bodies
 
 ```bash
 gh issue view <n> --json title,body,labels -q '.title, .body'
 ```
 
-Un ticket par appel, pour tout le lot. C'est la matière du reste.
+One ticket per call, for the whole batch. It is the raw material for everything else.
 
-## 4 — Ce qu'on cherche
+## 4 — What to look for
 
-| Ce que tu vois | Ce qui va se passer | Correction |
+| What you see | What will happen | Fix |
 |---|---|---|
-| **Gelé — bloqueur ouvert hors run** | le ticket ne démarre pas, et ses dépendants non plus | trois cas : (a) le bloqueur est fini mais son ticket n'a pas été fermé → le fermer ; (b) il a une PR ouverte → `STACK_ON_OPEN_PR=1` suffit, rien à faire ; (c) il est vraiment à faire → l'ajouter au lot, ou sortir le dépendant |
-| **`Blocked by` périmé** (bloqueur déjà mergé) | gel pour rien | fermer le bloqueur, ou retirer la ligne du corps |
-| **Critère d'acceptation qu'aucune porte ne peut voir** (« l'utilisateur voit un toast ») | « vert » voudra dire « ça compile » | soit un test qui le prouve et une ligne `Verify:` qui le lance, soit l'assumer — mais alors le dire, pas le découvrir au bilan |
-| **Ticket qui traverse plusieurs apps avec un `Verify:` rétréci à une seule** | la porte locale ne voit pas la casse, seule la CI la verra — après la PR | élargir le `Verify:`, ou le retirer pour retomber sur la porte complète |
-| **Refonte sans `Timeout:`** (migration + code + tests + docs, ou plus de ~6 critères) | coupé au milieu à `TIMEOUT`, deux fois | proposer `Timeout: 90m` (le format de `timeout(1)`) |
-| **Périmètre flou** (« améliorer X », « nettoyer Y ») | l'agent part où il veut, la revue n'a rien à comparer | réécrire les critères d'acceptation en choses vérifiables, ou sortir le ticket du lot |
-| **Deux tickets de la même vague sur les mêmes fichiers** | chaque worktree part de la base sans voir l'autre : ça compile des deux côtés et casse à l'intégration | sérialiser par un `Blocked by` entre les deux |
-| **Ticket déjà couvert par une PR ouverte** | il sortira `absorbé`, au mieux | le fermer, ou le laisser : `absorbé` est un résultat propre, pas un échec |
-| **Ticket mécanique** (renommage, config, doc, montée de version) | il tournera sur le modèle des refontes | `Model: sonnet` dans le corps |
-| **Ticket dont un run précédent a fini près de la fenêtre de contexte** (colonne « Contexte » de `.afk/summary.md`) | trop gros : la qualité se dégrade avant l'échec | le couper — §5 |
+| **Frozen — blocker open outside the run** | the ticket does not start, and neither do its dependants | three cases: (a) the blocker is done but its ticket was never closed → close it; (b) it has an open PR → `STACK_ON_OPEN_PR=1` is enough, nothing to do; (c) it really is still to do → add it to the batch, or take the dependant out |
+| **Stale `Blocked by`** (blocker already merged) | a freeze for nothing | close the blocker, or remove the line from the body |
+| **Acceptance criterion no gate can see** ("the user sees a toast") | "green" will mean "it compiles" | either a test that proves it plus a `Verify:` line that runs it, or accept it — but then say so, do not discover it in the summary |
+| **Ticket crossing several apps with a `Verify:` shrunk to one** | the local gate does not see the breakage, only CI will — after the PR | widen the `Verify:`, or remove it to fall back on the complete gate |
+| **Rework without a `Timeout:`** (migration + code + tests + docs, or more than ~6 criteria) | cut in the middle at `TIMEOUT`, twice | propose `Timeout: 90m` (the `timeout(1)` format) |
+| **Fuzzy scope** ("improve X", "clean up Y") | the agent goes where it likes, the review has nothing to compare against | rewrite the acceptance criteria as checkable things, or take the ticket out of the batch |
+| **Two tickets of the same wave on the same files** | each worktree starts from the base without seeing the other: it compiles on both sides and breaks at integration | serialise them with a `Blocked by` between the two |
+| **Ticket already covered by an open PR** | it will come out `absorbed`, at best | close it, or leave it: `absorbed` is a clean result, not a failure |
+| **Mechanical ticket** (rename, config, docs, version bump) | it will run on the rework model | `Model: sonnet` in the body |
+| **Ticket whose previous run finished near the context window** ("Context" column of `.afk/summary.md`) | too big: quality degrades before the failure does | cut it — §5 |
 
-## 5 — Couper, sérialiser, numéroter
+## 5 — Cut, serialise, number
 
-Les trois corrections qui touchent au **lot** et pas à un corps. Elles valent pour
-n'importe quel ticket déjà publié, quelle que soit son origine — `/to-tickets`, un grill,
-écrit à la main, ou un lot d'il y a trois semaines. Rien à couper est le cas normal :
-un lot qui sort de `/to-tickets` est déjà en tranches verticales d'une session.
+The three fixes that touch the **batch** rather than a body. They hold for any already
+published ticket, whatever its origin — `/to-tickets`, a grilling, written by hand, or a
+batch from three weeks ago. Nothing to cut is the normal case: a batch out of
+`/to-tickets` is already in vertical slices of one session.
 
-### Couper un ticket qui ne tient pas dans une session
+### Cutting a ticket that does not fit in one session
 
-Les signes, dans l'ordre de fiabilité : la colonne « Contexte » d'un run précédent
-proche de la fenêtre ; le ticket traverse plusieurs apps du monorepo alors que sa porte
-n'en voit qu'une ; plus de ~6 critères d'acceptation ; un titre qui contient « et ».
-Un `Timeout:` plus long ne répare rien : le budget n'est pas ce qui manque, c'est la
-place. Un ticket coupé au milieu brûle `MAX_ATTEMPTS × TIMEOUT` et rend une branche à
-moitié écrite.
+The signs, in order of reliability: the "Context" column of a previous run close to the
+window; the ticket crosses several apps of the monorepo while its gate only sees one;
+more than ~6 acceptance criteria; a title containing "and".
+A longer `Timeout:` fixes nothing: the budget is not what is missing, the room is. A
+ticket cut in the middle burns `MAX_ATTEMPTS × TIMEOUT` and returns a half-written
+branch.
 
-Chaque morceau garde une **tranche complète** — schéma, API, écran, tests — sinon la
-porte ne peut pas le juger seul et le ticket devient un demi-ticket que rien ne vérifie.
-Les morceaux se sérialisent par `Blocked by` dans l'ordre où ils se construisent : afk
-empile alors les branches et chacun hérite du travail du précédent.
+Each piece keeps a **complete slice** — schema, API, screen, tests — otherwise the gate
+cannot judge it on its own and the ticket becomes a half-ticket nothing verifies.
+The pieces are serialised with `Blocked by` in the order they get built: afk then stacks
+the branches and each one inherits the previous one's work.
 
-L'original ne reste **jamais** dans le lot : soit il perd son label et sert de parent,
-soit il est fermé en renvoyant vers ses morceaux. Sinon il repart la nuit suivante et
-refait le travail de ses propres enfants.
+The original **never** stays in the batch: either it loses its label and serves as a
+parent, or it gets closed pointing at its pieces. Otherwise it starts again the next
+night and redoes the work of its own children.
 
 ```bash
-gh issue create -t "<titre du morceau>" -l ready-for-agent -F - <<'EOF'
+gh issue create -t "<piece title>" -l ready-for-agent -F - <<'EOF'
 ## What to build
 …
 ## Acceptance criteria
 - [ ] …
 ## Blocked by
-- #<morceau précédent>, ou « None »
+- #<previous piece>, or "None"
 EOF
-gh issue edit <original> --remove-label ready-for-agent   # parent : hors du lot
-gh issue comment <original> --body "Coupé en #a #b #c pour un run afk."
+gh issue edit <original> --remove-label ready-for-agent   # parent: out of the batch
+gh issue comment <original> --body "Cut into #a #b #c for an afk run."
 ```
 
-### Sérialiser deux tickets qui écrivent dans les mêmes fichiers
+### Serialising two tickets writing into the same files
 
-Deux tickets de la même vague partent chacun d'une base qui ne contient pas l'autre :
-les deux sont verts, et la casse n'apparaît qu'à l'intégration — ou pas du tout, quand
-les deux créent le **même chemin** avec deux API justes chacune de son côté (défaut 25).
-La correction est un `Blocked by` sur celui des deux qui peut attendre, pas une fusion :
-le second part alors de la branche du premier et voit son travail. On ne fusionne que si
-aucun des deux ne se vérifie sans l'autre.
+Two tickets of the same wave each start from a base that does not contain the other:
+both are green, and the breakage only shows at integration — or not at all, when both
+create the **same path** with two APIs each right on its own side (defect 25).
+The fix is a `Blocked by` on whichever of the two can wait, not a merge: the second one
+then starts from the first one's branch and sees its work. We only merge them when
+neither verifies without the other.
 
-Se lit sur `./afk.sh -n` (qui tourne dans la même vague) croisé avec les corps (quels
-fichiers chacun annonce toucher).
+Read it off `./afk.sh -n` (who runs in the same wave) crossed with the bodies (which
+files each one announces it touches).
 
-### Donner les numéros avant le run
+### Handing out the numbers before the run
 
-Deux branches qui réclament le même numéro d'ADR, de migration ou de RFC sont vertes
-chacune de son côté et aucune porte ne le verra (défaut 22) — la passe d'intégration le
-signale, mais après les PR. Un numéro se donne donc **dans le corps**, avant le run :
+Two branches claiming the same ADR, migration or RFC number are each green on their own
+side and no gate will see it (defect 22) — the integration pass flags it, but after the
+PRs. So a number is handed out **in the body**, before the run:
 
 ```bash
-ls docs/adr | tail -3            # le dernier pris
+ls docs/adr | tail -3            # the last one taken
 ls apps/*/migrations | tail -3
 ```
 
-Puis, dans chaque ticket concerné : « l'ADR de ce ticket est le `0042`, pas le suivant
-libre ». Deux tickets ne reçoivent jamais le même.
+Then, in each ticket concerned: "this ticket's ADR is `0042`, not the next free one".
+Two tickets never get the same one.
 
-## 6 — Éprouver toute ligne `Verify:` avant de la proposer
+## 6 — Prove every `Verify:` line before proposing it
 
-Non négociable, même règle que `/afk-setup` : une porte non testée est une porte
-inventée.
-
-```bash
-timeout 180 bash -c '<la commande de la ligne Verify:>'; echo "rc=$?"
-```
-
-`rc=124` = elle ne rend jamais la main (`vitest` sans `--run`, `jest --watch`) : le
-ticket mourra sur `TIMEOUT` pour une raison qui n'a rien à voir avec lui.
-
-Éprouve la commande que le script va **réellement** jouer, pas celle que le ticket a
-l'air d'écrire : `./afk.sh -n` l'imprime, extraite. Deux formes passent — la commande
-nue, et la commande en `code` suivie de prose, dont seul le span compte. Une valeur qui
-finit par `:` est ignorée et le ticket retombe sur `VERIFY_CMD` ; si le `-n` n'affiche
-aucune ligne `Verify:` là où le ticket en écrit une, c'est ça.
-
-## 7 — Rendre le verdict
-
-Un tableau, un ticket par ligne : **part tel quel** / **à corriger** / **à couper** /
-**à sortir du lot**, avec la raison en une ligne. Puis les corrections concrètes, prêtes à coller :
+Non-negotiable, same rule as `/afk-setup`: an untested gate is an invented gate.
 
 ```bash
-gh issue edit <n> --body-file -    # corps corrigé
-gh issue edit <n> --remove-label <ready-for-agent>   # sortir du lot
+timeout 180 bash -c '<the command from the Verify: line>'; echo "rc=$?"
 ```
 
-**Propose, attends validation, n'édite rien d'office.** Un corps de ticket est de la
-surface de confiance : ses lignes `Verify:` et `Timeout:` sont exécutées telles quelles
-par le run.
+`rc=124` = it never returns (`vitest` without `--run`, `jest --watch`): the ticket will
+die on `TIMEOUT` for a reason that has nothing to do with it.
 
-Termine par la commande de lancement adaptée au lot, sans la lancer :
+Prove the command the script will **actually** run, not the one the ticket looks like it
+writes: `./afk.sh -n` prints it, extracted. Two forms pass — the bare command, and the
+command in `code` followed by prose, where only the span counts. A value ending in `:`
+is ignored and the ticket falls back on `VERIFY_CMD`; if the `-n` shows no `Verify:`
+line where the ticket writes one, that is why.
+
+## 7 — Give the verdict
+
+A table, one ticket per line: **goes as is** / **to fix** / **to cut** /
+**to take out of the batch**, with the reason in one line. Then the concrete fixes, ready
+to paste:
+
+```bash
+gh issue edit <n> --body-file -    # corrected body
+gh issue edit <n> --remove-label <ready-for-agent>   # take it out of the batch
+```
+
+**Propose, wait for approval, edit nothing unprompted.** A ticket body is trust surface:
+its `Verify:` and `Timeout:` lines are executed as-is by the run.
+
+Finish with the launch command suited to the batch, without running it:
 
 ```bash
 nohup ./afk.sh -j 3 43 48 49 &
 ```
 
-## Ce que ce skill ne fait pas
+## What this skill does not do
 
-- Il ne lance pas `afk.sh`. Un run dure des heures en détaché, ça n'a rien à faire dans
-  une session.
-- Il ne réécrit pas les critères d'acceptation à ta place : il dit lesquels ne sont pas
-  vérifiables et propose une formulation, tu tranches.
-- Il ne crée, ne ferme et ne réétiquette aucun ticket sans validation — couper un ticket
-  en trois se propose comme le reste, commandes prêtes à coller.
-- Il ne rejoue pas le calcul de `./afk.sh -n`. Si les deux se contredisent, c'est le
-  script qui a raison.
+- It does not run `afk.sh`. A run takes hours, detached; it has no business inside a
+  session.
+- It does not rewrite the acceptance criteria for you: it says which ones are not
+  checkable and proposes a wording, you decide.
+- It creates, closes and relabels no ticket without approval — cutting a ticket in three
+  is proposed like the rest, commands ready to paste.
+- It does not replay `./afk.sh -n`'s computation. If the two disagree, the script is
+  right.

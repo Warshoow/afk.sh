@@ -1,148 +1,149 @@
 # afk
 
-Boucle externe qui enchaîne `/implement` sur les tickets `ready-for-agent`.
-Un ticket = une session Claude neuve = une PR. Aucun LLM dans l'orchestrateur :
-il ordonne, il lance, il vérifie, il pousse, il étiquette.
+An outer loop that chains `/implement` over the `ready-for-agent` tickets.
+One ticket = one fresh Claude session = one PR. No LLM in the orchestrator:
+it orders, it launches, it verifies, it pushes, it labels.
 
-Se branche sur le workflow [mattpocock/skills](https://github.com/mattpocock/skills).
+Plugs into the [mattpocock/skills](https://github.com/mattpocock/skills) workflow.
 
-**Une fois par projet**, jamais à refaire :
+**Once per project**, never again:
 
 ```
 /setup-matt-pocock-skills   →   /afk-setup
- (docs/agents/, les labels        (.afk.env : la commande qui dit
-  de triage, la mémoire            « ce ticket est fini » ici)
-  de projet)
+ (docs/agents/, the triage        (.afk.env: the command that says
+  labels, the project              "this ticket is done" here)
+  memory)
 ```
 
-**À chaque lot de travail** :
+**For every batch of work**:
 
 ```
 /grill-with-docs  →  /to-tickets  →  /triage  →  /afk-preflight
- (clarifier ce      (issues +        (label       (relire le lot :
-  qu'il y a          Blocked by)      ready-       ce qui ferait
-  à faire)                            for-agent)   perdre la nuit)
+ (clarify what      (issues +        (label       (reread the batch:
+  there is to        Blocked by)      ready-       what would cost
+  do)                                 for-agent)   the night)
 
-        →  ./afk.sh  →  /afk-debrief  →  tu merges
-           (N sessions    (classer les
-            headless)      non-verts)
+        →  ./afk.sh  →  /afk-debrief  →  you merge
+           (N headless    (sort the
+            sessions)      non-greens)
 ```
 
-Entre `/afk-preflight` et `/afk-debrief`, tu dors.
+Between `/afk-preflight` and `/afk-debrief`, you sleep.
 
-## Prérequis
+## Prerequisites
 
-- Repo configuré par `/setup-matt-pocock-skills`, tracker **GitHub** (`docs/agents/issue-tracker.md`).
-- Un `.afk.env` à la racine, écrit par `/afk-setup` (voir [Config par projet](#config-par-projet)).
-  Sans lui, la porte de vérification reste celle d'un monorepo pnpm — fausse partout ailleurs.
-- `claude`, `gh`, `git`, `timeout` dans le PATH. Working tree propre.
-- `gh auth login` fait : le token sert aussi à pousser, sans passphrase.
-- Les skills mattpocock installés dans le `CLAUDE_CONFIG_DIR` utilisé par le script
-  (défaut `~/.claude`) — sinon `/implement` n'existe pas dans la session headless.
+- Repo configured by `/setup-matt-pocock-skills`, **GitHub** tracker (`docs/agents/issue-tracker.md`).
+- A `.afk.env` at the root, written by `/afk-setup` (see [Per-project config](#per-project-config)).
+  Without it, the verification gate stays a pnpm monorepo's — wrong everywhere else.
+- `claude`, `gh`, `git`, `timeout` in the PATH. Clean working tree.
+- `gh auth login` done: the token is also used to push, without a passphrase.
+- The mattpocock skills installed in the `CLAUDE_CONFIG_DIR` the script uses
+  (default `~/.claude`) — otherwise `/implement` does not exist in the headless session.
 
 ## Usage
 
 ```bash
-./afk.sh                      # tous les tickets ready-for-agent, en série
-./afk.sh 43 48 49 50          # ceux-là
-./afk.sh -j 3 43 48 49 50     # en parallèle partout où le DAG le permet
-./afk.sh -n -j 3 43 48 49 50  # le plan : vagues, bases, piles, gelés, porte effective
+./afk.sh                      # every ready-for-agent ticket, in series
+./afk.sh 43 48 49 50          # these ones
+./afk.sh -j 3 43 48 49 50     # in parallel wherever the DAG allows it
+./afk.sh -n -j 3 43 48 49 50  # the plan: waves, bases, stacks, frozen, effective gate
 VERIFY_CMD="npm test" ./afk.sh
-CI_TIMEOUT=0 ./afk.sh         # ne pas attendre la CI
-./check.sh                    # teste les parseurs
-./harness.sh                  # teste l'orchestrateur (claude et gh bouchonnés)
+CI_TIMEOUT=0 ./afk.sh         # do not wait for CI
+./check.sh                    # tests the parsers
+./harness.sh                  # tests the orchestrator (claude and gh stubbed)
 ```
 
-Aucune interaction humaine par défaut : pas de passphrase (voir plus bas), pas de
-pause (`CHECKPOINT_EVERY=0`), pas de prompt de permission. `nohup ./afk.sh -j 3 &`
-et tu relis au réveil.
+No human interaction by default: no passphrase (see below), no pause
+(`CHECKPOINT_EVERY=0`), no permission prompt. `nohup ./afk.sh -j 3 &`
+and you read it back on waking up.
 
-| Env | Défaut | |
+| Env | Default | |
 |---|---|---|
-| `VERIFY_CMD` | `pnpm typecheck && pnpm test && pnpm lint` | la définition de "fini", surchargeable par ticket |
-| `INTEGRATION_VERIFY_CMD` | `$VERIFY_CMD` | porte de la passe d'intégration — y mettre la forme **non cachée** (`turbo … --force`) |
-| `MAX_ATTEMPTS` | `2` | 1 essai + 1 reprise, en session neuve |
-| `TIMEOUT` | `45m` | borne un run (`--max-turns` n'existe plus en 2.1.x), surchargeable par ticket |
-| `CI_TIMEOUT` | `15m` | attente de la CI après ouverture de PR ; `0` = ne pas consulter |
-| `CI_RETRY_WAIT` | `10` | secondes avant de réessayer une CI « pas encore enregistrée » |
-| `MODEL` | vide | modèle des sessions ; vide = le défaut de `claude`, surchargeable par ticket |
-| `EFFORT` | vide | niveau de réflexion (`low`…`max`) ; vide = le défaut, surchargeable par ticket |
-| `FALLBACK_MODEL` | `sonnet` | modèle de repli quand le principal est indisponible ; vide = pas de repli |
-| `INTEGRATION` | `1` | passe d'intégration des branches vertes en fin de run ; `0` = sauter |
-| `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | lus dans `docs/agents/triage-labels.md` | |
-| `MEMORY_RE` | racine + `apps/*` + `packages/*` | chemins qui comptent comme "décision capturée" |
-| `BASE_BRANCH` | branche par défaut du remote | |
-| `JOBS` | `1` | sessions simultanées ; `auto` = `nproc/4` borné à 4 |
-| `VERIFY_LOCK` | `1` | sérialise les vérifications quand `JOBS > 1` |
-| `SETUP_CMD` | déduit du lockfile | amorçage d'un worktree (`pnpm install --frozen-lockfile`) — reçoit `AFK_TICKET` et `AFK_WORKTREE` |
-| `SEED_GLOBS` | `.env`, `apps/*/.env`, … | fichiers gitignorés recopiés dans chaque worktree |
-| `KEEP_WORKTREES` | `0` | garder les worktreees verts aussi (les rouges le sont toujours) |
-| `AFK_HOME` | le dossier du script | où s'écrit `RUNS.md` — à détourner si le dépôt d'afk est monté en lecture seule |
-| `CHECKPOINT_EVERY` | `0` | pause pour relire les PRs ; `0` = jamais |
-| `STACK_ON_OPEN_PR` | `1` | empiler sur un bloqueur hors run dont la PR est ouverte, au lieu de geler |
-| `ALLOW_REVIEW` | `0` | relancer un ticket déjà `in-review` (il a déjà une PR ouverte) |
+| `VERIFY_CMD` | `pnpm typecheck && pnpm test && pnpm lint` | the definition of "done", overridable per ticket |
+| `INTEGRATION_VERIFY_CMD` | `$VERIFY_CMD` | the integration pass's gate — put the **uncached** form there (`turbo … --force`) |
+| `MAX_ATTEMPTS` | `2` | 1 attempt + 1 retry, in a fresh session |
+| `TIMEOUT` | `45m` | bounds a run (`--max-turns` is gone in 2.1.x), overridable per ticket |
+| `CI_TIMEOUT` | `15m` | how long we wait for CI after opening a PR; `0` = do not consult it |
+| `CI_RETRY_WAIT` | `10` | seconds before retrying a "not registered yet" CI |
+| `MODEL` | empty | the sessions' model; empty = `claude`'s default, overridable per ticket |
+| `EFFORT` | empty | thinking level (`low`…`max`); empty = the default, overridable per ticket |
+| `FALLBACK_MODEL` | `sonnet` | fallback model when the main one is unavailable; empty = no fallback |
+| `INTEGRATION` | `1` | integration pass over the green branches at the end of the run; `0` = skip |
+| `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | read from `docs/agents/triage-labels.md` | |
+| `MEMORY_RE` | root + `apps/*` + `packages/*` | paths that count as "decision captured" |
+| `BASE_BRANCH` | the remote's default branch | |
+| `JOBS` | `1` | simultaneous sessions; `auto` = `nproc/4` capped at 4 |
+| `VERIFY_LOCK` | `1` | serialises the verifications when `JOBS > 1` |
+| `SETUP_CMD` | deduced from the lockfile | seeding a worktree (`pnpm install --frozen-lockfile`) — receives `AFK_TICKET` and `AFK_WORKTREE` |
+| `SEED_GLOBS` | `.env`, `apps/*/.env`, … | gitignored files copied into each worktree |
+| `KEEP_WORKTREES` | `0` | keep the green worktrees too (the red ones always are) |
+| `AFK_HOME` | the script's folder | where `RUNS.md` is written — redirect it if afk's repo is mounted read-only |
+| `CHECKPOINT_EVERY` | `0` | pause to review the PRs; `0` = never |
+| `STACK_ON_OPEN_PR` | `1` | stack on an out-of-run blocker with an open PR, instead of freezing |
+| `ALLOW_REVIEW` | `0` | relaunch a ticket already `in-review` (it already has an open PR) |
 
-## Config par projet
+## Per-project config
 
-Les défauts du tableau ci-dessus sont taillés pour un monorepo pnpm. Un repo Python,
-PHP ou Rust n'a pas la même définition de « fini » — et même sur un repo npm,
-`npm test` ouvre souvent un watcher qui ne rend jamais la main (`vitest` sans `run`) :
-le ticket meurt alors sur `TIMEOUT`, pour une raison qui n'a rien à voir avec lui.
+The defaults in the table above are cut for a pnpm monorepo. A Python, PHP or Rust repo
+does not have the same definition of "done" — and even on an npm repo, `npm test` often
+opens a watcher that never returns (`vitest` without `run`): the ticket then dies on
+`TIMEOUT`, for a reason that has nothing to do with it.
 
-Un repo déclare donc sa porte dans un `.afk.env` à sa racine, versionné à côté du code :
+So a repo declares its gate in a `.afk.env` at its root, versioned next to the code:
 
 ```bash
-# .afk.env — ownhomemap
-# `pnpm test` = vitest en watch : il ne rend jamais la main. C'est test:run qu'il faut.
+# .afk.env — project-fb0a2365
+# `pnpm test` = vitest in watch mode: it never returns. test:run is the one to use.
 VERIFY_CMD="${VERIFY_CMD:-pnpm lint && pnpm test:run}"
 ```
 
-Il est sourcé après les arguments : **ligne de commande > `.afk.env` > défaut du
-script**, d'où le `${VAR:-...}`. N'y mettre que ce qui diffère.
+It is sourced after the arguments: **command line > `.afk.env` > the script's default**,
+hence the `${VAR:-...}`. Only put in what differs.
 
-C'est du shell du repo, exécuté tel quel — même surface de confiance que les lignes
-`Verify:` d'un ticket.
+It is shell from the repo, executed as-is — the same trust surface as a ticket's
+`Verify:` lines.
 
-### La porte de l'intégration se sépare de celle des tickets
+### The integration gate separates from the tickets'
 
-Un cache de build peut rendre une porte creuse. Turbo, par exemple, hache les fichiers
-**suivis par git** : un fichier généré et gitignoré n'entre pas dans la clé, donc un worktree
-qui ne l'a pas produit **la même empreinte** que l'arbre principal qui l'a → cache hit, logs
-rejoués, rien d'exécuté. La porte affiche `$ tsc --noEmit` et un ✓ sans avoir compilé une
-ligne, et si le cache est partagé entre worktrees le faux vert voyage. Sur un run réel, huit
-tickets ont été verts sur un défaut que seule la passe d'intégration a vu — elle présentait la
-première combinaison de contenus jamais vue, donc un cache miss, donc une exécution.
+A build cache can make a gate hollow. Turbo, for instance, hashes the files **tracked by
+git**: a generated, gitignored file does not enter the key, so a worktree that has not
+produced it yields **the same fingerprint** as the main tree that has → cache hit, logs
+replayed, nothing executed. The gate prints `$ tsc --noEmit` and a ✓ without compiling a
+line, and if the cache is shared between worktrees the false green travels. On a real run,
+eight tickets went green over a defect only the integration pass saw — it presented the
+first combination of contents ever seen, so a cache miss, so an execution.
 
-**`Cached: n cached` est une ligne de sécurité, pas une statistique de performance.**
+**`Cached: n cached` is a safety line, not a performance statistic.**
 
-`INTEGRATION_VERIFY_CMD` permet de payer la forme honnête **une fois**, sur la combinaison,
-sans l'imposer à chaque ticket :
+`INTEGRATION_VERIFY_CMD` lets you pay the honest form **once**, on the combination,
+without imposing it on every ticket:
 
 ```bash
 # .afk.env
 INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-pnpm exec turbo typecheck lint --force && pnpm test}"
 ```
 
-La passe annonce sa porte quand elle diffère, et le résumé consigne les deux.
+The pass announces its gate when it differs, and the summary records both.
 
-### Isoler un worktree de ses voisins
+### Isolating a worktree from its neighbours
 
-Deux worktrees en parallèle sont deux copies du code, pas deux copies de ce qui vit
-**autour** : une base de test, un port, un bucket. Si le repo fixe le nom de sa base de
-test en dur dans un fichier versionné, les deux suites la migrent et la rollbackent en même
-temps — et le ticket courant est noté rouge pour la migration d'un voisin. C'est arrivé, et
-le symptôme n'accuse jamais le vrai coupable (`unable to release database lock`, ou un
-`Schema file "…033_…" is missing` qui vient d'un fichier absent de CETTE branche).
+Two parallel worktrees are two copies of the code, not two copies of what lives
+**around** it: a test database, a port, a bucket. If the repo hardcodes its test database
+name in a versioned file, both suites migrate and roll it back at the same time — and the
+current ticket is marked red for a neighbour's migration. It happened, and the symptom
+never blames the real culprit (`unable to release database lock`, or a
+`Schema file "…033_…" is missing` coming from a file absent from THIS branch).
 
-`SETUP_CMD` tourne déjà **dans** le worktree et **sous le verrou `install`**, donc sérialisé.
-Il reçoit de quoi se distinguer :
+`SETUP_CMD` already runs **in** the worktree and **under the `install` lock**, so
+serialised. It receives what it needs to tell itself apart:
 
-| variable | valeur |
+| variable | value |
 |---|---|
-| `AFK_TICKET` | le numéro du ticket, ou `_integration` pour la passe finale |
-| `AFK_WORKTREE` | le chemin absolu du worktree |
+| `AFK_TICKET` | the ticket number, or `_integration` for the final pass |
+| `AFK_WORKTREE` | the worktree's absolute path |
 
-Au projet d'en faire ce qu'il veut — c'est lui qui sait de quoi il doit s'isoler :
+It is up to the project to do what it wants with them — it is the one that knows what it
+has to isolate from:
 
 ```bash
 # .afk.env
@@ -150,361 +151,355 @@ SETUP_CMD="${SETUP_CMD:-scripts/afk-worktree-setup.sh && pnpm install --frozen-l
 ```
 
 ```bash
-# scripts/afk-worktree-setup.sh — une base de test par worktree
-[ -n "$AFK_TICKET" ] || exit 0          # lancé hors afk : rien à isoler
+# scripts/afk-worktree-setup.sh — one test database per worktree
+[ -n "$AFK_TICKET" ] || exit 0          # launched outside afk: nothing to isolate
 db="myapp_test_${AFK_TICKET#_}"
 echo "DB_DATABASE=$db" > apps/backend/.env.test.local
 dropdb --if-exists "$db" && createdb "$db"
 ```
 
-Rien n'est détruit à la sortie : une base vide par numéro de ticket, recréée au prochain
-run du même ticket. Si ça devient gênant, c'est un `dropdb` dans un `TEARDOWN_CMD` qui
-n'existe pas encore.
+Nothing is destroyed on exit: one empty database per ticket number, recreated on the next
+run of the same ticket. If that becomes annoying, it is a `dropdb` in a `TEARDOWN_CMD`
+that does not exist yet.
 
-Le skill `/afk-setup` (dans [`skills/afk-setup/`](skills/afk-setup/SKILL.md)) lit le
-repo — scripts, workflows CI, `CLAUDE.md` —, éprouve la commande proposée puis écrit
-ce fichier. Une fois par projet, après `/setup-matt-pocock-skills` et avant le premier
-run. Pour l'installer :
+The `/afk-setup` skill (in [`skills/afk-setup/`](skills/afk-setup/SKILL.md)) reads the
+repo — scripts, CI workflows, `CLAUDE.md` —, proves the proposed command then writes that
+file. Once per project, after `/setup-matt-pocock-skills` and before the first run. To
+install it:
 
 ```bash
-ln -s "$PWD/skills/afk-setup" ~/.claude/skills/afk-setup   # ou ton CLAUDE_CONFIG_DIR
+ln -s "$PWD/skills/afk-setup" ~/.claude/skills/afk-setup   # or your CLAUDE_CONFIG_DIR
 ```
 
-## Les deux skills du run
+## The run's two skills
 
-`afk.sh` n'a aucun LLM : il ordonne, lance, vérifie, pousse, étiquette. Le jugement est
-avant et après, dans une session interactive.
+`afk.sh` has no LLM: it orders, launches, verifies, pushes, labels. The judgement is
+before and after, in an interactive session.
 
-[`/afk-preflight`](skills/afk-preflight/SKILL.md) — **entre `/triage` et le run.** Lit
-le plan (`./afk.sh -n`) et le corps des tickets, et dit ce qui va coûter la nuit : un
-ticket gelé par un bloqueur déjà mergé mais non fermé, un critère d'acceptation
-qu'aucune porte ne peut voir, une refonte sans `Timeout:`, deux tickets de la même vague
-sur les mêmes fichiers, un ticket mécanique qui n'a pas besoin du modèle des refontes.
-Il recoupe aussi le lot quand il faut : couper un ticket qui ne tient pas dans une
-session (un `Timeout:` plus long ne répare pas un manque de place), sérialiser par un
-`Blocked by` deux tickets qui écrivent dans les mêmes fichiers, donner les numéros d'ADR
-et de migration avant le run plutôt que de les découvrir en double à l'intégration.
-Il propose les corrections, il ne les applique pas et ne lance pas le run.
+[`/afk-preflight`](skills/afk-preflight/SKILL.md) — **between `/triage` and the run.**
+Reads the plan (`./afk.sh -n`) and the ticket bodies, and says what is going to cost the
+night: a ticket frozen by a blocker already merged but not closed, an acceptance criterion
+no gate can see, a rework without a `Timeout:`, two tickets of the same wave on the same
+files, a mechanical ticket that does not need the rework model.
+It also re-slices the batch when needed: cut a ticket that does not fit in one session (a
+longer `Timeout:` does not fix a lack of room), serialise with a `Blocked by` two tickets
+writing into the same files, hand out the ADR and migration numbers before the run rather
+than discovering them duplicated at integration.
+It proposes the fixes, it does not apply them and it does not launch the run.
 
-[`/afk-debrief`](skills/afk-debrief/SKILL.md) — **au réveil, avant de merger.** Lit
-`.afk/summary.md` et les traces, et classe chaque non-vert par cause : porte fausse,
-worktree mal amorcé, ticket trop gros, vrai échec. Il sait distinguer un rouge dû au
-ticket d'un rouge dû à l'environnement, et propose quoi remettre en `ready-for-agent`
-pour la nuit suivante.
+[`/afk-debrief`](skills/afk-debrief/SKILL.md) — **on waking up, before merging.** Reads
+`.afk/summary.md` and the traces, and sorts each non-green by cause: wrong gate, badly
+seeded worktree, ticket too big, real failure. It can tell a red caused by the ticket from
+a red caused by the environment, and proposes what to put back to `ready-for-agent` for
+the next night.
 
 ```bash
 ln -s "$PWD/skills/afk-preflight" ~/.claude/skills/afk-preflight
 ln -s "$PWD/skills/afk-debrief"   ~/.claude/skills/afk-debrief
 ```
 
-## Parallélisme
+## Parallelism
 
-`-j N` lance N tickets à la fois. **Un ticket = un worktree git** (`.afk/wt/<n>`) :
-deux agents dans le même arbre de travail se piétinent, et c'est aussi ce qui libère
-l'arbre principal — le script n'y fait plus aucun `checkout`, `pull` ni `reset`. Tu
-peux continuer à bosser dedans, sur la branche que tu veux, pendant qu'un run tourne.
-Les worktrees partent de `origin/<base>`, jamais de la branche locale.
+`-j N` launches N tickets at a time. **One ticket = one git worktree** (`.afk/wt/<n>`):
+two agents in the same working tree trample each other, and it is also what frees the
+main tree — the script no longer does any `checkout`, `pull` or `reset` in it. You can
+keep working in it, on whatever branch you like, while a run is going.
+The worktrees start from `origin/<base>`, never from the local branch.
 
-L'ordonnanceur respecte le DAG des bloqueurs : un ticket ne démarre que quand tous
-ses bloqueurs du run sont verts, et un bloqueur rouge gèle ses dépendants (leur base
-n'existe pas). `-n` imprime les vagues, donc exactement où le parallélisme est
-possible et où le DAG l'interdit :
+The scheduler respects the blocker DAG: a ticket only starts when all its blockers in the
+run are green, and a red blocker freezes its dependants (their base does not exist). `-n`
+prints the waves, so exactly where parallelism is possible and where the DAG forbids it:
 
 ```
-vague 1 (parallèle, 3 à la fois) :
-  #43   base origin/master  [mobile] Le logo-toile se transforme en radar…
-  #48   base origin/master  [backend][mobile] Critique : un commentaire attaché…
-vague 2 (séquentiel) :
-  #49   base feat/48        [backend][mobile] Signalement d'un standard…
-vague 3 (séquentiel) :
-  #50   base feat/49        [admin] File de modération des signalements
+wave 1 (parallel, 3 at a time):
+  #43   base origin/master  [mobile] The canvas logo turns into a radar…
+  #48   base origin/master  [backend][mobile] Review: a comment attached to…
+wave 2 (sequential):
+  #49   base feat/48        [backend][mobile] Reporting a standard…
+wave 3 (sequential):
+  #50   base feat/49        [admin] Moderation queue for the reports
 ```
 
-**Les sessions Claude tournent en parallèle, les vérifications font la queue.** Une
-session ne partage rien ; une vérification tient le Postgres de test, des ports et la
-RAM d'un `turbo typecheck`. Deux `node ace test` simultanés sur la même base se
-détruisent. D'où `VERIFY_LOCK=1` : `flock` sérialise vérifications et installs, la
-partie longue reste parallèle. Mesuré sur hexa-zero : amorçage d'un worktree 19 s
-(worktree 1 s, `pnpm install` 4 s en hardlinks depuis le store local, `typecheck`
-13 s) — négligeable devant une session.
+**The Claude sessions run in parallel, the verifications queue up.** A session shares
+nothing; a verification holds the test Postgres, some ports and the RAM of a
+`turbo typecheck`. Two simultaneous `node ace test` on the same database destroy each
+other. Hence `VERIFY_LOCK=1`: `flock` serialises verifications and installs, the long part
+stays parallel. Measured on project-6c618d6f: seeding a worktree takes 19 s (worktree 1 s,
+`pnpm install` 4 s in hard links from the local store, `typecheck` 13 s) — negligible next
+to a session.
 
-Une branche ne peut être checkout que dans un seul worktree : si tu as `feat/48`
-sorti dans ton arbre, `-n` te le dit avant de lancer quoi que ce soit.
+A branch can only be checked out in one worktree: if you have `feat/48` checked out in
+your tree, `-n` tells you before launching anything.
 
-## Ce qu'il fait, ticket par ticket
+## What it does, ticket by ticket
 
-0. **La base d'abord.** La porte tourne une fois sur `origin/<base>`, avant le premier
-   worktree. Rouge, tout le lot va échouer sur le même test sans que rien ne le dise : la
-   porte ne juge jamais que « base + ticket ». Le run continue quand même — tu es parti —
-   mais l'en-tête, le bilan et `summary.md` disent que la base était rouge, et
-   `.afk/base-verify.txt` garde de quoi comparer avec le `<n>-fail.txt` d'un ticket.
-1. **Frontière.** Lit les bloqueurs (dépendances natives GitHub, sinon la section
-   `## Blocked by` écrite par `/to-tickets`). Bloqueur encore ouvert et non traité
-   dans ce run → ticket gelé, pas lancé — sauf s'il a une PR ouverte : sa branche est
-   poussée et lisible, on empile dessus comme sur un bloqueur du run
-   (`STACK_ON_OPEN_PR=0` pour geler quand même).
-2. **PRs empilées.** Bloqueur livré dans ce run mais pas encore mergé → la branche
-   part de la sienne, et sa PR cible sa branche. Plusieurs bloqueurs → la base est
-   celle qui contient déjà les autres (`merge-base --is-ancestor`), les restantes
-   sont mergées ; conflit → gelé.
-3. **Session neuve** : `claude -p "/implement le ticket #N …"`, jamais `--resume`.
-   Reprendre une session qui vient d'échouer, c'est repartir du contexte qui a échoué.
-   La reprise reçoit les 60 dernières lignes de l'échec, dans une session vierge.
-   `--resume` reste offert à un humain sur un ticket rouge, à la fin du bilan.
-4. **Vérification externe.** C'est le script qui note la copie, pas l'agent.
-   Zéro commit produit → si la session dit avoir été bloquée, le ticket est **gelé** ;
-   sinon la porte est passée **sur la base** pour trancher : rouge, c'est un échec ;
-   verte, le ticket est **absorbé** (voir plus bas).
-5. **Vert** → push, PR `Closes #N` sur la bonne base, ticket basculé en `in-review`,
-   puis attente de la CI. **Rouge** → `ready-for-human` + commentaire avec la sortie
-   d'échec. La machine à états de `/triage` continue de tourner pendant que tu dors.
-6. **Worktree jeté** si vert, **gardé** si rouge : c'est là qu'on va lire ce qui
-   s'est passé, avec les `node_modules` déjà en place.
-7. **CI** en fin de run, toutes les PR surveillées en parallèle (attendre dans le
-   worker immobiliserait un slot pour du polling).
-8. **Intégration** en fin de run : toutes les branches vertes mergées dans un
-   worktree jetable — **dans l'ordre topologique**, une empilée après sa base, sinon
-   elle conflicte par construction —, puis `INTEGRATION_VERIFY_CMD`. Rapporte ; ne
-   touche à aucune PR. Elle signale en plus trois choses qu'aucune porte ne peut voir :
-   deux fichiers qui réclament le **même numéro** (ADR, migration), le **même chemin
-   créé** par deux branches, et les **tickets du run cités dans la doc** mergée — une
-   phrase au futur sur ce qui est livré depuis dix minutes ne produit aucun conflit.
-   Les fichiers en conflit sont écrits dans `summary.md`, pas seulement affichés.
+0. **The base first.** The gate runs once on `origin/<base>`, before the first worktree.
+   Red, the whole batch is going to fail on the same test with nothing saying so: the gate
+   only ever judges "base + ticket". The run continues anyway — you have gone — but the
+   header, the summary and `summary.md` say the base was red, and `.afk/base-verify.txt`
+   keeps what it takes to compare with a ticket's `<n>-fail.txt`.
+1. **Boundary.** Reads the blockers (native GitHub dependencies, otherwise the
+   `## Blocked by` section written by `/to-tickets`). Blocker still open and not handled
+   in this run → ticket frozen, not launched — unless it has an open PR: its branch is
+   pushed and readable, we stack on it like on a blocker from the run
+   (`STACK_ON_OPEN_PR=0` to freeze anyway).
+2. **Stacked PRs.** Blocker delivered in this run but not merged yet → the branch starts
+   from its own, and its PR targets its branch. Several blockers → the base is the one
+   that already contains the others (`merge-base --is-ancestor`), the remaining ones are
+   merged; conflict → frozen.
+3. **Fresh session**: `claude -p "/implement GitHub ticket #N …"`, never `--resume`.
+   Resuming a session that just failed means restarting from the context that failed.
+   The retry receives the last 60 lines of the failure, in a pristine session.
+   `--resume` stays on offer to a human on a red ticket, at the end of the summary.
+4. **External verification.** The script grades the work, not the agent.
+   Zero commits produced → if the session says it was blocked, the ticket is **frozen**;
+   otherwise the gate is run **on the base** to decide: red, it is a failure; green, the
+   ticket is **absorbed** (see below).
+5. **Green** → push, PR `Closes #N` on the right base, ticket switched to `in-review`,
+   then waiting for CI. **Red** → `ready-for-human` + a comment with the failure output.
+   `/triage`'s state machine keeps turning while you sleep.
+6. **Worktree dropped** if green, **kept** if red: that is where we go to read what
+   happened, with the `node_modules` already in place.
+7. **CI** at the end of the run, every PR watched in parallel (waiting in the worker would
+   tie up a slot for polling).
+8. **Integration** at the end of the run: every green branch merged into a throwaway
+   worktree — **in topological order**, a stacked one after its base, otherwise it
+   conflicts by construction —, then `INTEGRATION_VERIFY_CMD`. It reports; it touches no
+   PR. It also flags three things no gate can see: two files claiming the **same number**
+   (ADR, migration), the **same path created** by two branches, and the **run's tickets
+   cited in the merged docs** — a future-tense sentence about something delivered ten
+   minutes ago produces no conflict. The conflicting files are written into `summary.md`,
+   not just displayed.
 
 ## Logs
 
-Tout est dans `.afk/` (auto-ignoré), une famille de fichiers par ticket :
+Everything is in `.afk/` (self-ignored), one family of files per ticket:
 
-| Fichier | Contenu |
+| File | Contents |
 |---|---|
-| `<n>.out` | la trace de l'orchestrateur pour ce ticket — ce que tu lis d'abord |
-| `<n>-<essai>.json` | ce que la session raconte d'elle-même : panne, coût, modèle, `session_id` |
-| `<n>-verify.txt` / `<n>-fail.txt` | la sortie de la porte, dernier échec conservé |
-| `<n>-setup.log` | l'install du worktree |
-| `<n>-ci.txt` | la sortie de `gh pr checks` |
-| `<n>-push.txt` | le refus du remote, quand le push échoue |
-| `base-verify.txt` | la porte passée sur la base avant le run — un ticket par run, pas par ticket |
-| `<n>.status` | le verdict machine (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
-| `summary.md` | le tableau du run : résultat, PR, essai, modèle, **contexte max**, coût, CI, intégration |
+| `<n>.out` | the orchestrator's trace for this ticket — what you read first |
+| `<n>-<attempt>.json` | what the session says about itself: failure, cost, model, `session_id` |
+| `<n>-verify.txt` / `<n>-fail.txt` | the gate's output, last failure kept |
+| `<n>-setup.log` | the worktree's install |
+| `<n>-ci.txt` | `gh pr checks`'s output |
+| `<n>-push.txt` | the remote's refusal, when the push fails |
+| `base-verify.txt` | the gate run on the base before the run — one per run, not per ticket |
+| `<n>.status` | the machine verdict (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
+| `summary.md` | the run's table: result, PR, attempt, model, **peak context**, cost, CI, integration |
 
-**`.afk/` est écrasé au run suivant.** Ce qui doit survivre vit dans le dépôt d'afk
-lui-même — monté dans chacun de tes projets, donc commun à tous :
+**`.afk/` is overwritten on the next run.** What has to survive lives in afk's own repo —
+mounted in each of your projects, so common to all of them:
 
-| Fichier | Contenu | Écrit par |
+| File | Contents | Written by |
 |---|---|---|
-| `RUNS.md` | une ligne par run : date, projet, verts/non prouvés/drafts/rouges/poussées refusées/gelés/absorbés, 1er essai, modèle, coût, durée, intégration | `afk.sh`, à la fin de chaque run |
-| `docs/defauts.md` | les défauts **d'afk** encore vivants, constatés en vrai pendant un run, numérotés | `/afk-debrief`, ou à la main |
-| `docs/defauts-corriges.md` | les mêmes, une fois corrigés : même numérotation, l'archive | idem, au moment de la correction |
+| `RUNS.md` | one line per run: date, project, green/unproven/drafts/reds/refused pushes/frozen/absorbed, 1st attempt, model, cost, duration, integration | `afk.sh`, at the end of each run |
+| `docs/defects.md` | **afk's** still-live defects, seen for real during a run, numbered | `/afk-debrief`, or by hand |
+| `docs/defects-fixed.md` | the same, once fixed: same numbering, the archive | same, at fixing time |
 
-Le chemin est celui du script (`AFK_HOME`), pas celui du projet : que tu lances `afk.sh`
-depuis un devcontainer où il est monté ou depuis l'extérieur, il écrit au même endroit.
-Dépôt monté en lecture seule → rien n'est journalisé, et ce n'est pas une erreur de run.
+The path is the script's (`AFK_HOME`), not the project's: whether you launch `afk.sh` from
+a devcontainer where it is mounted or from outside, it writes to the same place.
+Repo mounted read-only → nothing is logged, and that is not a run error.
 
-En série, la trace sort aussi à l'écran en direct. En parallèle elle est mise de côté
-et déversée d'un bloc quand le ticket finit, sinon les sorties s'entrelacent ; une
-ligne `… en cours : #48 (3m12) #50 (1m04)` toutes les deux minutes dit qui travaille.
+In series, the trace also comes out live on screen. In parallel it is set aside and dumped
+in one block when the ticket finishes, otherwise the outputs interleave; a
+`…  running: #48 (3m12) #50 (1m04)` line every two minutes says who is working.
 
-## Le contexte comme thermomètre du découpage
+## Context as the thermometer of the slicing
 
-Une session neuve garantit un départ propre, pas une arrivée propre. Avec une fenêtre
-de 1M, rien ne compacte : la session grossit jusqu'à finir le ticket. Mesuré sur
-hexa-zero — même run, mêmes règles :
+A fresh session guarantees a clean start, not a clean finish. With a 1M window, nothing
+compacts: the session grows until the ticket is done. Measured on project-6c618d6f — same run,
+same rules:
 
-| ticket | tours | contexte max |
+| ticket | turns | peak context |
 |---|---|---|
 | #43 | 64 | 140k |
 | #49 | 208 | 289k |
 | #50 | 214 | 312k |
 
-`summary.md` porte donc une colonne **contexte**, lue dans le transcript de la session.
-C'est la même information que « vert au 1er essai », prise en amont : un ticket qui
-frôle la fenêtre était trop gros, et ça se voit **avant** que la qualité ne s'en
-ressente.
+So `summary.md` carries a **context** column, read from the session's transcript. It is
+the same information as "green on 1st attempt", taken upstream: a ticket brushing the
+window was too big, and it shows **before** quality suffers.
 
-## Porte de vérification par ticket
+## Per-ticket verification gate
 
-`VERIFY_CMD` est une porte unique pour tous les tickets. Sur un monorepo, c'est
-contradictoire avec « reste dans le périmètre du ticket » : un ticket backend qui touche
-un contrat typé de bout en bout casse le typecheck du client, et l'agent doit sortir de
-son périmètre pour rendre du vert.
+`VERIFY_CMD` is a single gate for every ticket. On a monorepo, that contradicts "stay
+within the ticket's scope": a backend ticket touching an end-to-end typed contract breaks
+the client's typecheck, and the agent has to step outside its scope to produce green.
 
-Un ticket peut donc déclarer sa propre porte, avec une ligne dans son corps :
+So a ticket can declare its own gate, with a line in its body:
 
 ```
-Verify: pnpm turbo typecheck --filter=@hexa-zero/backend
+Verify: pnpm turbo typecheck --filter=@acme/backend
 ```
 
-Le script la lit et l'utilise à la place de `VERIFY_CMD` — pour ce ticket seulement.
-La ligne est exécutée telle quelle : les tickets font partie de la surface de confiance,
-au même titre que le `bypassPermissions` de la session.
+The script reads it and uses it instead of `VERIFY_CMD` — for that ticket only.
+The line is executed as-is: tickets are part of the trust surface, just like the session's
+`bypassPermissions`.
 
-Deux formes sont acceptées, la nue ci-dessus et la commande en `code`. Quand la valeur
-**commence** par un span backtick, seul ce span est la porte — ce qui suit est une note
-pour l'agent :
-
-```
-**Verify:** `ruff check jarvis/ && pytest tests/ -q`, plus un test neuf par critère
-```
-
-Une valeur qui finit par `:` est une phrase d'introduction, pas une commande : elle est
-ignorée et le ticket retombe sur `VERIFY_CMD`. Même règle que `Timeout:`, `Model:` et
-`Effort:` — un ticket mal rédigé ne doit pas coûter un run.
-
-Ça fait trois niveaux, du plus général au plus précis — **le plus précis gagne** :
+Two forms are accepted, the bare one above and the command in `code`. When the value
+**starts** with a backtick span, only that span is the gate — what follows is a note for
+the agent:
 
 ```
-défaut du script  →  .afk.env du repo  →  ligne Verify: du ticket
-(monorepo pnpm)      (ce projet)           (ce ticket)
+**Verify:** `ruff check app/ && pytest tests/ -q`, plus one fresh test per criterion
 ```
 
-C'est aussi la réponse au risque symétrique du taux de vert : **100 % de vert ne veut rien
-dire si la porte ne vérifie rien.** Sur un ticket d'aspect, « vert » signifie « ça compile ».
+A value ending in `:` is an introducing sentence, not a command: it is ignored and the
+ticket falls back on `VERIFY_CMD`. Same rule as `Timeout:`, `Model:` and `Effort:` — a
+badly written ticket must not cost a run.
 
-## Budget de temps par ticket
+That makes three levels, from the most general to the most specific — **the most specific
+wins**:
 
-`TIMEOUT` est global, la taille d'un ticket ne l'est pas : une refonte — migration,
-formule, gardes, tests, quatre docs — ne rentre pas dans le gabarit d'un ticket moyen,
-et se fait couper au milieu. Même endroit, même parseur que `Verify:` :
+```
+the script's default  →  the repo's .afk.env  →  the ticket's Verify: line
+(pnpm monorepo)          (this project)          (this ticket)
+```
+
+It is also the answer to the symmetric risk of the green rate: **100% green means nothing
+if the gate verifies nothing.** On a cosmetic ticket, "green" means "it compiles".
+
+## Per-ticket time budget
+
+`TIMEOUT` is global, a ticket's size is not: a rework — migration, formula, guards, tests,
+four docs — does not fit the shape of an average ticket, and gets cut in the middle. Same
+place, same parser as `Verify:`:
 
 ```
 Timeout: 90m
 ```
 
-Le format est celui de `timeout(1)` (`90m`, `2h`, `3600`). Une valeur d'une autre forme
-est ignorée : passée telle quelle, elle empêcherait la session de démarrer.
+The format is `timeout(1)`'s (`90m`, `2h`, `3600`). A value of any other shape is ignored:
+passed as-is, it would stop the session from starting.
 
-## Modèle et effort par ticket
+## Per-ticket model and effort
 
-Même endroit, même parseur, pour la même raison : le réglage global a été choisi pour le
-ticket moyen, et une correction de typo n'a pas besoin du modèle d'une refonte.
+Same place, same parser, for the same reason: the global setting was chosen for the
+average ticket, and a typo fix does not need the model of a rework.
 
 ```
 Model: sonnet
 Effort: high
 ```
 
-`Model:` accepte un alias (`opus`, `sonnet`, `haiku`) ou un nom complet ; `Effort:` un des
-niveaux de `claude` (`low`, `medium`, `high`, `xhigh`, `max`). Sans ces lignes, `MODEL` et
-`EFFORT` s'appliquent ; sans eux, les défauts de `claude`.
+`Model:` accepts an alias (`opus`, `sonnet`, `haiku`) or a full name; `Effort:` one of
+`claude`'s levels (`low`, `medium`, `high`, `xhigh`, `max`). Without these lines, `MODEL`
+and `EFFORT` apply; without them, `claude`'s defaults.
 
-Le bilan donne les modèles qui ont **réellement** tourné : `FALLBACK_MODEL` bascule sur un
-modèle de secours quand le principal est indisponible — sans ça, une nuit entière peut
-changer de modèle sans le dire. C'est ce repli qui évite qu'une indisponibilité passagère
-brûle les deux essais d'un ticket en quelques secondes et vide la file.
+The summary gives the models that **actually** ran: `FALLBACK_MODEL` switches to a backup
+model when the main one is unavailable — without that, a whole night can change model
+without saying so. It is that fallback which stops a transient outage from burning a
+ticket's two attempts in a few seconds and emptying the queue.
 
-La colonne porte aussi le nombre de sous-agents lancés par la session
-(`sonnet-5 (+2 sous-agents)`) : ils portent le modèle de leur définition
-(`.claude/agents/*.md`) et pas celui du ticket, donc plusieurs modèles ne sont un repli
-que sans eux — et une part du coût vient d'eux (défaut 41).
+The column also carries the number of subagents the session spawned
+(`sonnet-5 (+2 subagents)`): they carry the model of their definition
+(`.claude/agents/*.md`) and not the ticket's, so several models are only a fallback
+without them — and part of the cost comes from them (defect 41).
 
-## Reprendre une session ratée
+## Resuming a failed session
 
-Un ticket rendu à `ready-for-human` garde son worktree **et** sa session. Le bilan donne
-la commande pour y rentrer :
+A ticket handed back to `ready-for-human` keeps its worktree **and** its session. The
+summary gives the command to get back in:
 
 ```
 (cd .afk/wt/48 && claude --resume 42ce8dfe-…)
 ```
 
-C'est le seul moyen de demander à l'agent pourquoi il a pris ce chemin-là — un log ne le
-dira jamais.
+It is the only way to ask the agent why it took that path — a log will never say.
 
-## Quand un ticket n'a plus rien à faire
+## When a ticket has nothing left to do
 
-Un ticket peut être livré par son prédécesseur — l'agent du ticket d'avant est allé plus
-loin que son périmètre, ce qui est la norme dès qu'un contrat typé traverse les apps.
-« L'agent a échoué » et « il n'y avait plus rien à faire » sortaient tous les deux en
-`aucun commit` : deux essais brûlés par ticket, puis `ready-for-human` pour une raison
-fausse.
+A ticket can be delivered by its predecessor — the previous ticket's agent went beyond its
+scope, which is the norm as soon as a typed contract crosses the apps. "The agent failed"
+and "there was nothing left to do" both came out as `no commit`: two attempts burned per
+ticket, then `ready-for-human` for a false reason.
 
-Mais la porte sur la base ne dit rien du contenu du ticket : elle est verte parce que le
-dépôt compile, pas parce que le travail demandé a eu lieu. Un ticket que l'agent juge
-trop tôt — un prérequis qui n'est pas dans cette base — sortait donc « absorbé », donc
-invité à la fermeture (défaut 40). Le prompt demande maintenant à la session de nommer
-son cas en dernière ligne quand elle ne commite rien :
+But the gate on the base says nothing about the ticket's content: it is green because the
+repo compiles, not because the requested work happened. A ticket the agent judges too
+early — a prerequisite that is not in this base — therefore came out "absorbed", so
+invited to close (defect 40). The prompt now asks the session to name its case on its last
+line when it commits nothing:
 
-- `AFK: BLOQUE <ce qui manque>` → le ticket est **gelé**, comme derrière un bloqueur non
-  levé : label inchangé, pas de PR, un commentaire qui cite ce qui manque, pas de second
-  essai (même session, même base, même conclusion). Il repart au run suivant.
-- `AFK: DEJA LIVRE`, ou pas de ligne du tout → la porte tourne **sur la base** :
-  - **rouge** → l'agent n'a effectivement rien produit, essai suivant puis `ready-for-human` ;
-  - **verte** → le ticket est **absorbé** : basculé en `in-review` avec un commentaire, pas
-    de PR, ni rouge ni « vert au 1er essai ». Ses dépendants partent de la base qu'il a
-    lui-même utilisée, au lieu de geler derrière un faux échec.
+- `AFK: BLOCKED <what is missing>` → the ticket is **frozen**, as behind an unlifted
+  blocker: label unchanged, no PR, a comment citing what is missing, no second attempt
+  (same session, same base, same conclusion). It starts again on the next run.
+- `AFK: ALREADY DONE`, or no line at all → the gate runs **on the base**:
+  - **red** → the agent really did produce nothing, next attempt then `ready-for-human`;
+  - **green** → the ticket is **absorbed**: switched to `in-review` with a comment, no PR,
+    neither red nor "green on 1st attempt". Its dependants start from the base it used
+    itself, instead of freezing behind a false failure.
 
-## Quand une session se termine mal
+## When a session ends badly
 
-Une session Claude peut mourir après avoir produit du travail complet, ou à 60 % : la
-porte rend exactement le même vert dans les deux cas. Le script ne jette pas le travail
-— le filet commite l'arbre sale, avec le titre du ticket comme message — mais :
+A Claude session can die after producing complete work, or at 60%: the gate returns
+exactly the same green in both cases. The script does not throw the work away — the net
+commits the dirty tree, with the ticket title as the message — but:
 
-- la PR sort **en draft**, avec la panne et le chemin du fichier de session dans son corps ;
-- le ticket ne compte pas comme « vert au premier essai », et il sort de la ligne `vert`
-  du bilan : une PR en draft ne se merge pas ;
-- il apparaît dans la ligne `draft` du bilan, **avec la raison** — `coupée`, `anormale`
-  ou `non commité`.
+- the PR comes out **as a draft**, with the failure and the session file's path in its body;
+- the ticket does not count as "green on the first attempt", and it leaves the summary's
+  `green` line: a draft PR does not get merged;
+- it shows up in the summary's `draft` line, **with the reason** — `cut`, `abnormal` or
+  `not committed`.
 
-Même traitement quand l'agent n'a pas commité de lui-même : c'est une anomalie, pas un
-succès.
+Same treatment when the agent did not commit by itself: it is an anomaly, not a success.
 
-Les trois ne se relisent pas pareil. Une session **coupée** au `timeout` peut l'avoir été
-au milieu d'un fichier ; une session terminée **anormalement** s'est arrêtée entre deux
-actions ; **non commité** veut dire que le travail est là et que seul le commit manquait.
-La porte ne fait la différence dans aucun des trois cas : elle dit que ce qui existe
-compile, pas que le travail est complet.
+The three are not reread the same way. A session **cut** at the `timeout` may have been cut
+in the middle of a file; a session ended **abnormally** stopped between two actions;
+**not committed** means the work is there and only the commit was missing. The gate tells
+none of the three apart: it says that what exists compiles, not that the work is complete.
 
-## Vert, et pourtant pas prouvé
+## Green, and yet unproven
 
-Deux résultats sortent de la colonne `vert` sans être des échecs :
+Two results leave the `green` column without being failures:
 
-- **vert non prouvé** — le ticket avait une ligne `Verify:` (porte locale remplacée par la sienne) **et**
-  sa CI n'a pas conclu. Sa seule porte complète est celle qui n'a rendu aucun verdict :
-  personne n'a vérifié ce que sa ligne ne couvre pas. Un dépôt **sans** CI ne
-  compte pas : ce n'est pas un verdict qui manque, c'est une propriété du dépôt, et le
-  bilan la dit une fois pour le run au lieu d'une fois par ticket.
-- **poussée refusée** — la branche est complète, verte et commitée en local, mais le
-  remote a refusé le `git push` (jeton sans la portée `workflow` sur un ticket qui touche
-  `.github/workflows/`, branche déjà présente). Aucune session n'est relancée — le second
-  essai échouerait à l'identique —, aucun label n'est changé, le worktree est gardé, et la
-  raison du remote est reprise au bilan depuis `<n>-push.txt`.
+- **unproven green** — the ticket had a `Verify:` line (local gate replaced by its own)
+  **and** its CI did not conclude. Its only complete gate is the one that returned no
+  verdict: nobody checked what its line does not cover. A repo **without** CI does not
+  count: that is not a missing verdict, it is a property of the repo, and the summary says
+  it once for the run instead of once per ticket.
+- **push refused** — the branch is complete, green and committed locally, but the remote
+  refused the `git push` (token without the `workflow` scope on a ticket touching
+  `.github/workflows/`, branch already there). No session is relaunched — the second
+  attempt would fail identically —, no label is changed, the worktree is kept, and the
+  remote's reason is carried into the summary from `<n>-push.txt`.
 
 ## Ctrl-C
 
-Un outil qui tourne des heures se fait interrompre. Sur `INT`/`TERM`, l'orchestrateur tue
-la **descendance** de chaque worker — le worker est un sous-shell, `claude` et `pnpm` sont
-dessous, et tuer le sous-shell seul les laissait orphelins et vivants — puis récolte les
-worktrees des tickets verts ou absorbés. Ceux des rouges et des interrompus restent :
-c'est là qu'on va lire ce qui s'est passé.
+A tool that runs for hours gets interrupted. On `INT`/`TERM`, the orchestrator kills each
+worker's **descendants** — the worker is a subshell, `claude` and `pnpm` are under it, and
+killing the subshell alone left them orphaned and alive — then collects the worktrees of
+the green or absorbed tickets. Those of the reds and the interrupted ones stay: that is
+where we go to read what happened.
 
-## Git sans clavier
+## Git without a keyboard
 
-Le remote est souvent en SSH, avec une clé à passphrase et sans `ssh-agent` — chaque
-`pull` et chaque `push` réclament alors le clavier, dans un outil qui veut dire *away
-from keyboard*. Pire : en détaché, le push dort sans rien afficher, indiscernable d'un
-ticket qui prend du temps.
+The remote is often on SSH, with a passphrase-protected key and no `ssh-agent` — every
+`pull` and every `push` then ask for the keyboard, in a tool that means *away from
+keyboard*. Worse: detached, the push sleeps without printing anything, indistinguishable
+from a ticket taking its time.
 
-Le script réécrit `github.com` en HTTPS pour la durée du run et sert le token `gh` via
-son credential helper. Rien n'est écrit dans `.git/config`, le token ne touche jamais le
-disque, et la configuration d'origine du repo n'est pas modifiée (tout passe par
-`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`).
+The script rewrites `github.com` to HTTPS for the duration of the run and serves the `gh`
+token through its credential helper. Nothing is written into `.git/config`, the token never
+touches the disk, and the repo's original configuration is not modified (everything goes
+through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`).
 
 ## Tests
 
-- `./check.sh` — les quatre parseurs (`label_for`, `blocked_refs`, `verify_override`,
-  `deepest_branch`). Rapide, sans effet de bord.
-- `./harness.sh` — l'orchestrateur en entier, sans réseau ni LLM : `claude` et `gh`
-  bouchonnés, remote nu local, 8 tickets couvrant un DAG en losange, le filet, une
-  session plantée, un bloqueur externe ouvert, un gel en cascade, la phase CI et
-  l'intégration. 20 assertions. Il a trouvé trois bugs à sa première exécution —
-  le faire tourner après toute modification de la boucle.
+- `./check.sh` — the pure parsers (`label_for`, `blocked_refs`, `meta_line`,
+  `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`).
+  Fast, no side effects.
+- `./harness.sh` — the whole orchestrator, without network or LLM: `claude` and `gh`
+  stubbed, local bare remote, 8 tickets covering a diamond DAG, the safety net, a crashed
+  session, an open external blocker, a cascading freeze, the CI phase and integration.
+  It found three bugs on its first run — run it after any change to the loop.
 
-## Limites assumées
+## Accepted limits
 
-- Ne merge rien. La revue humaine reste la dernière porte.
-- Le parallélisme ne s'applique qu'aux tickets indépendants. Une chaîne de quatre
-  tickets empilés reste une chaîne : `-j 8` n'y changera rien.
-- Un `pnpm install` par worktree. Hardlinks depuis le store, donc quasi gratuit en
-  disque, mais un store distant ou un `nodeLinker` non hoisté changerait la note.
-- La passe d'intégration détecte les collisions, elle ne les résout pas.
-- `--permission-mode bypassPermissions` : à faire tourner dans un conteneur si le repo
-  n'est pas jetable.
+- It merges nothing. Human review stays the last gate.
+- Parallelism only applies to independent tickets. A chain of four stacked tickets stays a
+  chain: `-j 8` will not change that.
+- One `pnpm install` per worktree. Hard links from the store, so nearly free on disk, but a
+  remote store or a non-hoisted `nodeLinker` would change the bill.
+- The integration pass detects the clashes, it does not resolve them.
+- `--permission-mode bypassPermissions`: run it in a container if the repo is not
+  disposable.

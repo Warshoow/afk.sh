@@ -1,218 +1,217 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
 
-## Ce que c'est
+## What this is
 
-Trois scripts bash, aucune dépendance, aucun LLM dans l'orchestrateur. `afk.sh` enchaîne
-des sessions `claude -p "/implement le ticket #N"` sur les tickets `ready-for-agent` d'un
-repo GitHub configuré par `/setup-matt-pocock-skills`. Le README décrit le comportement
-utilisateur ; ce fichier décrit les invariants internes.
+Three bash scripts, no dependencies, no LLM in the orchestrator. `afk.sh` chains
+`claude -p "/implement GitHub ticket #N"` sessions over the `ready-for-agent` tickets of a
+GitHub repo configured by `/setup-matt-pocock-skills`. The README describes the user-facing
+behaviour; this file describes the internal invariants.
 
-`skills/` contient deux familles, et elles n'ont pas les mêmes droits.
+`skills/` holds two families, and they do not have the same rights.
 
-**Encadrer un run** — `afk-setup` (écrire le `.afk.env`), `afk-preflight` (relire le lot
-avant de lancer), `afk-debrief` (dépouiller le run au réveil). Ils proposent, ils
-n'agissent pas — un skill qui lancerait `afk.sh` ou réétiquetterait un ticket remettrait
-du LLM dans la boucle par la porte de derrière.
+**Framing a run** — `afk-setup` (write the `.afk.env`), `afk-preflight` (reread the batch
+before launching), `afk-debrief` (go through the run on waking up). They propose, they do
+not act — a skill launching `afk.sh` or relabelling a ticket would put an LLM back into the
+loop through the back door.
 
-**Construire une app en autonomie** — `afk-spec` (idée → `docs/spec.md` + squelette +
-porte, une fois), `afk-wave` (ouvrir la vague de tickets suivante), `afk-merge` (faire
-atterrir la vague sur `dev`, cocher, décider si on continue). `afk-app.sh` les enchaîne
-autour d'`afk.sh`, une vague après l'autre. Ceux-là **agissent** : ils
-tournent en boucle quand personne n'est réveillé, donc attendre une validation n'a aucun
-sens. L'invariant tient quand même : ils restent **au-dessus** d'`afk.sh`, qui n'a
-toujours aucun LLM dedans — c'est la boucle qui juge, pas l'orchestrateur.
+**Building an app autonomously** — `afk-spec` (idea → `docs/spec.md` + skeleton + gate,
+once), `afk-wave` (open the next wave of tickets), `afk-merge` (land the wave on `dev`,
+check the boxes, decide whether to continue). `afk-app.sh` chains them around `afk.sh`, one
+wave after another. Those ones **act**: they run in a loop when nobody is awake, so waiting
+for approval makes no sense. The invariant holds all the same: they stay **above**
+`afk.sh`, which still has no LLM inside — it is the loop that judges, not the orchestrator.
 
-Ce qui les garde honnêtes n'est pas leur bonne volonté, c'est une garde mécanique :
-`docs/spec.md` est écrit une seule fois par `afk-spec` et taggé `afk-spec`. Les deux
-autres ne peuvent que cocher des cases, et le vérifient à chaque tour :
+What keeps them honest is not their good will, it is a mechanical guard: `docs/spec.md` is
+written once by `afk-spec` and tagged `afk-spec`. The other two can only check boxes, and
+they verify it at every turn:
 
 ```bash
 diff <(git show afk-spec:docs/spec.md | sed 's/\[x\]/[ ]/g') <(sed 's/\[x\]/[ ]/g' docs/spec.md)
 ```
 
-Non vide → la boucle s'arrête. Sans ça, celui qui écrit les critères et celui qui les
-remplit sont le même modèle, et la boucle se décerne sa propre victoire. Les cases sont
-neutralisées **des deux côtés** du `diff` : la version taggée en contient déjà une cochée
-(le squelette fait passer A0), et une garde qui ne neutralise qu'un côté refuse de
-tourner dès la première vague.
+Non-empty → the loop stops. Without it, whoever writes the criteria and whoever fills them
+are the same model. The boxes are neutralised **on both sides** of the `diff`: the tagged
+version already contains a checked one (the skeleton makes A0 pass), and a guard
+neutralising only one side refuses to run from the very first wave.
 
-Et une case ne se coche qu'après que la commande du critère soit **passée sur `dev`** :
-le compteur est mécanique, jamais une lecture. `afk-app.sh` s'appuie sur le même
-principe — il compte les cases et les tickets ouverts, il ne lit jamais ce qu'une session
-raconte pour décider de continuer.
+And a box is only checked after the criterion's command has **passed on `dev`**: the
+counter is mechanical, never a reading. `afk-app.sh` leans on the same principle — it counts
+the boxes and the open tickets, it never reads what a session says to decide whether to
+continue.
 
-Le code et les commentaires sont en français — s'y tenir.
+The code and the comments are in English — stick to it.
 
-## Commandes
+## Commands
 
 ```bash
-./afk-app.sh -w 4 -j 3   # la boucle autonome : /afk-wave → afk.sh → /afk-merge, ×4
-./check.sh          # parseurs purs, ~1 s, sans effet de bord
-./harness.sh        # orchestrateur complet, claude et gh bouchonnés, remote nu local (~1 min)
-bash -n afk.sh      # syntaxe seule (check.sh le fait déjà en premier)
-./afk.sh -n 43 48   # le plan, sans rien lancer — utile pour valider l'ordonnanceur à la main
+./afk-app.sh -w 4 -j 3   # the autonomous loop: /afk-wave → afk.sh → /afk-merge, ×4
+./check.sh          # pure parsers, ~1 s, no side effects
+./harness.sh        # the whole orchestrator, claude and gh stubbed, local bare remote (~1 min)
+bash -n afk.sh      # syntax only (check.sh does it first anyway)
+./afk.sh -n 43 48   # the plan, without launching anything — useful to validate the scheduler by hand
 ```
 
-Pas de runner par test unitaire : `harness.sh` est monolithique, il tourne en entier.
-Pour isoler, commenter les `want`/`want2`/`want4` non concernés, ou lire les traces
-laissées dans son `$T` temporaire (`run.log`, `run2.log`, `gh.log`).
+No per-test runner: `harness.sh` is monolithic, it runs in full. To isolate, comment out
+the unrelated `want`/`want2`/`want4` calls, or read the traces it leaves in its temporary
+`$T` (`run.log`, `run2.log`, `gh.log`).
 
-**Faire tourner `./harness.sh` après toute modification de la boucle** (ordonnanceur,
-worker, worktrees, phases CI/intégration). Il a trouvé trois bugs à sa première exécution.
+**Run `./harness.sh` after any change to the loop** (scheduler, worker, worktrees, CI /
+integration phases). It found three bugs on its first execution.
 
 ## Architecture
 
-### Un seul fichier, deux moitiés
+### One file, two halves
 
-`afk.sh` se coupe en deux à la ligne `[[ -n "${AFK_LIB:-}" ]] && return 0` :
+`afk.sh` splits in two at the line `[[ -n "${AFK_LIB:-}" ]] && return 0`:
 
-- **au-dessus** : les parseurs purs (`label_for`, `blocked_refs`, `meta_line`,
-  `deepest_branch`, `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`).
-  `check.sh` fait `AFK_LIB=1 source ./afk.sh` pour les tester seuls. Ils ne doivent lire
-  aucune globale et ne rien écrire. Les motifs de validation des surcharges (`RE_TIMEOUT`,
-  `RE_MODEL`, `RE_EFFORT`, `RE_VERIFY`) sont là aussi, pour que `check.sh` teste ceux qui
-  servent vraiment plutôt qu'une copie. **Les quatre champs passent un motif** : `Verify`
-  était le seul à ne pas le faire, et le seul dont la valeur soit exécutée.
-- **en dessous** : config, garde-fous, et la boucle. Rien de tout ça n'est testable par
-  `check.sh` — ça passe par `harness.sh`.
+- **above**: the pure parsers (`label_for`, `blocked_refs`, `meta_line`, `deepest_branch`,
+  `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`). `check.sh` does
+  `AFK_LIB=1 source ./afk.sh` to test them alone. They must read no global and write
+  nothing. The override validation patterns (`RE_TIMEOUT`, `RE_MODEL`, `RE_EFFORT`,
+  `RE_VERIFY`) are there too, so `check.sh` tests the ones that actually serve rather than
+  a copy. **All four fields pass a pattern**: `Verify` was the only one that did not, and
+  the only one whose value is executed.
+- **below**: config, guard rails, and the loop. None of that is testable by `check.sh` —
+  it goes through `harness.sh`.
 
-Ajouter un parseur ⇒ le placer au-dessus de la garde et lui ajouter un cas dans `check.sh`.
+Adding a parser ⇒ put it above the guard and give it a case in `check.sh`.
 
-### Le pipeline
+### The pipeline
 
 `plan_run` → `schedule` (→ `launch` → `worker`) → `ci_phase` → `integration_check` → `write_summary`
 
-- **`plan_run`** lit chaque ticket une fois via `gh` et met tout en cache dans
-  `.afk/<n>.{body,title,labels,verify,timeout}`. Le worker ne rappelle jamais l'API pour
-  des métadonnées. Il classe aussi les bloqueurs en `DEPS` (dans le run, ou hors run mais
-  à PR ouverte) et `EXT` (hors run, gelant).
-- **`schedule`** boucle sur `deps_state` dont le **code de retour est un tri-état** :
-  `0` prêt, `1` attendre, `2` gelé. Jusqu'à `JOBS` workers vivants.
-- **`worker`** tourne dans un sous-shell, cwd = son worktree.
+- **`plan_run`** reads each ticket once through `gh` and caches everything in
+  `.afk/<n>.{body,title,labels,verify,timeout}`. The worker never calls the API back for
+  metadata. It also sorts the blockers into `DEPS` (in the run, or outside the run but with
+  an open PR) and `EXT` (outside the run, freezing).
+- **`schedule`** loops over `deps_state`, whose **return code is a tri-state**: `0` ready,
+  `1` wait, `2` frozen. Up to `JOBS` live workers.
+- **`worker`** runs in a subshell, cwd = its worktree.
 
-### Le protocole parent/enfant
+### The parent/child protocol
 
-Un worker est un sous-shell : **il ne peut rien écrire dans les tableaux du parent.** Il
-dépose des lignes `clé=valeur` dans `.afk/<n>.status`, le parent les relit avec `sget`.
-Toute nouvelle information remontée par un worker passe par là.
+A worker is a subshell: **it cannot write anything into the parent's arrays.** It drops
+`key=value` lines into `.afk/<n>.status`, the parent reads them back with `sget`. Any new
+information a worker surfaces goes through there.
 
-Clés : `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`,
+Keys: `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`,
 `attempt`, `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`,
-`subagents`. `draft` est un drapeau posé sur un `ok`, pas un résultat.
+`subagents`. `draft` is a flag set on an `ok`, not a result.
 
-Le fichier est **append-only** et `sget` lit la dernière ligne. La valeur prudente
-écrite au démarrage s'appelle donc `result_initial`, pas `result` : un humain qui fait
-`cat` ou `grep result=` sur un ticket vert lisait `result=ko` en tête. Un `result`
-absent vaut rouge (`reap` le traite dans sa branche par défaut).
+The file is **append-only** and `sget` reads the last line. So the cautious value written at
+startup is called `result_initial`, not `result`: a human running `cat` or `grep result=` on
+a green ticket used to read `result=ko` at the top. A missing `result` counts as red (`reap`
+handles it in its default branch).
 
-`reap` traduit ces statuts en tableaux du parent (`OK` `KO` `SKIP` `DRAFT` `ABSORBED`
-`PUSH_KO` `BRANCH_OF` `FIRST_TRY`), qui alimentent ensuite `ci_phase`, `integration_check`
-et le bilan. `GREEN` et `UNPROVEN` sont calculés au bilan seulement : `OK` reste la liste
-brute des tickets qui ont ouvert une PR, `GREEN` en retire ce qu'aucune porte complète
-n'a vu (draft, ou porte réduite + CI non concluante). C'est `GREEN` qui s'affiche.
+`reap` translates these statuses into the parent's arrays (`OK` `KO` `SKIP` `DRAFT`
+`ABSORBED` `PUSH_KO` `BRANCH_OF` `FIRST_TRY`), which then feed `ci_phase`,
+`integration_check` and the summary. `GREEN` and `UNPROVEN` are computed at summary time
+only: `OK` stays the raw list of tickets that opened a PR, `GREEN` removes from it anything
+no complete gate has seen (draft, or reduced gate + inconclusive CI). It is `GREEN` that is
+displayed.
 
 ### Isolation
 
-Un ticket = un worktree `.afk/wt/<n>` sur `feat/<n>`, créé depuis `origin/<base>`.
-**L'arbre principal n'est jamais touché** — aucun `checkout`, `pull` ni `reset`. Toute
-opération git d'un worker doit rester dans son worktree (`git -C "$wt"` depuis le parent).
-Un worktree vert est jeté, un rouge est gardé : c'est l'artefact de debug.
+One ticket = one worktree `.afk/wt/<n>` on `feat/<n>`, created from `origin/<base>`.
+**The main tree is never touched** — no `checkout`, `pull` or `reset`. Every git operation
+of a worker must stay inside its worktree (`git -C "$wt"` from the parent).
+A green worktree is dropped, a red one is kept: it is the debugging artefact.
 
-`set -uo pipefail`, **sans `-e`** : un échec de worker est un résultat, pas une raison
-d'arrêter le run.
+`set -uo pipefail`, **without `-e`**: a worker failing is a result, not a reason to stop the
+run.
 
-### La session
+### The session
 
-`claude -p … --output-format json`, jamais `--resume` : la sortie est un objet, pas un
-log. `jval` y lit `subtype` (la panne se NOMME au lieu de rendre un code), `session_id`
-(le bilan en fait un `claude --resume` pour les rouges, dont le worktree est gardé),
-`total_cost_usd` (cumulé sur les essais du ticket) ; `jmodels` lit les modèles réellement
-utilisés, seule façon de voir un repli `FALLBACK_MODEL`. Mais `modelUsage` **et** le coût
-agrègent la session et ses sous-agents, qui portent le modèle de leur définition et pas
-celui du ticket : `jspawned` lit leur nombre, sans quoi un second modèle se lit comme un
-repli qui n'a pas eu lieu (défaut 41). Ajouter un drapeau de session implique de le
-passer par `copts` — et de vérifier que le faux `claude` du harness rend
-toujours un objet lisible, sinon chaque session passe pour muette.
+`claude -p … --output-format json`, never `--resume`: the output is an object, not a log.
+`jval` reads `subtype` from it (the failure is NAMED instead of returning a code),
+`session_id` (the summary turns it into a `claude --resume` for the reds, whose worktree is
+kept), `total_cost_usd` (cumulated over the ticket's attempts); `jmodels` reads the models
+actually used, the only way to see a `FALLBACK_MODEL` fallback. But `modelUsage` **and** the
+cost aggregate the session and its subagents, which carry the model of their definition and
+not the ticket's: `jspawned` reads their number, without which a second model reads as a
+fallback that never happened (defect 41). Adding a session flag means passing it through
+`copts` — and checking that the harness's fake `claude` still returns a readable object,
+otherwise every session looks mute.
 
-### Le prompt
+### The prompt
 
-`build_prompt` reçoit `head0` — le HEAD d'AVANT la session — et pas `HEAD` :
-`inherited_note` s'en sert pour lister ce que les bloqueurs ont livré
-(`git diff --name-only "$BASE_REF...$head0"`). À l'essai 2, `HEAD` porte déjà le travail
-de l'agent, qui n'a rien à apprendre de lui-même. Le faux `claude` du harness recopie
-son prompt dans `$T/prompt-<n>.txt` : le prompt est testable comme le reste.
+`build_prompt` receives `head0` — the HEAD from BEFORE the session — and not `HEAD`:
+`inherited_note` uses it to list what the blockers delivered
+(`git diff --name-only "$BASE_REF...$head0"`). On attempt 2, `HEAD` already carries the
+agent's work, which it has nothing to learn from. The harness's fake `claude` copies its
+prompt into `$T/prompt-<n>.txt`: the prompt is testable like the rest.
 
-### Duplication assumée
+### Deliberate duplication
 
-Le bloc `DRY_RUN` refait le calcul de base/absorption de `launch()` (les branches du run
-n'existent pas encore, `deepest_branch` retombe donc sur son repli). **Les deux doivent
-rester d'accord** — modifier l'un sans l'autre fait mentir `-n`.
+The `DRY_RUN` block redoes `launch()`'s base/absorption computation (the run's branches do
+not exist yet, so `deepest_branch` falls back on its fallback). **The two must stay in
+agreement** — changing one without the other makes `-n` lie.
 
-### Auth git
+### Git auth
 
-`setup_git_auth` réécrit github.com en HTTPS et branche le credential helper de `gh`,
-uniquement via `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` exportés. **Ne jamais écrire dans
-`.git/config`** : le token ne doit pas toucher le disque et la config du repo hôte ne
-doit pas bouger. Les index sont contigus — ajouter une clé implique d'incrémenter `COUNT`.
+`setup_git_auth` rewrites github.com to HTTPS and wires gh's credential helper, only through
+exported `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n`. **Never write into `.git/config`**: the
+token must not touch the disk and the host repo's config must not move. The indices are
+contiguous — adding a key means incrementing `COUNT`.
 
-## Toucher au harness
+## Touching the harness
 
-`harness.sh` bouchonne `claude` et `gh` par deux scripts dans un `$PATH` temporaire.
-**Ajouter un appel `gh` dans `afk.sh` implique de le gérer dans le faux `gh`** — sinon il
-tombe dans le `exit 0` final et rend une chaîne vide, ce qui se manifeste très loin de la
-cause. Même chose pour un nouveau comportement d'agent : il se simule par un cas dans le
-faux `claude`, indexé sur le numéro de ticket extrait du prompt.
+`harness.sh` stubs `claude` and `gh` with two scripts in a temporary `$PATH`.
+**Adding a `gh` call in `afk.sh` means handling it in the fake `gh`** — otherwise it falls
+into the final `exit 0` and returns an empty string, which shows up very far from the cause.
+Same for a new agent behaviour: it is simulated by a case in the fake `claude`, keyed on the
+ticket number extracted from the prompt.
 
-Les huit runs du harness sont indépendants et ordonnés : parallèle (DAG en losange,
-filet, crash, gel), série (absorbé, gelé par sa propre session, `Timeout:`, `in-review`),
-interruption, empilement sur une PR ouverte hors run (plus le même lot rejoué en `-n`,
-qui doit dire la même chose), deux bloqueurs directs indépendants (base + absorption,
-double héritage), push refusé par le remote + même chemin créé deux fois + renvoi au
-futur + un dépendant des deux dont l'empilement conflicte, dépôt sans CI, et porte
-réduite avec CI qui ne conclut pas. Les numéros de ticket portent leur scénario (voir
-l'en-tête du fichier) — réutiliser un numéro existant pour autre chose casse les
-assertions.
+The harness's eight runs are independent and ordered: parallel (diamond DAG, safety net,
+crash, freeze), series (absorbed, frozen by its own session, `Timeout:`, in-review),
+interruption, stacking on a PR open outside the run (plus the same batch replayed in `-n`,
+which must say the same thing), two independent direct blockers (base + absorption, double
+inheritance), push refused by the remote + the same path created twice + a stale reference +
+a dependant of both whose stacking conflicts, repo without CI, and reduced gate with CI that
+does not conclude. The ticket numbers carry their scenario (see the file header) — reusing an
+existing number for something else breaks the assertions.
 
-Le remote nu porte un hook `update` qui refuse `feat/17` : c'est ainsi qu'on simule un
-`git push` rejeté sans réseau. Et le faux `gh pr checks` obéit à `NO_CHECKS` (le dépôt
-n'a pas de CI), `NO_CHECKS_ONCE` (la CI existe mais n'est pas encore enregistrée) et
-`HANG_CI` (elle tourne encore) — trois situations que `--watch` rendait par deux phrases.
+The bare remote carries an `update` hook refusing `feat/17`: that is how a rejected
+`git push` is simulated without a network. And the fake `gh pr checks` obeys `NO_CHECKS`
+(the repo has no CI), `NO_CHECKS_ONCE` (CI exists but is not registered yet) and `HANG_CI`
+(it is still running) — three situations `--watch` rendered with two sentences.
 
-## Les journaux
+## The logs
 
-Écrits à la main, une entrée par événement, jamais une par commit — `git log` fait déjà
-ça, et mieux :
+Written by hand, one entry per event, never one per commit — `git log` already does that,
+and better:
 
-- `CHANGELOG.md` — un changement de **comportement observable**. À compléter en même
-  temps que le changement, pas après.
-- `docs/propositions.md` — une idée proposée, avec son verdict et le raisonnement,
-  **y compris les refus** : une idée retenue laisse un commentaire dans le code, une
-  idée refusée ne laisse rien et revient. Écarter une proposition sans l'y écrire,
-  c'est accepter de refaire le raisonnement.
-- `docs/defauts.md` — un défaut d'afk constaté **en vrai pendant un run**, numéroté.
-  Un commentaire du code peut y renvoyer (`défaut 17`). N'y va que ce qui aurait cassé
-  de la même façon sur n'importe quel dépôt : les problèmes du projet travaillé se
-  corrigent là-bas. Écrit par `/afk-debrief` ou à la main.
-- `docs/defauts-corriges.md` — les mêmes une fois **corrigés**, même numérotation. Le
-  fichier vivant ne garde que les ouverts et les atténués : un dépouillement le lit en
-  entier, et trente entrées closes y coûtaient autant à lire que les quatre qui
-  demandent encore une décision. Un renvoi se cherche donc dans `docs/defauts*.md`.
+- `CHANGELOG.md` — a change in **observable behaviour**. To fill in at the same time as the
+  change, not after.
+- `docs/proposals.md` — an idea that was proposed, with its verdict and the reasoning,
+  **including the refusals**: an accepted idea leaves a comment in the code, a refused idea
+  leaves nothing and comes back. Dismissing a proposal without writing it there means
+  agreeing to redo the reasoning.
+- `docs/defects.md` — an afk defect observed **for real during a run**, numbered. A code
+  comment can point at it (`defect 17`). Only what would have broken the same way on any
+  repo goes in: the worked-on project's problems get fixed over there. Written by
+  `/afk-debrief` or by hand.
+- `docs/defects-fixed.md` — the same ones once **fixed**, same numbering. The live file only
+  keeps the open and mitigated ones: a debrief reads it end to end, and thirty closed
+  entries cost as much to read as the four that still need a decision. So a reference is
+  looked up in `docs/defects*.md`.
 
-Écrit par la machine :
+Written by the machine:
 
-- `RUNS.md` — une ligne par run, ajoutée par `append_run_log` à la toute fin. Les
-  faits, pas un jugement. Il vit dans `$AFK_HOME`
-  (le dépôt du script, pas le projet travaillé) parce que c'est le seul endroit monté
-  dans tous les projets, et parce que `.afk/summary.md` est écrasé au run suivant.
-  `harness.sh` détourne `AFK_HOME` : sans ça ses runs de test s'y ajouteraient.
+- `RUNS.md` — one line per run, appended by `append_run_log` at the very end. The facts, not
+  a judgement. It lives in `$AFK_HOME` (the script's repo, not the worked-on project)
+  because it is the only place mounted in every project, and because `.afk/summary.md` is
+  overwritten on the next run. `harness.sh` redirects `AFK_HOME`: without it, its test runs
+  would append to it. The project column is a stable digest of the repo directory name, not
+  the name itself — this log travels with afk's repo and gets read out of context.
 
-Le pourquoi d'un choix déjà implémenté reste dans le commentaire à côté du code — ces
-fichiers ne le dupliquent pas, ils y renvoient.
+The why of a choice already implemented stays in the comment next to the code — these files
+do not duplicate it, they point at it.
 
-## Surface de confiance
+## Trust surface
 
-Les lignes `Verify:` et `Timeout:` d'un ticket sont exécutées / passées telles quelles.
-Les tickets font partie de la surface de confiance, au même titre que le
-`--permission-mode bypassPermissions` des sessions.
+A ticket's `Verify:` and `Timeout:` lines are executed / passed as-is. Tickets are part of
+the trust surface, just like the sessions' `--permission-mode bypassPermissions`.
