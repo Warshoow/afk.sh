@@ -484,6 +484,17 @@ Fresh session, no history.
 - Every non-trivial decision taken on the way (architecture, convention, constraint
   discovered, debt accepted) goes into a CONTEXT.md or an ADR, BEFORE you finish.
   The next session will know nothing of this run.
+- You also keep a decision journal at ${AFK_DIR}/${ticket}-work.tsv, appended as you
+  go, tab-separated, six columns: ts, phase, decision, why, evidence, result (write
+  that header line first if the file does not exist). One line per decision the diff
+  cannot show: a hypothesis taken because nobody was there to decide, an option ruled
+  out and what ruled it out, a red gate and what you concluded from it, a premise that
+  turned out false, anything you did outside the ticket's scope. Not the mechanical
+  steps — if every line matches a line of diff, it is a changelog, stop. The ADRs
+  above keep the PROJECT's durable decisions; this file keeps what happened during
+  THIS run, and it is what /afk-debrief reads instead of rebuilding it from the
+  traces. Never rewrite a past line: a decision you went back on is a NEW line whose
+  result says so. The `/show-me-your-work` skill holds the full contract.
 - You commit on the current branch, already created. You do not push, you do not open
   a PR, you do not touch the labels: that is the orchestrator's job.
 - If you commit NOTHING, your last line says which of the two cases it is, verbatim:

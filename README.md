@@ -185,18 +185,41 @@ It also re-slices the batch when needed: cut a ticket that does not fit in one s
 longer `Timeout:` does not fix a lack of room), serialise with a `Blocked by` two tickets
 writing into the same files, hand out the ADR and migration numbers before the run rather
 than discovering them duplicated at integration.
-It proposes the fixes, it does not apply them and it does not launch the run.
+It proposes the fixes, it does not apply them and it does not launch the run — except
+when called `/afk-preflight apply`, which only `afk-app.sh`'s loop does: there nobody is
+awake to approve a table, so it applies its mechanical fixes itself and takes out of the
+batch anything needing a judgement on the criteria.
 
 [`/afk-debrief`](skills/afk-debrief/SKILL.md) — **on waking up, before merging.** Reads
-`.afk/summary.md` and the traces, and sorts each non-green by cause: wrong gate, badly
-seeded worktree, ticket too big, real failure. It can tell a red caused by the ticket from
-a red caused by the environment, and proposes what to put back to `ready-for-agent` for
-the next night.
+`.afk/summary.md`, the per-ticket decision journals and the traces, and sorts each
+non-green by cause: wrong gate, badly seeded worktree, ticket too big, real failure. It can
+tell a red caused by the ticket from a red caused by the environment, and proposes what to
+put back to `ready-for-agent` for the next night.
 
 ```bash
 ln -s "$PWD/skills/afk-preflight" ~/.claude/skills/afk-preflight
 ln -s "$PWD/skills/afk-debrief"   ~/.claude/skills/afk-debrief
 ```
+
+### The decision journal
+
+Each session appends one line per decision to `.afk/<ticket>-work.tsv`, six tab-separated
+columns: `ts`, `phase`, `decision`, `why`, `evidence`, `result`. The prompt asks for it,
+nothing enforces it.
+
+It holds what the diff cannot show and what no trace contains: the hypothesis taken
+because nobody was there to decide, the option ruled out and what ruled it out, the red
+gate and what the session concluded from it, the premise that turned out false, anything
+done outside the ticket's scope. Not the mechanical steps.
+
+```bash
+column -t -s $'\t' .afk/48-work.tsv      # one ticket
+grep -H . .afk/*-work.tsv                # the whole run
+```
+
+Before it existed, answering "why is #48 red?" meant `claude --resume` on the session, or
+guessing from the traces. `.afk/` is gitignored, so the journal never reaches a commit,
+and the next run on the same ticket overwrites it.
 
 ## Parallelism
 
@@ -283,6 +306,7 @@ Everything is in `.afk/` (self-ignored), one family of files per ticket:
 | `<n>-setup.log` | the worktree's install |
 | `<n>-ci.txt` | `gh pr checks`'s output |
 | `<n>-push.txt` | the remote's refusal, when the push fails |
+| `<n>-work.tsv` | the session's decision journal, one line per decision — the only file here written by the agent and not by the script |
 | `base-verify.txt` | the gate run on the base before the run — one per run, not per ticket |
 | `<n>.status` | the machine verdict (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
 | `summary.md` | the run's table: result, PR, attempt, model, **peak context**, cost, CI, integration |

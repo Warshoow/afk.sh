@@ -95,16 +95,35 @@ says which one.
 Do not reset the worktree onto the base to decide: that destroys the state of the
 failure, which is exactly what you came to read.
 
-## 5 — Ask the session
+## 5 — Read the journal, then ask the session
 
-The summary gives, for each red, what it takes to get back into the session that
-produced it:
+Each session keeps a decision journal, appended as it goes, at `.afk/<n>-work.tsv`:
+six tab-separated columns — `ts`, `phase`, `decision`, `why`, `evidence`, `result`.
+`afk.sh` asks every ticket for it (`build_prompt`), and `/show-me-your-work` holds the
+contract.
+
+```bash
+column -t -s $'\t' .afk/<n>-work.tsv          # one red
+grep -H . .afk/*-work.tsv | head -40          # the whole run at a glance
+```
+
+Read it **before** step 4's verdict: it holds what no trace contains and what the diff
+cannot show — the hypothesis taken because nobody was there to decide, the option ruled
+out and what ruled it out, the red gate and what the session concluded from it, the
+premise that turned out false, anything done outside the ticket's scope. A `result` of
+`ko` or `abandoned` on a line whose `evidence` says `none` is the signature of a
+session that guessed.
+
+No file → the session never wrote one. Note it as an afk defect (step 7) if it happens
+across a whole run: the instruction is in the prompt, so it is the prompt that failed.
+
+Only then, and only if the journal is silent on the point you need, get back into the
+session that produced the red — the summary gives what it takes:
 
 ```bash
 (cd .afk/wt/<n> && claude --resume <id>)
 ```
 
-It is the only way to get what no trace contains: **why** the agent took that path.
 Useful when the failure is a design choice, useless when the environment was broken — in
 that case the answer is in `.afk.env`.
 

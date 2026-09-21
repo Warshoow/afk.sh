@@ -15,13 +15,17 @@ behaviour; this file describes the internal invariants.
 **Framing a run** — `afk-setup` (write the `.afk.env`), `afk-preflight` (reread the batch
 before launching), `afk-debrief` (go through the run on waking up). They propose, they do
 not act — a skill launching `afk.sh` or relabelling a ticket would put an LLM back into the
-loop through the back door.
+loop through the back door. One exception, and it is explicit: `/afk-preflight apply`,
+which only `afk-app.sh`'s loop invokes. There nobody is awake to approve a table, so it
+applies its mechanical fixes itself — and still refuses the one thing that would break the
+guard below, rewriting an acceptance criterion; such a ticket leaves the batch instead.
 
 **Building an app autonomously** — `afk-spec` (idea → `docs/spec.md` + skeleton + gate,
 once), `afk-wave` (open the next wave of tickets), `afk-merge` (land the wave on `dev`,
 check the boxes, decide whether to continue). `afk-app.sh` chains them around `afk.sh`, one
-wave after another. Those ones **act**: they run in a loop when nobody is awake, so waiting
-for approval makes no sense. The invariant holds all the same: they stay **above**
+wave after another, with `/afk-preflight apply` between the opening and the run. Those
+ones **act**: they run in a loop when nobody is awake, so waiting for approval makes no
+sense. The invariant holds all the same: they stay **above**
 `afk.sh`, which still has no LLM inside — it is the loop that judges, not the orchestrator.
 
 What keeps them honest is not their good will, it is a mechanical guard: `docs/spec.md` is
@@ -47,7 +51,7 @@ The code and the comments are in English — stick to it.
 ## Commands
 
 ```bash
-./afk-app.sh -w 4 -j 3   # the autonomous loop: /afk-wave → afk.sh → /afk-merge, ×4
+./afk-app.sh -w 4 -j 3   # the loop: /afk-wave → /afk-preflight apply → afk.sh → /afk-merge, ×4
 ./check.sh          # pure parsers, ~1 s, no side effects
 ./harness.sh        # the whole orchestrator, claude and gh stubbed, local bare remote (~1 min)
 bash -n afk.sh      # syntax only (check.sh does it first anyway)
@@ -144,6 +148,14 @@ otherwise every session looks mute.
 agent's work, which it has nothing to learn from. The harness's fake `claude` copies its
 prompt into `$T/prompt-<n>.txt`: the prompt is testable like the rest.
 
+It also asks the session for a decision journal at `$AFK_DIR/<ticket>-work.tsv`. This is
+the **only** thing the prompt asks for that neither the gate nor the diff can check, so
+nothing enforces it: a missing journal is an afk defect to record, not a red. It exists
+because `/afk-debrief` was rebuilding the session's reasoning from the traces, which do
+not contain it — the alternative was `claude --resume` on every red. Its contract (six
+columns, append only, what deserves a line) lives in the `/show-me-your-work` skill, not
+here: `afk.sh` names the path and the columns, and nothing more.
+
 ### Deliberate duplication
 
 The `DRY_RUN` block redoes `launch()`'s base/absorption computation (the run's branches do
@@ -198,6 +210,14 @@ and better:
   keeps the open and mitigated ones: a debrief reads it end to end, and thirty closed
   entries cost as much to read as the four that still need a decision. So a reference is
   looked up in `docs/defects*.md`.
+
+Written by the sessions, not by the script:
+
+- `.afk/<ticket>-work.tsv` — the ticket's decision journal, appended by the session as it
+  goes, six tab-separated columns (`ts`, `phase`, `decision`, `why`, `evidence`,
+  `result`). Asked for by `build_prompt`, read by `/afk-debrief` at step 5. Gitignored
+  with the rest of `.afk/`, and overwritten by the next run on the same ticket like every
+  other file there — a journal worth keeping gets copied out before relaunching.
 
 Written by the machine:
 

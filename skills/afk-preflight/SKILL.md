@@ -1,6 +1,6 @@
 ---
 name: afk-preflight
-description: "Rereads the batch of ready-for-agent tickets just before an afk run, and fixes what would cost the night — a freeze from an out-of-run blocker, criteria no gate can check, a ticket too big for its time budget. It also re-slices the batch: cut a ticket that does not fit in one session, serialise two tickets writing into the same files, hand out the numbers (ADR, migration) before the run. Run between /triage and ./afk.sh, on already published tickets whatever their origin. Triggers: /afk-preflight, \"are my tickets ready for afk?\", \"reread the batch before launching\", \"re-slice the batch for afk\", \"why would this ticket be frozen?\"."
+description: "Rereads the batch of ready-for-agent tickets just before an afk run, and fixes what would cost the night — a freeze from an out-of-run blocker, criteria no gate can check, a ticket too big for its time budget. It also re-slices the batch: cut a ticket that does not fit in one session, serialise two tickets writing into the same files, hand out the numbers (ADR, migration) before the run. Run between /triage and ./afk.sh, on already published tickets whatever their origin. Called `/afk-preflight apply` (afk-app.sh's loop only), it applies the mechanical fixes itself instead of proposing them. Triggers: /afk-preflight, \"are my tickets ready for afk?\", \"reread the batch before launching\", \"re-slice the batch for afk\", \"why would this ticket be frozen?\"."
 ---
 
 # /afk-preflight
@@ -157,6 +157,41 @@ Finish with the launch command suited to the batch, without running it:
 nohup ./afk.sh -j 3 43 48 49 &
 ```
 
+## Apply mode — `/afk-preflight apply`
+
+Invoked with the word `apply`, and only there. `afk-app.sh` uses it inside the wave loop,
+where nobody is awake to approve a table: a session that proposes and waits changes
+nothing and has burned the night's first 45 minutes. Steps 1 to 6 are **identical** — same
+reading, same proof of every `Verify:` line. Only step 7 changes: you apply instead of
+proposing.
+
+What you may apply on your own, because it is mechanical and `./afk.sh -n` proves it:
+
+- **cut** a ticket that does not fit in one session, into the pieces step 5 describes;
+- **serialise** two tickets writing into the same files, with a `Blocked by`;
+- **hand out** the ADR and migration numbers before the run;
+- **fix** a `Timeout:`, a `Verify:` proven in step 6, a `Blocked by` pointing at a blocker
+  already merged and closed.
+
+What you may **not** apply, whatever it costs: rewriting an acceptance criterion. That is
+the judgement `docs/spec.md` reserves for `/afk-spec`, and a criterion rewritten by
+whoever is going to fill it is the exact failure the `afk-spec` tag exists to prevent.
+A ticket whose criteria no gate can check is therefore taken **out of the batch**:
+
+```bash
+gh issue comment <n> --body "preflight: <the criterion> is not checkable by a gate — out of this wave"
+gh issue edit <n> --remove-label <ready-for-agent>
+```
+
+It will come back through `/afk-wave` on a later wave, or by hand. An emptied batch is a
+result: `afk-app.sh` stops on it and says so.
+
+Re-run `./afk.sh -n` after your edits and check it agrees with what you intended. It is
+the script that is right. Then finish with the step 7 table anyway, in the session's
+output: it is the only trace the morning will have of what you changed.
+
+Outside `apply`, everything below holds.
+
 ## What this skill does not do
 
 - It does not run `afk.sh`. A run takes hours, detached; it has no business inside a
@@ -164,6 +199,7 @@ nohup ./afk.sh -j 3 43 48 49 &
 - It does not rewrite the acceptance criteria for you: it says which ones are not
   checkable and proposes a wording, you decide.
 - It creates, closes and relabels no ticket without approval — cutting a ticket in three
-  is proposed like the rest, commands ready to paste.
+  is proposed like the rest, commands ready to paste. Except in `apply` mode, which is
+  reserved for `afk-app.sh`'s loop and whose limits are listed above.
 - It does not replay `./afk.sh -n`'s computation. If the two disagree, the script is
   right.

@@ -6,6 +6,38 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-09-21
+
+### Added
+
+- **Each session keeps a decision journal**, at `.afk/<ticket>-work.tsv`: six
+  tab-separated columns (`ts`, `phase`, `decision`, `why`, `evidence`, `result`), appended
+  as it goes, one line per decision the diff cannot show — the hypothesis taken because
+  nobody was there to decide, the option ruled out and what ruled it out, the red gate and
+  what the session concluded from it, anything done outside the ticket's scope.
+  `build_prompt` asks for it; nothing enforces it, so a missing journal is a defect to
+  record and not a red. `/afk-debrief` reads it at its step 5, **before** deciding wrong
+  gate or real failure, and only falls back on `claude --resume` when the journal is silent
+  on the point needed. The contract lives in the `/show-me-your-work` skill, outside this
+  repo. Read it with `column -t -s $'\t' .afk/<n>-work.tsv`.
+
+### Changed
+
+- **`afk-app.sh`'s wave gained a step**: `/afk-wave` → **`/afk-preflight apply`** →
+  `afk.sh` → `/afk-merge`. The batch was going into the night exactly as it was opened, so
+  a ticket too big for its budget, a criterion no gate can see or two tickets writing into
+  the same files cost the wave. A failure of this step is **not** fatal: the wave then runs
+  unreviewed, which is the previous behaviour, and that is cheaper than losing the
+  remaining waves. The ticket count is taken again afterwards — preflight cuts and
+  serialises — and an emptied batch stops the loop (`preflight emptied the batch`).
+- **`/afk-preflight` gained an `apply` mode**, invoked only by that loop. Steps 1 to 6 are
+  unchanged; step 7 applies the mechanical fixes (cut, serialise with a `Blocked by`, hand
+  out the ADR and migration numbers, fix a `Timeout:` or a proven `Verify:`) instead of
+  proposing them, because nobody is awake to approve a table. It still refuses to rewrite
+  an acceptance criterion — that is what the `afk-spec` tag exists to prevent — and takes
+  such a ticket out of the batch with a comment instead. Called without `apply`, the skill
+  behaves exactly as before.
+
 ## 2026-09-16
 
 ### Changed

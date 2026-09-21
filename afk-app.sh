@@ -6,10 +6,11 @@
 #
 # Prerequisite: `/afk-spec` has run (docs/spec.md, afk-spec tag, dev branch, .afk.env).
 #
-# A wave is three things, in this order:
-#   /afk-wave   Claude session — opens the tickets for the unchecked criteria
-#   afk.sh      the orchestrator, with no LLM inside, as usual
-#   /afk-merge  Claude session — lands on dev and checks off what passes
+# A wave is four things, in this order:
+#   /afk-wave       Claude session — opens the tickets for the unchecked criteria
+#   /afk-preflight  Claude session — rereads and re-slices the batch (non-fatal)
+#   afk.sh          the orchestrator, with no LLM inside, as usual
+#   /afk-merge      Claude session — lands on dev and checks off what passes
 #
 # THE CONTROL FLOW IS MECHANICAL. This script never reads what a session says to decide
 # whether to continue: it counts the checked boxes in docs/spec.md and the open tickets
@@ -93,6 +94,19 @@ for (( w=1; w<=WAVES; w++ )); do
 
   n=$(ready_n)
   if (( n == 0 )); then stop="nothing left to open"; break; fi
+
+  # Reread the batch before burning the night on it: a ticket too big for its budget, a
+  # criterion no gate can check, two tickets writing into the same files. A failure here
+  # is NOT fatal — the batch then runs unreviewed, which is exactly the state before this
+  # step existed, and that is cheaper than losing the remaining waves.
+  # "apply": nobody is awake to approve a table of proposals, so the skill applies the
+  # mechanical fixes itself and takes out of the batch whatever needs judgement.
+  pilot "afk-preflight apply" "$LOG_DIR/w${w}-preflight.json" ||
+    echo "  ⚠  batch not reviewed, the wave runs as opened"
+
+  # Recounted: preflight cuts and serialises, so the number has moved.
+  n=$(ready_n)
+  if (( n == 0 )); then stop="preflight emptied the batch"; break; fi
   echo "  · ${n} ready-for-agent ticket(s)"
 
   "$AFK_HOME/afk.sh" -j "$JOBS"
