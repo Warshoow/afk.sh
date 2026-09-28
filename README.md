@@ -1,5 +1,7 @@
 # afk.sh
 
+[![Watch a one-minute video tour of afk.sh](https://gitdiagram.com/video-badge.svg)](https://gitdiagram.com/warshoow/afk.sh/video)
+
 Run your GitHub tickets overnight with Claude Code. Label issues `ready-for-agent`,
 run `./afk.sh`, wake up to one PR per ticket — each one checked by **your** test
 command, not by the model saying it is done.
@@ -14,8 +16,6 @@ nohup ./afk.sh -j 2 &     # every ready-for-agent ticket, two at a time
   green: the gate does.
 - **Dependent tickets are stacked**, independent ones run in parallel.
 - **It merges nothing.** You review in the morning.
-
-gitdiagram : [![Watch a one-minute video tour of afk.sh](https://gitdiagram.com/video-badge.svg)](https://gitdiagram.com/warshoow/afk.sh/video)
 
 ## A real morning
 
