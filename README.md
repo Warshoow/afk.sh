@@ -15,6 +15,8 @@ nohup ./afk.sh -j 2 &     # every ready-for-agent ticket, two at a time
 - **Dependent tickets are stacked**, independent ones run in parallel.
 - **It merges nothing.** You review in the morning.
 
+gitdiagram : https://gitdiagram.com/warshoow/afk.sh
+
 ## A real morning
 
 A 10-ticket run on a TypeScript monorepo, 2026-09-28 (titles generalised):
