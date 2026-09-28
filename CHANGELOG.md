@@ -6,6 +6,30 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-09-23
+
+### Changed
+
+- **A model refusal is named `refused`, not `abnormal` — and no longer `success`**
+  (defect 46). A refusal completes the CLI's turn, so `subtype` said `success` and the run
+  printed `session ended abnormally (success)` on nine tickets out of seventeen. `afk.sh`
+  now reads `stop_reason` next to `subtype`: the refusal is named on screen, in the draft
+  PR's body and in the summary's `draft` column. The distinction is what decides the
+  morning — a refusal is relaunched as is, an abnormal end is read before the branch is
+  trusted.
+- **A session that stopped before committing anything no longer comes out `absorbed`**
+  (defect 46). `absorbed` was decided on "no commit + green base", which a refusal or a
+  crash before the first edit satisfies — and it relabels `in-review` with a comment
+  inviting closure, so a ticket nothing touched left the batch for good. A session that
+  did not end normally now gets a new attempt, then comes out **frozen**: label kept, no
+  PR, back on the next run. The gate on the base is no longer run there — it had nothing
+  to decide.
+- **A worktree carries `.afk/.gitignore`** (defect 47). A session reading the journal's
+  path as relative wrote it into its worktree, where the safety net's `git add -A` swept it
+  into the ticket's commit — and a stacked branch shipped its ancestors' journals too.
+  Every worktree is now seeded with the same self-ignore as the main tree, and the prompt
+  spells out that the journal's path is absolute and outside the worktree.
+
 ## 2026-09-21
 
 ### Added

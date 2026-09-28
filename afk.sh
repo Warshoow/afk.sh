@@ -484,8 +484,11 @@ Fresh session, no history.
 - Every non-trivial decision taken on the way (architecture, convention, constraint
   discovered, debt accepted) goes into a CONTEXT.md or an ADR, BEFORE you finish.
   The next session will know nothing of this run.
-- You also keep a decision journal at ${AFK_DIR}/${ticket}-work.tsv, appended as you
-  go, tab-separated, six columns: ts, phase, decision, why, evidence, result (write
+- You also keep a decision journal at ${AFK_DIR}/${ticket}-work.tsv — that path is
+  ABSOLUTE and outside your worktree, use it as written: a journal written to a
+  relative .afk/ lands in your worktree, gets committed with your work, and the
+  debrief that exists to read it never sees it (defect 47). Appended as you go,
+  tab-separated, six columns: ts, phase, decision, why, evidence, result (write
   that header line first if the file does not exist). One line per decision the diff
   cannot show: a hypothesis taken because nobody was there to decide, an option ruled
   out and what ruled it out, a red gate and what you concluded from it, a premise that
@@ -641,6 +644,12 @@ make_worktree() {   # ticket, base, branches to absorb… → path on stdout
     git -C "$wt" merge -q --no-edit "$extra" >>"$AFK_DIR/$ticket-wt.err" 2>&1 \
       || { git -C "$wt" merge --abort; return 2; }
   done
+  # The main tree's `.afk/.gitignore` is untracked, so a fresh worktree does not carry
+  # it: a session that writes its journal to a relative `.afk/` got it swept into the
+  # ticket's commit by the safety net's `git add -A`, and a stacked branch shipped its
+  # ancestors' journals too (defect 47). Seeded, not counted with SEED_GLOBS: it comes
+  # from afk, not from the project.
+  mkdir -p "$wt/.afk" && printf '*\n' > "$wt/.afk/.gitignore"
   seed_worktree "$wt" > "$AFK_DIR/$ticket-seed.n"
   echo "$wt"
 }
@@ -699,7 +708,7 @@ worker() {
   local ticket="$1" base="$2" wt="$3"
   local branch="feat/$ticket" sf="$AFK_DIR/$ticket.status"
   local title labels verify tmo mdl eff head0 rc crashed netted attempt
-  local out sid why c cost=0 cut=0 blocked
+  local out sid why c cost=0 cut=0 refused=0 blocked
   # The summary only timed the ticket: "it is slow" without knowing whether the time
   # goes into SETUP_CMD, into the session or into the gate — and three of the four
   # phases are tunable (JOBS, TIMEOUT, VERIFY_CMD, SETUP_CMD). Serialising the gate has
@@ -778,7 +787,7 @@ worker() {
     s0=$SECONDS
     timeout "$tmo" claude -p "$(build_prompt "$ticket" "$attempt" "$verify" "$head0")" \
       "${copts[@]}" > "$out" 2>&1
-    rc=$?; crashed=0; netted=0; cut=0
+    rc=$?; crashed=0; netted=0; cut=0; refused=0
     # Cumulative over the attempts, like the cost. And measured by afk, so background
     # subagents included — the session's own duration_ms only covers its main loop and
     # misses the 18 minutes of a review launched alongside.
@@ -796,8 +805,19 @@ worker() {
     c=$(jval total_cost_usd < "$out")
     [[ -n "$c" ]] && { cost=$(awk -v a="$cost" -v b="$c" 'BEGIN{printf "%.4f", a+b}'); st "cost=$cost"; }
 
+    # A refusal is the one failure `subtype` cannot name: the CLI's turn COMPLETED, so
+    # `subtype` says `success` while the model stopped mid-work — the summary printed
+    # "session ended abnormally (success)" and nine tickets read as badly cut (defect
+    # 46). `stop_reason` is the only field that says it, and the distinction decides
+    # whether to re-cut the ticket or simply relaunch it. Not jval: `stop_reason` comes
+    # after the free-text `result`, so the first match is not necessarily the right one.
+    grep -q '"stop_reason": *"refusal"' "$out" && { refused=1; why="refusal"; }
+
     (( rc == 124 )) && { echo "  ⚠  timeout ${tmo} — the ticket can carry its own \"Timeout:\" line"; crashed=1; cut=1; }
-    (( rc != 0 && rc != 124 )) && {
+    (( refused )) && {
+      echo "  ⚠  the model REFUSED mid-work (stop_reason: refusal) — a model-side event, not a badly cut ticket: relaunch it as is — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
+      crashed=1; }
+    (( rc != 0 && rc != 124 && ! refused )) && {
       echo "  ⚠  session ended abnormally (${why:-code ${rc}}) — ${AFK_DIR##*/}/${ticket}-${attempt}.json"
       crashed=1; }
 
@@ -828,6 +848,22 @@ worker() {
           "${base#origin/}" "${blocked#AFK: BLOCKED }")" >/dev/null 2>&1
         return
       fi
+      # Defect 46: `absorbed` is decided on "no commit + green base", and a session
+      # stopped before its first edit (refusal, crash, timeout) satisfies both. It was
+      # then relabelled in-review with a comment inviting closure — a ticket nothing
+      # touched left the batch for good. Only a session that ended NORMALLY witnesses
+      # that there was nothing left to do; a stopped one witnesses nothing. So: retry,
+      # then frozen — label kept, no PR, it comes back on the next run. The gate on the
+      # base is skipped too: it has nothing to decide here.
+      if (( crashed )); then
+        (( attempt < MAX_ATTEMPTS )) && { echo "  · nothing committed, and the session did not end normally — new attempt"; continue; }
+        echo "  ⏸  frozen — ${MAX_ATTEMPTS} sessions stopped before committing anything (${why:-code ${rc}}): nothing was done on this ticket"
+        st "result=frozen"; st "reason=${why:-crashed}"
+        gh issue comment "$ticket" --body "$(printf '> *Generated by an AFK agent session.*\n\n%d sessions stopped before committing anything (`%s`). Nothing was done on this ticket — no branch, no PR, nothing to review or to close. It keeps its label and comes back on the next run. Traces: `.afk/%s-*.json`.' \
+          "$MAX_ATTEMPTS" "${why:-code $rc}" "$ticket")" >/dev/null 2>&1
+        return
+      fi
+
       # "The agent failed" and "there was nothing left to do" both came out as "no
       # commit": a ticket emptied by its predecessor burned both attempts then went to
       # ready-for-human, for a false reason. The base is already here and the gate
@@ -873,6 +909,8 @@ worker() {
       # — it says that what exists compiles. That is not the same review.
       if (( cut )); then
         pr_body+=$'\n\n'"> ⚠ **The agent session was CUT** after \`${tmo}\` (ticket's \`Timeout:\` line). It may have been cut in the middle of a file: the gate says that what exists compiles, not that the work is complete. Session: \`.afk/${ticket}-${attempt}.json\`."
+      elif (( refused )); then
+        pr_body+=$'\n\n'"> ⚠ **The model REFUSED mid-work** (\`stop_reason: refusal\`) — a model-side event, not a problem with the ticket's scope. What was committed passes verification, but the work stopped where the refusal fell: relaunch the ticket as is rather than re-cutting it. Session: \`.afk/${ticket}-${attempt}.json\`."
       elif (( crashed )); then
         pr_body+=$'\n\n'"> ⚠ **The agent session ended abnormally** (${why:-code ${rc}}). The work present passes verification, but nothing guarantees it is complete — hence the draft. Session: \`.afk/${ticket}-${attempt}.json\`."
       fi
@@ -897,7 +935,11 @@ worker() {
       relabel "$ticket" "$LABEL" "$LABEL_REVIEW"
 
       local dwhy=""
-      (( cut )) && dwhy="cut"; (( crashed && ! cut )) && dwhy="abnormal"
+      # `refused` before `abnormal`: they lead to opposite mornings — a refusal is
+      # relaunched as is, an abnormal end is read before trusting the branch (defect 46).
+      (( cut )) && dwhy="cut"
+      (( refused && ! cut )) && dwhy="refused"
+      (( crashed && ! cut && ! refused )) && dwhy="abnormal"
       (( netted )) && dwhy="${dwhy:+$dwhy, }not committed"
       st "result=ok"; st "pr=$pr_num"; st "draft=$suspect"; st "draft_why=$dwhy"
       if (( suspect )); then
@@ -1608,7 +1650,7 @@ echo "  red    (${#KO[@]}): ${KO[*]:-—}  → moved to ${LABEL_KO}, worktrees k
   for t in "${PUSH_KO[@]}"; do
     echo "     #${t}: $(head -n 3 "$AFK_DIR/$t-push.txt" 2>/dev/null | tr '\n' ' ')"
   done; }
-echo "  frozen (${#SKIP[@]}): ${SKIP[*]:-—}  → blockers not lifted, relaunch after merge"
+echo "  frozen (${#SKIP[@]}): ${SKIP[*]:-—}  → nothing delivered (blocker not lifted, or session stopped before its first edit), relaunch"
 (( ${#CI_RED[@]} )) &&
   echo "  CI red (${#CI_RED[@]}): ${CI_RED[*]}  → moved back to ${LABEL_KO}"
 (( ${#CI_UNKNOWN[@]} )) &&

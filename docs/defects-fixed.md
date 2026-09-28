@@ -934,3 +934,90 @@ freeze for the same reason as before — but it also enters `CONFLICT`, and the 
 **conflict**. The paths are extracted from `<n>-wt.err` at the moment the merge fails, said on
 screen and repeated under the table like the integration pass's, with the log's name. And
 `<n>-wt.err` is in the logs legend.
+
+## 46 — A model refusal is reported as `success`, and an untouched ticket as `absorbed` — fixed
+
+*2026-09-23 · project-1f0a4e7c · #197 #198 #199 #200 #201 #204 #209 #210 #212*
+
+**What was seen.** Nine of seventeen sessions in one run printed `session ended abnormally
+(success)` — a contradiction on its face. Eight tickets came out `draft` with the reason
+`abnormal, not committed`, and two came out `absorbed`. Read from the summary, that looks
+like eight badly scoped tickets and two duplicates. It is neither: every one of the nine
+sessions carries `"stop_reason": "refusal"` and a `result` that begins `API Error: … 's
+safeguards flagged this message … Details: [reasoning_extraction]`. The eight sessions whose
+`stop_reason` is `end_turn` are exactly the eight that came out green. The correlation has no
+exception in either direction.
+
+**The cause.** Two reporting defects stack on top of one model-side event.
+(1) The message prints `${why:-code ${rc}}` where `why` is `subtype`, which is `success` for
+a refusal — the CLI completed its turn, it just refused mid-work. So the one field that names
+the failure prints the word `success`, and `stop_reason`, which does name it, is never read.
+(2) The `absorbed` branch (afk.sh:833) tests only "no commit" and "base green". A session
+killed before its first edit satisfies both, so a ticket nothing touched is relabelled
+`in-review` with a comment inviting closure. `#204` and `#210` were both wrongly closed that
+way; checked by hand, neither `apps/admin/src/routes/reset.tsx` nor a `search` argument in
+`use-standards.ts` exists on any branch of the run. Defect 40 already fixed the neighbouring
+case (a ticket emptied by its predecessor) but its guard cannot tell "nothing left to do"
+from "nothing happened" — the crash flag can, and it is already computed three lines above.
+
+**What it costs.** Read literally, the summary sends the morning to re-cut eight tickets that
+were fine and to close two tickets that were never done. The second is the expensive one: a
+closed ticket does not come back on the next wave.
+
+**Proposed.** Read `stop_reason` next to `subtype` and name a refusal as such in the message
+and in `draft_why` — `refused` is not `abnormal`, and the distinction decides whether to
+re-cut the ticket or simply relaunch it. And make `crashed` veto `absorbed`: no commit from a
+session that did not end normally is `frozen` (label kept, comes back on the next run), never
+`absorbed`.
+
+**What was done about it (2026-09-23).** Both halves. `stop_reason` is read next to
+`subtype` — not through `jval`, which takes the first match and `stop_reason` comes after
+the free-text `result` — and a refusal is named on screen, in the PR body and in
+`draft_why`: `refused`, not `abnormal`. The two lead to opposite mornings, one is
+relaunched as is and the other is read before the branch is trusted. And `crashed` now
+vetoes `absorbed`: no commit from a session that did not end normally means nothing was
+done, so a new attempt and then **frozen** — label kept, no PR, back on the next run. The
+gate on the base is skipped there, it has nothing to decide. The harness carries the two
+cases (#27 refuses before its first edit and its base is green, #28 refuses after a
+commit).
+
+## 47 — Half the decision journals are written into the worktree and committed into the branch, where the debrief cannot see them — fixed
+
+*2026-09-23 · project-1f0a4e7c · the whole run*
+
+**What was seen.** `/afk-debrief` step 5 reads `.afk/<n>-work.tsv` in the main checkout. After
+a seventeen-ticket run, only eight files were there and two of those held a header and no
+line — which reads as "two thirds of the sessions ignored the instruction". They did not.
+Eight more journals exist, committed **inside the branches**: `git show feat/201:.afk/201-work.tsv`
+returns twelve lines, `feat/207` eight, `feat/208` eight. Thirteen of the seventeen sessions
+wrote a real journal. The debrief saw six.
+
+**The cause.** The prompt names the path `.afk/<n>-work.tsv`, and a session's working
+directory is its worktree: a relative path lands in `<worktree>/.afk/`, not in the run's
+`.afk/`. Both are legal readings and the sessions split between them. `.afk/.gitignore`
+(`*`) only exists in the main checkout — it is untracked, so a fresh worktree does not have
+it — and the safety net's `git add -A` therefore sweeps the journal into the ticket's commit.
+Two consequences, and the second is the one that hurts: the journals are invisible to the
+debrief that exists to read them, and the branches carry a file that has nothing to do with
+their diff. A stacked branch carries its ancestors' journals too — `feat/209` ships
+`.afk/197-work.tsv`, `.afk/200-work.tsv` and its own.
+
+**What it costs.** The debrief judges the hardest tickets without the one source that
+explains them, and concludes the sessions were undisciplined. In this run that conclusion was
+written down and had to be retracted: `feat/201`'s journal says its four acceptance criteria
+were proven on screen in both themes, which turns a draft that looks abandoned into a branch
+that is finished. And every PR of the run carries journal files a reviewer has to look past.
+
+**Proposed.** Make the path absolute in `build_prompt` (the run's `.afk/`, not a relative
+one), and seed `.afk/.gitignore` into the worktree the way `.env` is seeded — either alone
+fixes the invisibility, both together also keep the branches clean. Until then, a debrief on
+this repo has to look in the branches as well.
+
+**What was done about it (2026-09-23).** The path was already absolute in `build_prompt`;
+what was missing was saying it, so the prompt now spells out that it is outside the
+worktree and what a relative reading costs. And `make_worktree` seeds `.afk/.gitignore`
+(`*`) into every worktree, the way the main tree gets it: a session that reads the path as
+relative writes its journal where nobody looks, but at least the safety net's `git add -A`
+no longer sweeps it into the branch, and a stacked branch no longer ships its ancestors'
+journals. The harness has #2 write a relative journal and checks that `feat/2` carries
+none.

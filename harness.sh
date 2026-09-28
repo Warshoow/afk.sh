@@ -37,6 +37,8 @@ printf '## Blocked by\n\n- #7\n'       > "$T/fix/8.body"
 # 12: Timeout:/Model:/Effort: in the body           → ticket-level overrides
 # 13: the agent produces nothing, its gate is red   → real failure, ko
 # 25: the agent produces nothing, the base is green, but it SAYS it is blocked → frozen
+# 27: the model REFUSES before touching anything, the base is green → frozen, not absorbed
+# 28: the same refusal, but after a commit → draft, and the reason says "refused"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/9.body"
 printf '## Blocked by\n\n- #9\n'                    > "$T/fix/10.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/11.body"
@@ -45,6 +47,8 @@ printf 'Verify: false\n\n## Blocked by\n\nNone\n'  > "$T/fix/13.body"
 printf 'in-review\n'                                 > "$T/fix/11.labels"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/25.body"
+printf '## Blocked by\n\nNone\n'                    > "$T/fix/27.body"
+printf '## Blocked by\n\nNone\n'                    > "$T/fix/28.body"
 
 # ─── The sixth run's batch ────────────────────────────────────────────────────
 # 17: the remote refuses its branch     → push refused, not an implementation failure
@@ -130,8 +134,20 @@ case "$n" in
       printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},'
       printf '"result":"No change.\\nAFK: BLOCKED #107 not merged into this base yet"}\n'
       exit 0 ;;
+  # A refusal completes the CLI's turn: `subtype` says success, only `stop_reason` says
+  # what happened. 27 refuses before touching anything and its base is green — the two
+  # facts `absorbed` tests, while nothing was done (defect 46). 28 refuses after a
+  # commit: green gate, draft, and the reason must be `refused`, not `abnormal`.
+  27|28) [[ "$n" == 28 ]] && { echo x > work-28.txt; git add -A; git commit -qm "feat(#28): partial"; }
+      printf '{"session_id":"sess-%s","total_cost_usd":0.5,"is_error":true,"subtype":"success",' "$n"
+      printf '"modelUsage":{"m":{"canonicalModel":"claude-sonnet-5"}},'
+      printf '"stop_reason": "refusal","result":"API Error: safeguards flagged this message"}\n'
+      exit 1 ;;
   20) sleep 987654 ;;                  # never finishes: target of the interruption
-  2) echo "i write and i do not commit" > work-$n.txt; res; exit 0 ;;
+  # It also writes its journal to a RELATIVE .afk/, the reading that got it committed
+  # into the branch (defect 47): the safety net below must not sweep it in.
+  2) echo "i write and i do not commit" > work-$n.txt
+     mkdir -p .afk; printf 'ts\tphase\n' > ".afk/$n-work.tsv"; res; exit 0 ;;
   6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"
      res error_during_execution true; exit 1 ;;
   7) touch BROKEN; git add -A; git commit -qm "feat(#7): breaks"; res; exit 0 ;;
@@ -222,6 +238,13 @@ grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| project-[0-9a-f]{8
   echo "  ✓ the run is recorded in RUNS.md, project anonymised" ||
   { echo "  ✗ run missing from the log, or project not anonymised"; sed -n '$p' "$T/RUNS.md" 2>/dev/null; fail=1; }
 
+# Defect 47: #2 wrote its journal to a relative .afk/, and it is the safety net that
+# committed. The branch must carry its work and nothing else — a stacked branch would
+# otherwise ship its ancestors' journals too.
+git -C "$T/repo" ls-tree -r --name-only feat/2 | grep -q '^\.afk/' &&
+  { echo "  ✗ the journal was committed into the branch"; fail=1; } ||
+  echo "  ✓ a journal written into the worktree stays out of the commit"
+
 [[ -d "$T/repo/.afk/wt/7" && ! -d "$T/repo/.afk/wt/1" ]] &&
   echo "  ✓ worktree kept on failure, dropped on success" ||
   { echo "  ✗ worktrees mishandled"; fail=1; }
@@ -239,7 +262,7 @@ grep -qE '^  - docs/adr/0001-x\.md$' "$T/prompt-4.txt" 2>/dev/null &&
 # ─── Second run: absorbed, frozen by the session, Timeout:, in-review, "no commit" ───
 # In series: the reaping order is then the only one possible, so assertable.
 
-out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 25 2>&1) || true
+out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 25 27 28 2>&1) || true
 printf '%s\n' "$out2" > "$T/run2.log"
 want2() {
   if grep -qE -- "$2" <<<"$out2"; then printf '  ✓ %s\n' "$1"
@@ -254,15 +277,26 @@ want2 "ticket Timeout: honoured"                  'budget      : 90m   \(ticket 
 want2 "ticket Model: honoured"                    'model       : sonnet'
 want2 "ticket Effort: honoured"                   'effort      : high'
 want2 "no commit + red base stays a failure"      'red    \(1\): 13'
-want2 "absorbed out of the 1st-attempt green"     'green on 1st attempt: 2/3'
+want2 "absorbed out of the 1st-attempt green"     'green on 1st attempt: 2/4'
 want2 "session saying it is blocked: frozen"      '⏸  frozen — the session says'
-want2 "frozen by the session, counted with the frozen" 'frozen \(1\): 25'
+want2 "frozen by the session, counted with the frozen" 'frozen \(2\): 25 27'
 grep -qE 'edit issue edit 25 ' "$T/gh.log" &&
   { echo "  ✗ a ticket frozen by its session must not change label"; fail=1; } ||
   echo "  ✓ frozen by its session: label unchanged"
 grep -qE 'pr create .*--head feat/25( |$)' "$T/gh.log" &&
   { echo "  ✗ a frozen ticket must not open a PR"; fail=1; } ||
   echo "  ✓ no PR for a frozen ticket"
+
+# Defect 46: the refusal is named for what it is, and it does not go through `absorbed`.
+want2 "a refusal is named, not read as a success"  'the model REFUSED mid-work'
+want2 "refusal without a commit: frozen"           '⏸  frozen — 2 sessions stopped before committing anything \(refusal\)'
+want2 "refusal after a commit: draft that says so" 'draft  \(1\): #28 \(refused\)'
+grep -qE 'edit issue edit 27 ' "$T/gh.log" &&
+  { echo "  ✗ a ticket nothing touched must not change label"; fail=1; } ||
+  echo "  ✓ refused before its first edit: label unchanged"
+grep -qE '^\| #27 \| frozen \|' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ summary: refused before its first edit, frozen" ||
+  { echo "  ✗ a refusal without a commit read as absorbed"; fail=1; }
 
 grep -qE 'edit issue edit 9 .*--add-label in-review' "$T/gh.log" &&
   echo "  ✓ absorbed labelled in-review" || { echo "  ✗ absorbed mislabelled"; fail=1; }

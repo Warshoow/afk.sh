@@ -130,7 +130,10 @@ run.
 ### The session
 
 `claude -p … --output-format json`, never `--resume`: the output is an object, not a log.
-`jval` reads `subtype` from it (the failure is NAMED instead of returning a code),
+`jval` reads `subtype` from it (the failure is NAMED instead of returning a code) — except
+a refusal, which completes the turn and therefore reads `success`: `stop_reason` is the only
+field that says it, grepped directly because it comes AFTER the free-text `result` and
+`jval` takes the first match (defect 46) —
 `session_id` (the summary turns it into a `claude --resume` for the reds, whose worktree is
 kept), `total_cost_usd` (cumulated over the ticket's attempts); `jmodels` reads the models
 actually used, the only way to see a `FALLBACK_MODEL` fallback. But `modelUsage` **and** the
@@ -178,7 +181,8 @@ Same for a new agent behaviour: it is simulated by a case in the fake `claude`, 
 ticket number extracted from the prompt.
 
 The harness's eight runs are independent and ordered: parallel (diamond DAG, safety net,
-crash, freeze), series (absorbed, frozen by its own session, `Timeout:`, in-review),
+crash, freeze), series (absorbed, frozen by its own session, refused before and after its
+first edit, `Timeout:`, in-review),
 interruption, stacking on a PR open outside the run (plus the same batch replayed in `-n`,
 which must say the same thing), two independent direct blockers (base + absorption, double
 inheritance), push refused by the remote + the same path created twice + a stale reference +

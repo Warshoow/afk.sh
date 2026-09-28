@@ -20,3 +20,6 @@ the same project always yields the same value, and nothing else is disclosed.
 | 2026-09-11 10:06 | project-84812fac | 5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 5/5 | opus-5 sonnet-5 | $30.71 | 54m41s | green |
 | 2026-09-12 13:24 | project-1a3c4c1d | 10 | 0 | 0 | 0 | 1 | 0 | 9 | 0 | 0/1 | — | — | 0m28s | — |
 | 2026-09-12 19:24 | project-1a3c4c1d | 4 | 3 | 0 | 0 | 0 | 0 | 1 | 0 | 3/3 | opus-5 | $16.39 | 37m13s | green (partial: 2/3) |
+| 2026-09-23 15:21 | project-6c618d6f | 17 | 6 | 1 | 8 | 0 | 0 | 0 | 2 | 7/15 | opus-5 sonnet-5 | $78.30 | 85m54s | green (partial: 10/15) |
+| 2026-09-23 16:33 | project-6c618d6f | 4 | 0 | 0 | 3 | 0 | 0 | 0 | 1 | 0/3 | opus-5 | $15.43 | 32m35s | green |
+| 2026-09-28 13:33 | project-6c618d6f | 10 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 10/10 | opus-5-5 sonnet-5 | $20.40 | 61m53s | green (partial: 7/10) |
