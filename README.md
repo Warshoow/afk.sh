@@ -1,10 +1,50 @@
 # afk
 
-An outer loop that chains `/implement` over the `ready-for-agent` tickets.
-One ticket = one fresh Claude session = one PR. No LLM in the orchestrator:
-it orders, it launches, it verifies, it pushes, it labels.
+Run your GitHub tickets overnight with Claude Code. Label issues `ready-for-agent`,
+run `./afk.sh`, wake up to one PR per ticket — each one checked by **your** test
+command, not by the model saying it is done.
 
-Plugs into the [mattpocock/skills](https://github.com/mattpocock/skills) workflow.
+```bash
+nohup ./afk.sh -j 2 &     # every ready-for-agent ticket, two at a time
+```
+
+- **One ticket = one fresh Claude session = one PR.** No context piling up over the night.
+- **No LLM in the orchestrator.** A bash script orders the tickets by their `Blocked by`,
+  launches the sessions, runs your gate, pushes, labels. A session cannot declare itself
+  green: the gate does.
+- **Dependent tickets are stacked**, independent ones run in parallel.
+- **It merges nothing.** You review in the morning.
+
+## A real morning
+
+A 10-ticket run on a TypeScript monorepo, 2026-09-28 (titles generalised):
+
+| Ticket | Result | PR | Attempt | Model | Cost | Duration | Title |
+|---|---|---|---|---|---|---|---|
+| #245 | ok | #255 | 1 | sonnet-5 | $3.60 | 8m18s | Highest difficulty shows the right label |
+| #247 | ok | #257 | 1 | opus-5-5 | $0.84 | 3m15s | A new item opens on an empty editor |
+| #249 | ok | #259 | 1 | opus-5-5 | $0.85 | 5m20s | "Active subscription" as one SQL fragment |
+| #251 | ok | #262 | 1 | opus-5-5 | $1.29 | 10m17s | Publishing requires an active subscription |
+| #254 | ok | #264 | 1 | opus-5-5 | $5.36 | 13m34s | A badge next to a subscriber's name |
+| … | | | | | | | 5 more |
+
+```
+- green on 1st attempt: 10/10 — total $20.40, 61m53s
+- integration: green (partial: 7/10) — set aside at merge: feat/252 feat/253 feat/254
+  - `feat/252`: …/standards_controller.ts …/subscription.spec.ts
+  - `feat/253`: …/subscription.spec.ts
+```
+
+That is an excerpt of `.afk/summary.md`, written at the end of every run: what is green,
+what is red and why, what it cost, and which branches clash once merged together (here
+three tickets touched the same test file). Every run since the first is in
+[RUNS.md](RUNS.md), bad ones included.
+
+**Before trying it:** `afk.sh` is ~1,700 lines of bash, GitHub only, and sessions run
+with `bypassPermissions` — use a container if the repo is not disposable. It plugs into
+the [mattpocock/skills](https://github.com/mattpocock/skills) workflow, which it needs.
+
+## Workflow
 
 **Once per project**, never again:
 
@@ -29,6 +69,8 @@ Plugs into the [mattpocock/skills](https://github.com/mattpocock/skills) workflo
 ```
 
 Between `/afk-preflight` and `/afk-debrief`, you sleep.
+
+To build a whole app from an idea, wave after wave: `/afk-spec` once, then `./afk-app.sh`.
 
 ## Prerequisites
 
