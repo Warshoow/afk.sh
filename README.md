@@ -44,6 +44,23 @@ three tickets touched the same test file). Every run since the first is in
 with `bypassPermissions` — use a container if the repo is not disposable. It plugs into
 the [mattpocock/skills](https://github.com/mattpocock/skills) workflow, which it needs.
 
+## Install
+
+```bash
+git clone https://github.com/Warshoow/afk.sh.git ~/afk
+cd ~/afk
+mkdir -p ~/.claude/skills   # or your CLAUDE_CONFIG_DIR
+for s in skills/*/; do ln -s "$PWD/$s" ~/.claude/skills/; done
+```
+
+That links the six skills (`/afk-setup`, `/afk-preflight`, `/afk-debrief`, and for the
+app mode `/afk-spec`, `/afk-wave`, `/afk-merge`). Install
+[mattpocock/skills](https://github.com/mattpocock/skills) the way its README says, in the
+same `CLAUDE_CONFIG_DIR`: the sessions call its `/implement`.
+
+Then, in each project: `/setup-matt-pocock-skills`, `/afk-setup`, and `~/afk/afk.sh` from
+the project's root.
+
 ## Workflow
 
 **Once per project**, never again:
@@ -206,12 +223,8 @@ that does not exist yet.
 
 The `/afk-setup` skill (in [`skills/afk-setup/`](skills/afk-setup/SKILL.md)) reads the
 repo — scripts, CI workflows, `CLAUDE.md` —, proves the proposed command then writes that
-file. Once per project, after `/setup-matt-pocock-skills` and before the first run. To
-install it:
-
-```bash
-ln -s "$PWD/skills/afk-setup" ~/.claude/skills/afk-setup   # or your CLAUDE_CONFIG_DIR
-```
+file. Once per project, after `/setup-matt-pocock-skills` and before the first run
+(installed with the others, see [Install](#install)).
 
 ## The run's two skills
 
@@ -237,11 +250,6 @@ batch anything needing a judgement on the criteria.
 non-green by cause: wrong gate, badly seeded worktree, ticket too big, real failure. It can
 tell a red caused by the ticket from a red caused by the environment, and proposes what to
 put back to `ready-for-agent` for the next night.
-
-```bash
-ln -s "$PWD/skills/afk-preflight" ~/.claude/skills/afk-preflight
-ln -s "$PWD/skills/afk-debrief"   ~/.claude/skills/afk-debrief
-```
 
 ### The decision journal
 
