@@ -135,7 +135,8 @@ Read from it: the waves, the bases, the freezes, the effective gate per ticket. 
 `Blocked by`.
 
 If a `Verify:` line does not show up in the `-n` where the ticket writes one, it was
-refused by the validation pattern: it ends in `:`, or in a backtick.
+refused by the validation pattern: it ends in `:`, or still holds a backtick (prose
+quoting commands rather than a command).
 
 The rest of the content traps are in `/afk-preflight` — **read it rather than redo it**,
 it is the same work on tickets coming from elsewhere.

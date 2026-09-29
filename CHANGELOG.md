@@ -10,6 +10,19 @@ code concerned; the verdict on proposed ideas is in
 
 ### Changed
 
+- **The decision journal no longer depends on any skill**: the prompt stopped pointing at
+  `/show-me-your-work`, which `~/.claude-pro` and `~/.claude-perso` do not have. Its whole
+  contract was already in the prompt.
+- **`afk-app.sh`'s sessions get the same `--fallback-model` as `afk.sh`'s** (default
+  `sonnet`, `FALLBACK_MODEL` from the environment): a model outage no longer ends the
+  whole loop at `/afk-wave`.
+- **`/afk-spec` commits the new files**: `git commit -am` skipped them, so `docs/spec.md`
+  was missing from the `afk-spec` tag and the guard failed from the first wave. The
+  `BASE_BRANCH=dev` line now goes into `.afk.env` before that commit.
+- **`/afk-merge` no longer claims the continue/stop decision**: `afk-app.sh` makes it by
+  counting; the report names the case and no longer tells the session to run
+  `/afk-wave`. It no longer calls `sget` either, which a session cannot run.
+
 - **The prompt names the plugin's skills in full** (#3): `mattpocock-skills:tdd` and
   `mattpocock-skills:code-review`. Over 173 afk sessions, `tdd` ran 0 times and the review
   was Claude Code's built-in one twice out of three. The review now comes after the commit,

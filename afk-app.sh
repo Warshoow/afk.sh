@@ -62,10 +62,13 @@ ready_n() { gh issue list --state open --label ready-for-agent --limit 200 --jso
 # A steering session. Short by nature — it reads, it opens tickets or it merges. The
 # timeout is not there to rein it in but so that a mute session does not eat the night
 # of the waves that follow.
+# Same fallback as afk.sh's sessions, for the same reason: nobody is awake, and a
+# transient model outage would otherwise end the whole loop at the first pilot.
 pilot() {
   local skill="$1" out="$2" rc sub
   timeout 45m claude -p "/$skill" \
-    --permission-mode bypassPermissions --output-format json > "$out" 2>&1
+    --permission-mode bypassPermissions --output-format json \
+    --fallback-model "${FALLBACK_MODEL:-sonnet}" > "$out" 2>&1
   rc=$?
   sub=$(jval subtype < "$out")
   (( rc == 124 )) && { echo "  ✗ /$skill cut at the timeout"; return 1; }

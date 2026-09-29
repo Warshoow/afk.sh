@@ -40,7 +40,7 @@ A ticket lands if **all three** are true:
 | | where it is written |
 |---|---|
 | `GREEN` in the summary (not `OK` — `OK` contains the unproven greens) | `.afk/summary.md` |
-| the PR is not a draft | `sget <n> draft` |
+| the PR is not a draft | `grep '^draft=' .afk/<n>.status \| tail -1` |
 | the PR's CI is green | `gh pr checks <n>` |
 
 An `unproven green` (local gate shrunk **and** CI inconclusive) does not land: nobody ran
@@ -126,18 +126,18 @@ gh api -X PATCH repos/{owner}/{repo}/milestones/<id> -f state=closed
 
 ## 7 — Deciding
 
-Three stops. **There have to be three, otherwise the loop runs for nothing:**
+`afk-app.sh` decides, by counting the boxes and the open tickets — never from this
+report. The report says which case holds, so the morning reads the same verdict:
 
 | | what you say |
 |---|---|
 | every criterion checked | done — `dev` is ready to be merged into `master`, by a human |
-| budget exhausted (the ceiling given at launch) | what the spend bought: criteria checked / total, and the milestone in progress |
 | **two waves in a row without a single criterion being checked** | the loop is not moving. Name the criterion that blocks and what `/afk-debrief` says about it |
 
-Those three only. "The wave went badly" is not a stop: one red wave in three is the
-normal regime, and the next one re-slices smaller.
+"The wave went badly" is not a stop: one red wave in three is the normal regime, and the
+next one re-slices smaller.
 
-In every other case: `/afk-wave`, then one more run.
+In every other case the report says `Next: /afk-wave`. Do not run it: the loop does.
 
 ## 8 — Reporting
 

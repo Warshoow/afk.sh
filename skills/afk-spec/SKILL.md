@@ -68,9 +68,8 @@ otherwise?** No answer → it is not a criterion, it is a wish. Rewrite it or dr
 | "errors are handled" | `POST /tasks` without a title returns 400 and an `{error}` body |
 
 What no command judges — a layout, an animation, a tone — **does not go in the spec**. It
-gets handled later, ticket by ticket, with a `Gauntlet: <reference>` line once you have a
-reference to aim at. A taste criterion in the spec blocks the loop forever or gets
-checked off blind.
+gets handled later, by hand, outside the loop. A taste criterion in the spec blocks the
+loop forever or gets checked off blind.
 
 The first criterion is always the same: **A0 — the app starts**, with the command that
 proves it. It is the one that catches "every ticket is green and nothing runs".
@@ -126,10 +125,10 @@ Then a CI that runs the same gate as `VERIFY_CMD` — it is what will verify the
 ## 7 — Setting the markers
 
 ```bash
-git commit -am "chore: spec, skeleton and gate"
+echo 'BASE_BRANCH="${BASE_BRANCH:-dev}"   # the loop lands on dev, never on master' >> .afk.env
+git add -A && git commit -m "chore: spec, skeleton and gate"   # -a would skip the new files
 git tag afk-spec                     # the spec's reference version
 git branch dev && git push -u origin dev
-echo 'BASE_BRANCH="${BASE_BRANCH:-dev}"   # the loop lands on dev, never on master' >> .afk.env
 ```
 
 `BASE_BRANCH=dev` is not optional: without it the worktrees start from `master` and the

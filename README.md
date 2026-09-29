@@ -130,7 +130,7 @@ and you read it back on waking up.
 | `CI_RETRY_WAIT` | `10` | seconds before retrying a "not registered yet" CI |
 | `MODEL` | empty | the sessions' model; empty = `claude`'s default, overridable per ticket |
 | `EFFORT` | empty | thinking level (`low`…`max`); empty = the default, overridable per ticket |
-| `FALLBACK_MODEL` | `sonnet` | fallback model when the main one is unavailable; empty = no fallback |
+| `FALLBACK_MODEL` | `sonnet` | fallback model when the main one is unavailable; always on, the variable only picks the model |
 | `INTEGRATION` | `1` | integration pass over the green branches at the end of the run; `0` = skip |
 | `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | read from `docs/agents/triage-labels.md` | |
 | `MEMORY_RE` | root + `apps/*` + `packages/*` | paths that count as "decision captured" |

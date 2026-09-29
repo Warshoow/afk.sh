@@ -46,7 +46,7 @@ has CI, only CI ran the repo's complete gate; without CI, nobody ran it.
 
 ## 3 — Sort each non-green
 
-For each ticket that is not green, `sget` left the cause in `.afk/<n>.status`
+For each ticket that is not green, the worker left the cause in `.afk/<n>.status`
 (`reason=`), and the detail is in a specific file:
 
 ```bash
@@ -57,7 +57,7 @@ cat .afk/<n>.out             # the orchestrator's trace for this ticket
 | Result / `reason` | Where it is written | Likely cause | What to do |
 |---|---|---|---|
 | `ko` / `setup` | `<n>-setup.log` | the install failed **in the worktree**: no lockfile at the root, an indispensable gitignored file not seeded | fix `SETUP_CMD` or `SEED_GLOBS` in `.afk.env`, then relaunch the ticket |
-| `ko` / `verify` | `<n>-fail.txt` (last failure kept) | to be decided: wrong gate or real failure — see step 4 | depending on the verdict |
+| `ko` / `verify` | `<n>-fail.txt` (last failure kept) | to be decided: wrong gate or real failure — see step 5 | depending on the verdict |
 | `ko` / `pr` | `<n>.out` | a PR is already open on this branch | close the PR, or close the ticket |
 | `ko`, no commit | `<n>-verify.txt` | the agent produced nothing **and** the base was red: the repo was already broken before it | fix the base first, the whole batch depends on it |
 | `draft` / `cut` | the PR itself | the `timeout` fired: the session may have been cut **in the middle of a file** | reread it in full before leaving draft, and see whether the ticket deserves a `Timeout:` line |
@@ -69,7 +69,38 @@ cat .afk/<n>.out             # the orchestrator's trace for this ticket
 | `absorbed` | the comment left on the issue | nothing to do, the base was already green: a predecessor had delivered its content | check then close the ticket |
 | `/ CI red` | `<n>-ci.txt` | the local gate was green, the repo's CI was not: the local gate is narrower than CI | widen `VERIFY_CMD`, or the ticket's `Verify:` line |
 
-## 4 — Wrong gate or real failure
+## 4 — Read the journal, then ask the session
+
+Each session keeps a decision journal, appended as it goes, at `.afk/<n>-work.tsv`:
+six tab-separated columns — `ts`, `phase`, `decision`, `why`, `evidence`, `result`.
+`afk.sh` asks every ticket for it, and `build_prompt` holds the contract.
+
+```bash
+column -t -s $'\t' .afk/<n>-work.tsv          # one red
+grep -H . .afk/*-work.tsv | head -40          # the whole run at a glance
+```
+
+Read it **before** judging a red: it holds what no trace contains and what the diff
+cannot show — the hypothesis taken because nobody was there to decide, the option ruled
+out and what ruled it out, the red gate and what the session concluded from it, the
+premise that turned out false, anything done outside the ticket's scope. A `result` of
+`ko` or `abandoned` on a line whose `evidence` says `none` is the signature of a
+session that guessed.
+
+No file → the session never wrote one. Note it as an afk defect (step 7) if it happens
+across a whole run: the instruction is in the prompt, so it is the prompt that failed.
+
+Only then, and only if the journal is silent on the point you need, get back into the
+session that produced the red — the summary gives what it takes:
+
+```bash
+(cd .afk/wt/<n> && claude --resume <id>)
+```
+
+Useful when the failure is a design choice, useless when the environment was broken — in
+that case the answer is in `.afk.env`.
+
+## 5 — Wrong gate or real failure
 
 A `ko / verify` does not yet say whose fault it is. The red ticket's worktree is
 **kept**, dependencies installed:
@@ -94,38 +125,6 @@ says which one.
 
 Do not reset the worktree onto the base to decide: that destroys the state of the
 failure, which is exactly what you came to read.
-
-## 5 — Read the journal, then ask the session
-
-Each session keeps a decision journal, appended as it goes, at `.afk/<n>-work.tsv`:
-six tab-separated columns — `ts`, `phase`, `decision`, `why`, `evidence`, `result`.
-`afk.sh` asks every ticket for it (`build_prompt`), and `/show-me-your-work` holds the
-contract.
-
-```bash
-column -t -s $'\t' .afk/<n>-work.tsv          # one red
-grep -H . .afk/*-work.tsv | head -40          # the whole run at a glance
-```
-
-Read it **before** step 4's verdict: it holds what no trace contains and what the diff
-cannot show — the hypothesis taken because nobody was there to decide, the option ruled
-out and what ruled it out, the red gate and what the session concluded from it, the
-premise that turned out false, anything done outside the ticket's scope. A `result` of
-`ko` or `abandoned` on a line whose `evidence` says `none` is the signature of a
-session that guessed.
-
-No file → the session never wrote one. Note it as an afk defect (step 7) if it happens
-across a whole run: the instruction is in the prompt, so it is the prompt that failed.
-
-Only then, and only if the journal is silent on the point you need, get back into the
-session that produced the red — the summary gives what it takes:
-
-```bash
-(cd .afk/wt/<n> && claude --resume <id>)
-```
-
-Useful when the failure is a design choice, useless when the environment was broken — in
-that case the answer is in `.afk.env`.
 
 ## 6 — Decide, then propose
 

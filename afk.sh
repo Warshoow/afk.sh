@@ -263,8 +263,8 @@ EFFORT="${EFFORT:-}"
 # errors the session out, the ticket burns both attempts in a few seconds and goes to
 # ready-for-human — for a reason that has nothing to do with it, and the whole queue
 # follows. --fallback-model only works with --print, so exactly here. The fallback is
-# visible: the summary gives the model that actually ran, ticket by ticket. Empty = no
-# fallback.
+# visible: the summary gives the model that actually ran, ticket by ticket. Always on:
+# the variable only picks which model.
 FALLBACK_MODEL="${FALLBACK_MODEL:-sonnet}"
 
 # A blocker delivered by hand — PR open, not merged yet — is neither "in the run" nor
@@ -490,7 +490,7 @@ Fresh session, no history.
 - You also keep a decision journal at ${AFK_DIR}/${ticket}-work.tsv — that path is
   ABSOLUTE and outside your worktree, use it as written: a journal written to a
   relative .afk/ lands in your worktree, gets committed with your work, and the
-  debrief that exists to read it never sees it (defect 47). Appended as you go,
+  debrief that exists to read it never sees it. Appended as you go,
   tab-separated, six columns: ts, phase, decision, why, evidence, result (write
   that header line first if the file does not exist). One line per decision the diff
   cannot show: a hypothesis taken because nobody was there to decide, an option ruled
@@ -500,7 +500,7 @@ Fresh session, no history.
   above keep the PROJECT's durable decisions; this file keeps what happened during
   THIS run, and it is what /afk-debrief reads instead of rebuilding it from the
   traces. Never rewrite a past line: a decision you went back on is a NEW line whose
-  result says so. The `/show-me-your-work` skill holds the full contract.
+  result says so.
 - The skills /implement names are the mattpocock plugin's: call them by their full
   names, mattpocock-skills:tdd and mattpocock-skills:code-review. The bare names
   resolve to another skill or to nothing, and the step gets skipped without a word.

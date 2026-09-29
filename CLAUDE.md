@@ -161,9 +161,10 @@ It also asks the session for a decision journal at `$AFK_DIR/<ticket>-work.tsv`.
 the **only** thing the prompt asks for that neither the gate nor the diff can check, so
 nothing enforces it: a missing journal is an afk defect to record, not a red. It exists
 because `/afk-debrief` was rebuilding the session's reasoning from the traces, which do
-not contain it — the alternative was `claude --resume` on every red. Its contract (six
-columns, append only, what deserves a line) lives in the `/show-me-your-work` skill, not
-here: `afk.sh` names the path and the columns, and nothing more.
+not contain it — the alternative was `claude --resume` on every red. Its whole contract
+(path, columns, what deserves a line, append only) lives in `build_prompt`, and nowhere
+else: no skill is needed, so a config dir without one (`CLAUDE_CONFIG_DIR`) still gets
+a journal.
 
 ### Deliberate duplication
 
@@ -226,7 +227,7 @@ Written by the sessions, not by the script:
 
 - `.afk/<ticket>-work.tsv` — the ticket's decision journal, appended by the session as it
   goes, six tab-separated columns (`ts`, `phase`, `decision`, `why`, `evidence`,
-  `result`). Asked for by `build_prompt`, read by `/afk-debrief` at step 5. Gitignored
+  `result`). Asked for by `build_prompt`, read by `/afk-debrief` at step 4. Gitignored
   with the rest of `.afk/`, and overwritten by the next run on the same ticket like every
   other file there — a journal worth keeping gets copied out before relaunching.
 
