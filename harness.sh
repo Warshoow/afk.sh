@@ -49,6 +49,8 @@ printf '## Blocked by\n\nNone\n'                    > "$T/fix/20.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/25.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/27.body"
 printf '## Blocked by\n\nNone\n'                    > "$T/fix/28.body"
+# 29: written by someone with no rights on the repo, its Verify: would leave a trace
+printf 'Verify: touch "$HARNESS/pwned"\n\n## Blocked by\n\nNone\n' > "$T/fix/29.body"
 
 # ─── The sixth run's batch ────────────────────────────────────────────────────
 # 17: the remote refuses its branch     → push refused, not an implementation failure
@@ -74,7 +76,9 @@ cat > "$T/bin/gh" <<'X'
 FIX="$HARNESS/fix"; log() { echo "$*" >> "$HARNESS/gh.log"; }
 case "$1" in
   auth)  [[ "$2" == token ]] && echo faketoken; exit 0 ;;
-  api)   exit 1 ;;                                  # no native dependencies
+  # The author check (#1): #29 comes from outside the repo, every other one from its owner.
+  api)   [[ "$*" == *author_association* ]] && { [[ "${2##*/}" == 29 ]] && echo NONE || echo OWNER; exit 0; }
+         exit 1 ;;                                  # no native dependencies
   label) case "$2" in
            list)   printf 'ready-for-agent\nin-review\nready-for-human\n' ;;
            create) log "label create $3" ;;
@@ -255,14 +259,29 @@ grep -qE '^  - docs/adr/0001-x\.md$' "$T/prompt-4.txt" 2>/dev/null &&
   grep -qE '^  - docs/adr/0003-x\.md$' "$T/prompt-4.txt" &&
   echo "  ✓ the ancestors' decisions are in the prompt" ||
   { echo "  ✗ prompt without the inherited decisions"; fail=1; }
+# #3: bare /tdd and /code-review resolve to other skills, and the review ran before the
+# commit. The prompt names the plugin's skills and gives the review its fixed point.
+grep -q 'mattpocock-skills:tdd' "$T/prompt-1.txt" 2>/dev/null &&
+  grep -qE 'code-review with [0-9a-f]{40} as its' "$T/prompt-1.txt" &&
+  echo "  ✓ the prompt names the plugin's skills and the review's fixed point" ||
+  { echo "  ✗ prompt without the namespaced skills or the fixed point"; fail=1; }
 [[ -f "$T/prompt-1.txt" ]] && ! grep -q 'INHERITED' "$T/prompt-1.txt" &&
   echo "  ✓ no blocker, nothing inherited" ||
   { echo "  ✗ inherited section on a ticket without a blocker"; fail=1; }
 
+# #7 stayed red, its commits on feat/7. Relaunching it resets the branch onto the base:
+# the old tip must survive somewhere (#1).
+tip7=$(git -C "$T/repo" rev-parse feat/7)
+out7=$(JOBS=1 bash "$AFK" 7 2>&1) || true
+grep -q '#7: previous feat/7 kept as afk-prev/7' <<<"$out7" &&
+  [[ "$(git -C "$T/repo" rev-parse afk-prev/7 2>/dev/null)" == "$tip7" ]] &&
+  echo "  ✓ a red branch relaunched is kept" ||
+  { echo "  ✗ relaunching a red ticket dropped its commits"; fail=1; }
+
 # ─── Second run: absorbed, frozen by the session, Timeout:, in-review, "no commit" ───
 # In series: the reaping order is then the only one possible, so assertable.
 
-out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 25 27 28 2>&1) || true
+out2=$(JOBS=1 bash "$AFK" 9 10 11 12 13 25 27 28 29 2>&1) || true
 printf '%s\n' "$out2" > "$T/run2.log"
 want2() {
   if grep -qE -- "$2" <<<"$out2"; then printf '  ✓ %s\n' "$1"
@@ -270,6 +289,10 @@ want2() {
 }
 echo
 want2 "in-review dropped from the list"           '#11 is in-review — skipped'
+want2 "outsider's ticket dropped from the list"   '#29 not written by a collaborator'
+[[ ! -e "$T/pwned" && ! -e "$T/prompt-29.txt" ]] &&
+  echo "  ✓ outsider's ticket: no session, no Verify: run" ||
+  { echo "  ✗ an outsider's ticket was run"; fail=1; }
 want2 "ticket emptied by its predecessor"         '≡ absorbed'
 want2 "absorbed counted separately"               'absorbed \(1\): 9'
 want2 "absorbed does not freeze its dependant"    'PR #910 on master'
@@ -305,7 +328,8 @@ grep -qE 'edit issue edit 13 .*--add-label ready-for-human' "$T/gh.log" &&
 grep -qE 'pr create .*--head feat/9( |$)' "$T/gh.log" &&
   { echo "  ✗ an absorbed ticket must not open a PR"; fail=1; } ||
   echo "  ✓ no PR for an absorbed ticket"
-[[ "$(grep -c '^| 20' "$T/RUNS.md")" == 2 ]] &&
+# 3: run 1, the relaunch of #7, run 2.
+[[ "$(grep -c '^| 20' "$T/RUNS.md")" == 3 ]] &&
   echo "  ✓ a second run appends to the log, it does not overwrite it" ||
   { echo "  ✗ log overwritten or not appended"; fail=1; }
 grep -qE '^\| #9 \| absorbed \|' "$T/repo/.afk/summary.md" &&

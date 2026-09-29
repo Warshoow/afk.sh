@@ -151,6 +151,12 @@ otherwise every session looks mute.
 agent's work, which it has nothing to learn from. The harness's fake `claude` copies its
 prompt into `$T/prompt-<n>.txt`: the prompt is testable like the rest.
 
+It names the plugin's skills in full (`mattpocock-skills:tdd`,
+`mattpocock-skills:code-review`): `/implement` says `/tdd` and `/code-review`, and the bare
+names resolved to Claude Code's built-in review or to nothing — 173 sessions, `tdd` called
+0 times (#3). It also makes the ticket the written confirmation of the seams `/tdd` wants
+agreed (#4), and puts the review after the commit, with `head0` as its fixed point.
+
 It also asks the session for a decision journal at `$AFK_DIR/<ticket>-work.tsv`. This is
 the **only** thing the prompt asks for that neither the gate nor the diff can check, so
 nothing enforces it: a missing journal is an afk defect to record, not a red. It exists
@@ -180,9 +186,10 @@ into the final `exit 0` and returns an empty string, which shows up very far fro
 Same for a new agent behaviour: it is simulated by a case in the fake `claude`, keyed on the
 ticket number extracted from the prompt.
 
-The harness's eight runs are independent and ordered: parallel (diamond DAG, safety net,
-crash, freeze), series (absorbed, frozen by its own session, refused before and after its
-first edit, `Timeout:`, in-review),
+The harness's runs are independent and ordered: parallel (diamond DAG, safety net,
+crash, freeze), the red #7 relaunched alone (its old tip kept), series (absorbed, frozen by
+its own session, refused before and after its first edit, `Timeout:`, in-review, an
+outsider's ticket),
 interruption, stacking on a PR open outside the run (plus the same batch replayed in `-n`,
 which must say the same thing), two independent direct blockers (base + absorption, double
 inheritance), push refused by the remote + the same path created twice + a stale reference +

@@ -15,6 +15,27 @@ Format: title, verdict, reasoning. Verdicts used: **accepted**, **already done**
 
 ---
 
+## `--force-with-lease` on the worker's push — refused
+
+*2026-09-29*
+
+Proposed in #1: a ticket already pushed once comes out `reason=push` on its next run.
+It does, and that is the safe outcome. A remote `feat/<n>` exists only if a previous run
+opened a PR from it; overwriting it unattended rewrites a branch someone may be reviewing.
+The push failure keeps the worktree and says why (`<n>-push.txt`): a human decides.
+
+## A `Seams:` section in the ticket, drafted by `/afk-preflight` — refused
+
+*2026-09-29*
+
+Proposed in #4, from mattpocock/skills#1091: `/tdd` tests only at seams confirmed
+beforehand, nobody confirms them in a run, so a staging step would write them per ticket.
+The acceptance criteria already are that confirmation, written and read before the run:
+`build_prompt` says so, and the session writes the seams it takes in its journal, where
+`/afk-debrief` reads them. A second list next to the criteria is one more thing to keep in
+agreement. A ticket without a testable seam still runs; the journal line says so.
+
+
 ## Judgement around the run, not inside it — accepted
 
 *2026-09-03*

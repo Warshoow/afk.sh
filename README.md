@@ -97,6 +97,8 @@ To build a whole app from an idea, wave after wave: `/afk-spec` once, then `./af
 - A `.afk.env` at the root, written by `/afk-setup` (see [Per-project config](#per-project-config)).
   Without it, the verification gate stays a pnpm monorepo's — wrong everywhere else.
 - `claude`, `gh`, `git`, `timeout` in the PATH. Clean working tree.
+- GNU/Linux, or bash ≥ 4 with GNU coreutils: associative arrays, `nproc`, `timeout`,
+  `flock`. macOS's bash 3.2 does not start the script.
 - `gh auth login` done: the token is also used to push, without a passphrase.
 - The mattpocock skills installed in the `CLAUDE_CONFIG_DIR` the script uses
   (default `~/.claude`) — otherwise `/implement` does not exist in the headless session.
@@ -114,8 +116,8 @@ CI_TIMEOUT=0 ./afk.sh         # do not wait for CI
 ./harness.sh                  # tests the orchestrator (claude and gh stubbed)
 ```
 
-No human interaction by default: no passphrase (see below), no pause
-(`CHECKPOINT_EVERY=0`), no permission prompt. `nohup ./afk.sh -j 3 &`
+No human interaction by default: no passphrase (see below), no pause, no permission
+prompt. `nohup ./afk.sh -j 3 &`
 and you read it back on waking up.
 
 | Env | Default | |
@@ -139,7 +141,6 @@ and you read it back on waking up.
 | `SEED_GLOBS` | `.env`, `apps/*/.env`, … | gitignored files copied into each worktree |
 | `KEEP_WORKTREES` | `0` | keep the green worktrees too (the red ones always are) |
 | `AFK_HOME` | the script's folder | where `RUNS.md` is written — redirect it if afk's repo is mounted read-only |
-| `CHECKPOINT_EVERY` | `0` | pause to review the PRs; `0` = never |
 | `STACK_ON_OPEN_PR` | `1` | stack on an out-of-run blocker with an open PR, instead of freezing |
 | `ALLOW_REVIEW` | `0` | relaunch a ticket already `in-review` (it already has an open PR) |
 
@@ -163,6 +164,10 @@ hence the `${VAR:-...}`. Only put in what differs.
 
 It is shell from the repo, executed as-is — the same trust surface as a ticket's
 `Verify:` lines.
+
+Several Claude accounts on the machine? Put the repo's in it —
+`CLAUDE_CONFIG_DIR="$HOME/.claude-pro"` — it wins over whatever the shell exports. The
+run prints the one it uses (`· Claude account: …`) before anything else.
 
 ### The integration gate separates from the tickets'
 
@@ -334,7 +339,8 @@ your tree, `-n` tells you before launching anything.
    then waiting for CI. **Red** → `ready-for-human` + a comment with the failure output.
    `/triage`'s state machine keeps turning while you sleep.
 6. **Worktree dropped** if green, **kept** if red: that is where we go to read what
-   happened, with the `node_modules` already in place.
+   happened, with the `node_modules` already in place. Relaunching the ticket starts
+   `feat/<n>` over from the base; its previous commits stay on `afk-prev/<n>`.
 7. **CI** at the end of the run, every PR watched in parallel (waiting in the worker would
    tie up a slot for polling).
 8. **Integration** at the end of the run: every green branch merged into a throwaway
@@ -410,7 +416,9 @@ Verify: pnpm turbo typecheck --filter=@acme/backend
 
 The script reads it and uses it instead of `VERIFY_CMD` — for that ticket only.
 The line is executed as-is: tickets are part of the trust surface, just like the session's
-`bypassPermissions`.
+`bypassPermissions`. So a ticket whose author is not the repo's owner, a member or a
+collaborator is skipped at planning time. The comments are not filtered: on a public
+repo, anyone can write in them, and the session reads them — run it in a container.
 
 Two forms are accepted, the bare one above and the command in `code`. When the value
 **starts** with a backtick span, only that span is the gate — what follows is a note for

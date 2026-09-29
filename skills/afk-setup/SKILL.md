@@ -92,6 +92,7 @@ Only put in what differs from the default.
 | `MEMORY_RE` | root + `apps/*` + `packages/*` | ADR/CONTEXT conventions filed differently |
 | `TIMEOUT` | `45m` | repo where tickets are systematically heavier |
 | `JOBS` | `1` | never here — it is a run decision, not a project one |
+| `CLAUDE_CONFIG_DIR` | the first config dir holding the mattpocock plugin | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |
 
 `BASE_BRANCH` is deduced from the remote: do not touch it without a reason.
 

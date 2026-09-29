@@ -6,6 +6,28 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-09-29
+
+### Changed
+
+- **The prompt names the plugin's skills in full** (#3): `mattpocock-skills:tdd` and
+  `mattpocock-skills:code-review`. Over 173 afk sessions, `tdd` ran 0 times and the review
+  was Claude Code's built-in one twice out of three. The review now comes after the commit,
+  with the pre-session HEAD as its fixed point.
+- **The ticket is the confirmation of the seams** `/tdd` wants agreed (#4): the public
+  interfaces its criteria name. The session writes them in its journal before the first
+  test; no test possible is a journal line, not a silent skip.
+- **A ticket not written by the owner, a member or a collaborator is skipped** (#1): its
+  body reaches a `bypassPermissions` session and its `Verify:` line runs as-is.
+- **Relaunching a red ticket keeps its old branch** as `afk-prev/<n>` (#1) instead of
+  dropping its commits.
+- **The run prints the Claude account it uses** (`· Claude account: …`), and
+  `CLAUDE_CONFIG_DIR` is documented as a `.afk.env` key (#2).
+
+### Removed
+
+- `CHECKPOINT_EVERY`: defined and documented, never read.
+
 ## 2026-09-23
 
 ### Changed

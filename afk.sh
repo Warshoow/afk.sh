@@ -242,6 +242,10 @@ if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
   done
 fi
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# The account the sessions log in and bill on. Two accounts, one `export` left in a
+# .bashrc: a work repo ran on the personal one and nothing said so (#2). The fix is a
+# CLAUDE_CONFIG_DIR line in the project's .afk.env; this line is how you notice.
+echo "· Claude account: $CLAUDE_CONFIG_DIR"
 
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 attempt + 1 retry, in a fresh session
 TIMEOUT="${TIMEOUT:-45m}"                # guard rail: bounds a run (no --max-turns in 2.1.x)
@@ -249,7 +253,6 @@ TIMEOUT="${TIMEOUT:-45m}"                # guard rail: bounds a run (no --max-tu
 CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # how long we wait for CI; 0 = do not consult it
 CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # seconds before retrying a "no checks" (see ci_phase)
 INTEGRATION="${INTEGRATION:-1}"          # integration pass over the green branches at the end
-CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-0}"  # 0 = never pause. This is an unattended tool.
 
 # The sessions' model and thinking level. Empty = claude(1)'s defaults.
 # Overridable per ticket: "Model:" and "Effort:" lines of the body.
@@ -498,6 +501,19 @@ Fresh session, no history.
   THIS run, and it is what /afk-debrief reads instead of rebuilding it from the
   traces. Never rewrite a past line: a decision you went back on is a NEW line whose
   result says so. The `/show-me-your-work` skill holds the full contract.
+- The skills /implement names are the mattpocock plugin's: call them by their full
+  names, mattpocock-skills:tdd and mattpocock-skills:code-review. The bare names
+  resolve to another skill or to nothing, and the step gets skipped without a word.
+- Nobody is here to confirm the seams mattpocock-skills:tdd asks for: this ticket is
+  the written confirmation. The seams are the public interfaces its acceptance
+  criteria name. Write them in the journal (phase "seams") before the first test. A
+  criterion no test can reach at such an interface gets a journal line saying so —
+  not a test against internals, and not silence.
+- Commit first, review after: mattpocock-skills:code-review with ${inherited} as its
+  fixed point. It diffs committed work — run before the commit, it sees nothing.
+  Commit what the review makes you fix.
+- A step you cannot run (a skill missing, no test possible): a journal line saying
+  so, never a silent skip.
 - You commit on the current branch, already created. You do not push, you do not open
   a PR, you do not touch the labels: that is the orchestrator's job.
 - If you commit NOTHING, your last line says which of the two cases it is, verbatim:
@@ -563,6 +579,16 @@ plan_run() {
     printf '%s' "$body"          > "$AFK_DIR/$t.body"
     printf '%s' "${TITLE[$t]}"   > "$AFK_DIR/$t.title"
     gh issue view "$t" --json labels -q '.labels[].name' 2>/dev/null | tr '\n' ' ' > "$AFK_DIR/$t.labels"
+
+    # The body goes to a bypassPermissions session and its Verify: line is run as-is:
+    # on a public repo, anyone with a GitHub account could write both, and edit them
+    # after the label went on. A ticket whose author has no rights on the repo is not
+    # run at all — stripping only Verify: would leave the prompt open (#1).
+    case "$(gh api "repos/{owner}/{repo}/issues/$t" --jq .author_association 2>/dev/null)" in
+      OWNER|MEMBER|COLLABORATOR) ;;
+      *) echo "  ⏭  #${t} not written by a collaborator of the repo — skipped"
+         DROPPED+=("$t"); continue ;;
+    esac
 
     VERIFY[$t]=$(meta_line Verify "$RE_VERIFY" <<<"$body"); VERIFY[$t]="${VERIFY[$t]:-$VERIFY_CMD}"
     printf '%s' "${VERIFY[$t]}"  > "$AFK_DIR/$t.verify"
@@ -635,6 +661,13 @@ make_worktree() {   # ticket, base, branches to absorb… → path on stdout
   git worktree remove --force "$wt" 2>/dev/null
   git worktree prune
   rm -rf "$wt"
+  # -B resets the branch onto the base. A red ticket's branch is kept on purpose, to be
+  # read: relaunching the ticket used to drop its commits without a word (#1).
+  if git rev-parse -q --verify "refs/heads/$branch" >/dev/null &&
+     ! git merge-base --is-ancestor "$branch" "$base"; then
+    git branch -f "afk-prev/$ticket" "$branch"
+    echo "  · #${ticket}: previous $branch kept as afk-prev/$ticket" >&2
+  fi
   git worktree add -q -B "$branch" "$wt" "$base" 2>"$AFK_DIR/$ticket-wt.err" || return 1
   for extra in "$@"; do
     # `-q` does NOT silence the merge engine's "Auto-merging <file>", and they go to
