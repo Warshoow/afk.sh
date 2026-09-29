@@ -1,6 +1,7 @@
 ---
 name: afk-preflight
-description: "Rereads the batch of ready-for-agent tickets just before an afk run, and fixes what would cost the night — a freeze from an out-of-run blocker, criteria no gate can check, a ticket too big for its time budget. It also re-slices the batch: cut a ticket that does not fit in one session, serialise two tickets writing into the same files, hand out the numbers (ADR, migration) before the run. Run between /triage and ./afk.sh, on already published tickets whatever their origin. Called `/afk-preflight apply` (afk-app.sh's loop only), it applies the mechanical fixes itself instead of proposing them. Triggers: /afk-preflight, \"are my tickets ready for afk?\", \"reread the batch before launching\", \"re-slice the batch for afk\", \"why would this ticket be frozen?\"."
+description: "Rereads and re-slices the ready-for-agent batch before an afk run: freezes, uncheckable criteria, oversized or colliding tickets. `apply` (afk-app.sh only) applies the mechanical fixes itself."
+disable-model-invocation: true
 ---
 
 # /afk-preflight

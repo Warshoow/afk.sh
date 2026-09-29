@@ -1,6 +1,6 @@
 ---
 name: afk-setup
-description: "Configures afk.sh on a project — writes the .afk.env that defines what \"done\" means here (verification gate, dependency install). Run once per repo, after /mattpocock-skills:setup-matt-pocock-skills and before the first ./afk.sh. Triggers: /afk-setup, \"configure afk here\", \"prepare this project for afk\", \"write the .afk.env\"."
+description: "Configures afk.sh on a project — writes the .afk.env that defines what \"done\" means here (verification gate, dependency install). Run once per repo, after /mattpocock-skills:setup-matt-pocock-skills and before the first ./afk.sh. Triggers: /afk-setup, \"configure afk here\"."
 ---
 
 # /afk-setup
@@ -82,17 +82,18 @@ Then say it should be committed, **do not commit yourself**.
 
 ## Variables
 
-Only put in what differs from the default.
+Only put in what differs from the default. The defaults are in the table of the
+README's "Usage" section, next to `afk.sh`: read them there, not from memory.
 
-| | default | when to override it |
-|---|---|---|
-| `VERIFY_CMD` | `pnpm typecheck && pnpm test && pnpm lint` | **almost always** — it is the whole point of the file |
-| `SETUP_CMD` | deduced from the root lockfile (pnpm/npm/yarn) | no root lockfile, or non-JS dependencies |
-| `SEED_GLOBS` | `.env`, `apps/*/.env`, `packages/*/.env` | indispensable gitignored files elsewhere |
-| `MEMORY_RE` | root + `apps/*` + `packages/*` | ADR/CONTEXT conventions filed differently |
-| `TIMEOUT` | `45m` | repo where tickets are systematically heavier |
-| `JOBS` | `1` | never here — it is a run decision, not a project one |
-| `CLAUDE_CONFIG_DIR` | the first config dir holding the mattpocock plugin | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |
+| | when to override it |
+|---|---|
+| `VERIFY_CMD` | **almost always** — it is the whole point of the file |
+| `SETUP_CMD` | no root lockfile, or non-JS dependencies |
+| `SEED_GLOBS` | indispensable gitignored files elsewhere |
+| `MEMORY_RE` | ADR/CONTEXT conventions filed differently |
+| `TIMEOUT` | repo where tickets are systematically heavier |
+| `JOBS` | never here — it is a run decision, not a project one |
+| `CLAUDE_CONFIG_DIR` | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |
 
 `BASE_BRANCH` is deduced from the remote: do not touch it without a reason.
 

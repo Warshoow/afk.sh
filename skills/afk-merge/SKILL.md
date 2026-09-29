@@ -1,6 +1,7 @@
 ---
 name: afk-merge
-description: "Lands an afk wave on dev — merges the green PRs in base order, checks off in docs/spec.md the criteria whose command really passes, takes the reds out, and says whether the loop continues or stops. Runs after each run, with nobody watching. Triggers: /afk-merge, \"land the wave\", \"merge what is green\", \"do we continue?\"."
+description: "Lands an afk wave on dev: merges the green PRs in base order, checks off the criteria whose command passes, takes the reds out. Run by afk-app.sh after each run."
+disable-model-invocation: true
 ---
 
 # /afk-merge

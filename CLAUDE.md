@@ -22,11 +22,17 @@ guard below, rewriting an acceptance criterion; such a ticket leaves the batch i
 
 **Building an app autonomously** — `afk-spec` (idea → `docs/spec.md` + skeleton + gate,
 once), `afk-wave` (open the next wave of tickets), `afk-merge` (land the wave on `dev`,
-check the boxes, decide whether to continue). `afk-app.sh` chains them around `afk.sh`, one
+check the boxes, report which stop holds). `afk-app.sh` chains them around `afk.sh`, one
 wave after another, with `/afk-preflight apply` between the opening and the run. Those
 ones **act**: they run in a loop when nobody is awake, so waiting for approval makes no
 sense. The invariant holds all the same: they stay **above**
 `afk.sh`, which still has no LLM inside — it is the loop that judges, not the orchestrator.
+
+Four of the six are user-invoked (`disable-model-invocation: true`): only a human or
+`afk-app.sh` launches them by name, so their description has no business in the context
+of every session of every project. `afk-setup` and `afk-debrief` stay model-invoked
+because another skill runs them — `afk-spec` step 6 and `afk-merge` step 5; a
+user-invoked skill cannot be reached from another one.
 
 What keeps them honest is not their good will, it is a mechanical guard: `docs/spec.md` is
 written once by `afk-spec` and tagged `afk-spec`. The other two can only check boxes, and

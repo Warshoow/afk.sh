@@ -10,6 +10,10 @@ code concerned; the verdict on proposed ideas is in
 
 ### Changed
 
+- **`afk-spec`, `afk-wave`, `afk-merge` and `afk-preflight` are user-invoked**: they no
+  longer fire on their own ("I want to build…" used to start `/afk-spec` in any project)
+  and their descriptions no longer sit in every session's context. `/afk-spec`,
+  `claude -p "/afk-wave"` and the rest still run them by name.
 - **The decision journal no longer depends on any skill**: the prompt stopped pointing at
   `/show-me-your-work`, which `~/.claude-pro` and `~/.claude-perso` do not have. Its whole
   contract was already in the prompt.

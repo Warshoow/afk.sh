@@ -1,6 +1,7 @@
 ---
 name: afk-wave
-description: "Opens the next wave of ready-for-agent tickets from docs/spec.md and the repo's real state — picks the unchecked criteria of the current milestone, slices them into one-session tickets, serialises them, and stops when there is nothing left to open. Runs between two afk runs, with nobody watching. Triggers: /afk-wave, \"open the next wave\", \"the tickets for the current milestone\", \"what are we building now?\"."
+description: "Opens the next wave of ready-for-agent tickets from docs/spec.md and the repo's real state. Run by afk-app.sh between two runs."
+disable-model-invocation: true
 ---
 
 # /afk-wave
@@ -138,8 +139,9 @@ If a `Verify:` line does not show up in the `-n` where the ticket writes one, it
 refused by the validation pattern: it ends in `:`, or still holds a backtick (prose
 quoting commands rather than a command).
 
-The rest of the content traps are in `/afk-preflight` — **read it rather than redo it**,
-it is the same work on tickets coming from elsewhere.
+The rest of the content traps are `/afk-preflight`'s job, not this skill's: `afk-app.sh`
+runs `/afk-preflight apply` right after this session. By hand, run `/afk-preflight`
+before the launch.
 
 ## 8 — Reporting
 

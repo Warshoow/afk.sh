@@ -1,6 +1,7 @@
 ---
 name: afk-spec
-description: "Turns an app idea into a repo afk can work on alone — picks the stack, writes docs/spec.md where every criterion carries the command that proves it, builds the skeleton that starts, the CI, the .afk.env, and sets up the milestones. Run once, at the very beginning, before the first wave. Triggers: /afk-spec, \"I want to build <idea>\", \"set up the repo for this idea\", \"write the spec\", \"wave 0\"."
+description: "Turns an app idea into a repo afk can work on alone: stack, docs/spec.md with a proving command per criterion, skeleton, CI, .afk.env, milestones. Once, before the first wave."
+disable-model-invocation: true
 ---
 
 # /afk-spec

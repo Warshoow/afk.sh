@@ -1,6 +1,6 @@
 ---
 name: afk-debrief
-description: "Goes through a finished afk run — reads .afk/summary.md and the traces, sorts each non-green by cause (wrong gate, ticket too big, real failure), proposes what to fix and what to relaunch, and records afk's own defects in its docs/defects.md. Run on waking up, before merging. Triggers: /afk-debrief, \"go through the run\", \"what failed last night?\", \"why is #48 red?\"."
+description: "Goes through a finished afk run — reads .afk/summary.md and the traces, sorts each non-green by cause (wrong gate, ticket too big, real failure), proposes what to fix and what to relaunch, and records afk's own defects in its docs/defects.md. Run on waking up, before merging. Triggers: /afk-debrief, \"go through the run\", \"why is #48 red?\"."
 ---
 
 # /afk-debrief
