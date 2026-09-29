@@ -247,3 +247,20 @@ do not duplicate it, they point at it.
 
 A ticket's `Verify:` and `Timeout:` lines are executed / passed as-is. Tickets are part of
 the trust surface, just like the sessions' `--permission-mode bypassPermissions`.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on this repo, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels, unchanged (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`) — `afk.sh` already reads `ready-for-agent` and
+`ready-for-human`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the root, neither created yet. See
+`docs/agents/domain.md`.
