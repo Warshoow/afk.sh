@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./check.sh      # pure parsers, ~1 s
+      - run: ./harness.sh    # whole orchestrator, claude and gh stubbed, local bare remote
