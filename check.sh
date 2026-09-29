@@ -24,7 +24,9 @@ pushd "$t" >/dev/null
 [[ "$(label_for ready-for-human)" == "needs-human"  ]] || { echo "FAIL label_for human"; exit 1; }
 [[ "$(label_for in-review)"       == "under-review" ]] || { echo "FAIL label_for in-review"; exit 1; }
 popd >/dev/null
-[[ -z "$(label_for ready-for-agent)" ]] || { echo "FAIL label_for without config"; exit 1; }
+# From an empty directory, not the repo root: afk's own repo has a triage-labels.md now.
+mkdir "$t/empty"
+[[ -z "$(cd "$t/empty" && label_for ready-for-agent)" ]] || { echo "FAIL label_for without config"; exit 1; }
 
 # ─── blocked_refs ─────────────────────────────────────────────────────────────
 
