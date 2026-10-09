@@ -6,6 +6,16 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-10-09
+
+### Added
+
+- **`AFK_BUILD_CMD`** (`.afk.env`): a command run in the worktree in place of the
+  `claude -p` build session; exit 0 = work committed on `feat/<n>`, nonzero = red with
+  the last stderr line as the reason. A `resume=<text>` key it writes in the status file
+  replaces `claude --resume` in the summary. Empty (default) = unchanged. See the README,
+  "Building elsewhere".
+
 ## 2026-09-29
 
 ### Changed

@@ -108,7 +108,7 @@ A worker is a subshell: **it cannot write anything into the parent's arrays.** I
 information a worker surfaces goes through there.
 
 Keys: `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`,
-`attempt`, `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `cost`, `model`,
+`attempt`, `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `resume`, `cost`, `model`,
 `subagents`. `draft` is a flag set on an `ok`, not a result.
 
 The file is **append-only** and `sget` reads the last line. So the cautious value written at
@@ -171,6 +171,17 @@ not contain it — the alternative was `claude --resume` on every red. Its whole
 (path, columns, what deserves a line, append only) lives in `build_prompt`, and nowhere
 else: no skill is needed, so a config dir without one (`CLAUDE_CONFIG_DIR`) still gets
 a journal.
+
+### `AFK_BUILD_CMD`
+
+Replaces **only** the build session, where the worker would run `claude -p`. Everything
+after it (safety net, HEAD check, gate, push, PR, labels) is the same code, so the
+contract is minimal: exit 0 = commits in the worktree on `feat/<n>`; nonzero = `result=ko`,
+`reason=build`, written directly (no second attempt). Inputs are `AFK_*` env variables
+(list in the README); `AFK_STATUS_FILE` lets the command add keys, and `resume=<text>` is
+the only one the summary reads. afk knows nothing of what the command does — no vendor
+name belongs here. The `afk-base/<n>` publication for absorbed blockers is the command's
+job (`HEAD` ahead of `AFK_BASE`), not afk's. The harness covers it with a fake builder.
 
 ### Deliberate duplication
 

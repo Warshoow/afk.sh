@@ -71,6 +71,11 @@ printf '**Verify:** `true`, plus one fresh test per point:\n\n## Blocked by\n\nN
 # 23: the base is red before the run → say it once, and do not blame the ticket
 printf '## Blocked by\n\nNone\n' > "$T/fix/23.body"
 
+# ─── The tenth run's batch: AFK_BUILD_CMD ────────────────────────────────────
+# 30: the command commits, green          31: red gate, attempt 2 gets AFK_GATE_LOG, green
+# 32: the command exits 3 with a reason (and leaves a resume= key)
+for n in 30 31 32; do printf '## Blocked by\n\nNone\n' > "$T/fix/$n.body"; done
+
 cat > "$T/bin/gh" <<'X'
 #!/usr/bin/env bash
 FIX="$HARNESS/fix"; log() { echo "$*" >> "$HARNESS/gh.log"; }
@@ -519,6 +524,45 @@ grep -q 'was already red before the run' "$T/repo/.afk/summary.md" &&
 [[ -s "$T/repo/.afk/base-verify.txt" ]] || [[ -f "$T/repo/.afk/base-verify.txt" ]] &&
   echo "  ✓ the gate's output on the base is kept" ||
   { echo "  ✗ base-verify.txt missing"; fail=1; }
+
+echo
+# ─── Tenth run: AFK_BUILD_CMD ────────────────────────────────────────────────
+# A trivial fake builder: the contract alone (env in, commits in the worktree, exit code).
+cat > "$T/bin/fakebuild" <<'X'
+#!/usr/bin/env bash
+echo "$AFK_ATTEMPT $AFK_TICKET $AFK_BRANCH $AFK_BASE ${AFK_GATE_LOG:-none} $(pwd -P)" >> "$HARNESS/build.log"
+cp "$AFK_PROMPT_FILE" "$HARNESS/bprompt-$AFK_TICKET.txt"
+case "$AFK_TICKET" in
+  32) echo "noise" >&2; echo "the builder is out of quota" >&2
+      echo "resume=builder job 32" >> "$AFK_STATUS_FILE"; exit 3 ;;
+  31) if [[ -n "$AFK_GATE_LOG" ]]; then cp "$AFK_GATE_LOG" "$HARNESS/gate-31.txt"; rm -f BROKEN
+      else touch BROKEN; fi ;;
+esac
+echo x > "built-$AFK_TICKET-$AFK_ATTEMPT.txt"; git add -A
+git -c user.email=a@b -c user.name=t commit -qm "built $AFK_TICKET"
+X
+chmod +x "$T/bin/fakebuild"
+out10=$(AFK_BUILD_CMD=fakebuild JOBS=2 bash "$AFK" 30 31 32 2>&1) || true
+printf '%s\n' "$out10" > "$T/run10.log"
+want10() {
+  if grep -qE -- "$2" <<<"$out10"; then printf '  ✓ %s\n' "$1"
+  else printf '  ✗ %s\n     expected: /%s/\n' "$1" "$2"; fail=1; fi
+}
+want10 "green: PR opened by afk"                 'PR #930 on master'
+want10 "red gate, attempt 2, then green"          '✓ green \(attempt 2\) — PR #931'
+want10 "nonzero: red with the last stderr line"   'AFK_BUILD_CMD: the builder is out of quota'
+want10 "one green less, the red is red"           'red    \(1\): 32'
+grep -q '^1 30 feat/30 origin/master none ' "$T/build.log" &&
+  grep -q '^2 31 feat/31 origin/master .*31-fail.txt ' "$T/build.log" &&
+  echo "  ✓ the command gets ticket, attempt, branch, base and (attempt 2) the gate log" ||
+  { echo "  ✗ wrong environment"; fail=1; }
+grep -q '^/implement GitHub ticket #30' "$T/bprompt-30.txt" &&
+  echo "  ✓ AFK_PROMPT_FILE holds the usual prompt" || { echo "  ✗ prompt file wrong"; fail=1; }
+[[ -f "$T/gate-31.txt" ]] && echo "  ✓ the gate log was readable by attempt 2" || { echo "  ✗ no gate log"; fail=1; }
+grep -qE 'builder job 32' "$T/repo/.afk/summary.md" &&
+  ! grep -q 'claude --resume' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ resume= replaces claude --resume in the summary" || { echo "  ✗ resume key not shown"; fail=1; }
+[[ -f "$T/prompt-30.txt" ]] && { echo "  ✗ a local build session ran"; fail=1; } || echo "  ✓ no local build session"
 
 echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }

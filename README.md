@@ -138,6 +138,7 @@ and you read it back on waking up.
 | `JOBS` | `1` | simultaneous sessions; `auto` = `nproc/4` capped at 4 |
 | `VERIFY_LOCK` | `1` | serialises the verifications when `JOBS > 1` |
 | `SETUP_CMD` | deduced from the lockfile | seeding a worktree (`pnpm install --frozen-lockfile`) — receives `AFK_TICKET` and `AFK_WORKTREE` |
+| `AFK_BUILD_CMD` | empty | a command that builds the ticket instead of `claude -p` here (see "Building elsewhere") |
 | `SEED_GLOBS` | `.env`, `apps/*/.env`, … | gitignored files copied into each worktree |
 | `KEEP_WORKTREES` | `0` | keep the green worktrees too (the red ones always are) |
 | `AFK_HOME` | the script's folder | where `RUNS.md` is written — redirect it if afk's repo is mounted read-only |
@@ -366,7 +367,7 @@ Everything is in `.afk/` (self-ignored), one family of files per ticket:
 | `<n>-push.txt` | the remote's refusal, when the push fails |
 | `<n>-work.tsv` | the session's decision journal, one line per decision — the only file here written by the agent and not by the script |
 | `base-verify.txt` | the gate run on the base before the run — one per run, not per ticket |
-| `<n>.status` | the machine verdict (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `cost`, `model`) |
+| `<n>.status` | the machine verdict (`result`, `pr`, `draft`, `draft_why`, `attempt`, `session`, `resume`, `cost`, `model`) |
 | `summary.md` | the run's table: result, PR, attempt, model, **peak context**, cost, CI, integration |
 
 **`.afk/` is overwritten on the next run.** What has to survive lives in afk's own repo —
@@ -490,6 +491,39 @@ summary gives the command to get back in:
 ```
 
 It is the only way to ask the agent why it took that path — a log will never say.
+
+## Building elsewhere
+
+`AFK_BUILD_CMD` in `.afk.env` (empty by default: the session is `claude -p` in the
+worktree, unchanged). When set, the worker runs that command **instead of** the session.
+Order, bases, gate, push, PR, labels and summary stay in afk: the command is only another
+way to get commits into the worktree. Typical use: the build runs on another machine.
+
+Run with `bash -c`, cwd = the ticket's worktree, within the ticket's `Timeout:`, stdin
+closed, stdout kept in `.afk/<n>-<attempt>.json`, stderr in `.afk/<n>-<attempt>-build.err`.
+
+| variable | value |
+|---|---|
+| `AFK_PROMPT_FILE` | the prompt afk would give the session (a file) |
+| `AFK_TICKET`, `AFK_TITLE` | the ticket's number and title |
+| `AFK_ATTEMPT` | `1`, or `2` after a red gate |
+| `AFK_BRANCH` | the branch the work must end up on (`feat/<n>`) |
+| `AFK_BASE` | the base the branch starts from: `origin/<branch>`, or a blocker's branch when stacked |
+| `AFK_GATE_LOG` | attempt 2 only (empty otherwise): the failed gate's output |
+| `AFK_STATUS_FILE` | `.afk/<n>.status`; append `key=value` lines to add a key |
+
+Output contract:
+
+- **exit 0**: the work is **committed in the worktree, on `AFK_BRANCH`**. Uncommitted
+  changes are committed by afk's safety net, as for a local session.
+- **exit nonzero**: red, no second attempt. The reason is the last non-empty stderr line
+  (or `timeout`), shown in the log and in the ticket's comment.
+- optional `resume=<text>` in `AFK_STATUS_FILE`: shown by the summary for the reds, in
+  place of the `claude --resume` line.
+
+When blockers were absorbed by merge, the worktree's `HEAD` is **ahead of** `AFK_BASE` and
+that commit exists only here: a command that builds somewhere else has to publish it
+itself if it needs it as a base.
 
 ## When a ticket has nothing left to do
 
