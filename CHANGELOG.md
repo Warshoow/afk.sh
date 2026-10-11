@@ -6,6 +6,14 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-10-11
+
+### Fixed
+
+- **The landing branch is no longer hard-wired to `dev`.** `afk-app.sh`, `/afk-wave` and
+  `/afk-merge` read `BASE_BRANCH` from `.afk.env`, like `afk.sh` already did; `dev` when
+  unset. A repo landing on `develop` used to stop at once (`✗ dev unreachable`).
+
 ## 2026-10-09
 
 ### Added

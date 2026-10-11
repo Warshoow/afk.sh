@@ -21,7 +21,7 @@ applies its mechanical fixes itself — and still refuses the one thing that wou
 guard below, rewriting an acceptance criterion; such a ticket leaves the batch instead.
 
 **Building an app autonomously** — `afk-spec` (idea → `docs/spec.md` + skeleton + gate,
-once), `afk-wave` (open the next wave of tickets), `afk-merge` (land the wave on `dev`,
+once), `afk-wave` (open the next wave of tickets), `afk-merge` (land the wave on the landing branch — `BASE_BRANCH`, `dev` by default —
 check the boxes, report which stop holds). `afk-app.sh` chains them around `afk.sh`, one
 wave after another, with `/afk-preflight apply` between the opening and the run. Those
 ones **act**: they run in a loop when nobody is awake, so waiting for approval makes no
@@ -47,7 +47,7 @@ are the same model. The boxes are neutralised **on both sides** of the `diff`: t
 version already contains a checked one (the skeleton makes A0 pass), and a guard
 neutralising only one side refuses to run from the very first wave.
 
-And a box is only checked after the criterion's command has **passed on `dev`**: the
+And a box is only checked after the criterion's command has **passed on the landing branch**: the
 counter is mechanical, never a reading. `afk-app.sh` leans on the same principle — it counts
 the boxes and the open tickets, it never reads what a session says to decide whether to
 continue.

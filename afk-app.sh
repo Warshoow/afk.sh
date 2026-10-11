@@ -4,13 +4,13 @@
 #   ./afk-app.sh              # up to 8 waves, 1 ticket at a time
 #   ./afk-app.sh -w 4 -j 3    # 4 waves at most, 3 tickets in parallel
 #
-# Prerequisite: `/afk-spec` has run (docs/spec.md, afk-spec tag, dev branch, .afk.env).
+# Prerequisite: `/afk-spec` has run (docs/spec.md, afk-spec tag, landing branch, .afk.env).
 #
 # A wave is four things, in this order:
 #   /afk-wave       Claude session — opens the tickets for the unchecked criteria
 #   /afk-preflight  Claude session — rereads and re-slices the batch (non-fatal)
 #   afk.sh          the orchestrator, with no LLM inside, as usual
-#   /afk-merge      Claude session — lands on dev and checks off what passes
+#   /afk-merge      Claude session — lands on BASE_BRANCH (dev) and checks off what passes
 #
 # THE CONTROL FLOW IS MECHANICAL. This script never reads what a session says to decide
 # whether to continue: it counts the checked boxes in docs/spec.md and the open tickets
@@ -80,8 +80,11 @@ pilot() {
 [[ -f docs/spec.md ]] || { echo "✗ no docs/spec.md — run /afk-spec"; exit 1; }
 [[ -f .afk.env     ]] || { echo "✗ no .afk.env — run /afk-setup"; exit 1; }
 command -v gh >/dev/null || { echo "✗ gh missing"; exit 1; }
-git fetch -q origin && git switch -q dev && git pull -q ||
-  { echo "✗ dev unreachable — /afk-spec creates it"; exit 1; }
+# The landing branch is the one afk.sh targets its PRs at: BASE_BRANCH in .afk.env. dev when
+# unset, the name /afk-spec writes; a repo may pick another (develop, …).
+BASE_BRANCH=$(. ./.afk.env >/dev/null 2>&1; echo "${BASE_BRANCH:-dev}")
+git fetch -q origin && git switch -q "$BASE_BRANCH" && git pull -q ||
+  { echo "✗ ${BASE_BRANCH} unreachable — /afk-spec creates it (BASE_BRANCH in .afk.env)"; exit 1; }
 spec_ok || exit 1
 mkdir -p "$LOG_DIR"
 

@@ -1,6 +1,6 @@
 ---
 name: afk-merge
-description: "Lands an afk wave on dev: merges the green PRs in base order, checks off the criteria whose command passes, takes the reds out. Run by afk-app.sh after each run."
+description: "Lands an afk wave on the landing branch (BASE_BRANCH, dev by default): merges the green PRs in base order, checks off the criteria whose command passes, takes the reds out. Run by afk-app.sh after each run."
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,7 @@ here. This skill decides; the other one explains.
 
 ## The rule
 
-**A criterion is only checked off after its command has passed on `dev`.** Not because
+**A criterion is only checked off after its command has passed on the landing branch.** Not because
 the ticket is green, not because the PR is merged, not because the work looks done. We
 run the command, we read the return code.
 
@@ -23,9 +23,13 @@ checking everything off.
 
 ## 1 — The state
 
+`$base` below is the landing branch: `BASE_BRANCH` in `.afk.env`, `dev` when unset. A shell
+call does not keep variables: recompute it in each one that uses it.
+
 ```bash
 cat .afk/summary.md
-git fetch -q origin && git switch -q dev && git pull -q
+base=$(. ./.afk.env >/dev/null 2>&1; echo "${BASE_BRANCH:-dev}")   # the landing branch
+git fetch -q origin && git switch -q "$base" && git pull -q
 diff <(git show afk-spec:docs/spec.md | sed 's/\[x\]/[ ]/g') <(sed 's/\[x\]/[ ]/g' docs/spec.md)
 ```
 
@@ -60,7 +64,7 @@ gh pr merge <n> --merge --delete-branch   # in order: blocker first
 `--merge`, not `--squash`: a squash rewrites the blocker's commits, and the dependant
 brings them back a second time.
 
-**After each merge**, the gate on `dev`:
+**After each merge**, the gate on `$base` (`git pull -q` first: the merge happened on GitHub):
 
 ```bash
 <VERIFY_CMD>; echo "rc=$?"
@@ -73,7 +77,7 @@ wave.
 
 ## 4 — Checking off
 
-For each unchecked criterion of the current milestone, its command, on `dev`, exactly as
+For each unchecked criterion of the current milestone, its command, on `$base`, exactly as
 written in the spec:
 
 ```bash
@@ -132,7 +136,7 @@ report. The report says which case holds, so the morning reads the same verdict:
 
 | | what you say |
 |---|---|
-| every criterion checked | done — `dev` is ready to be merged into `master`, by a human |
+| every criterion checked | done — `$base` is ready to be merged into `master`, by a human |
 | **two waves in a row without a single criterion being checked** | the loop is not moving. Name the criterion that blocks and what `/afk-debrief` says about it |
 
 "The wave went badly" is not a stop: one red wave in three is the normal regime, and the
@@ -147,13 +151,13 @@ Short, it is read on waking up, in series with the other waves:
 ```
 Wave 4 — 3 tickets, 2 merged, 1 taken out
 Checked: A7 A8   (14/26)
-Out    : #61 — the gate on dev breaks after merging, revert done
+Out    : #61 — the gate on the landing branch breaks after merging, revert done
 Next   : /afk-wave (milestone 2)
 ```
 
 ## What this skill does not do
 
-- **It never merges into `master`.** `dev` only. The last merge is a human decision, and
+- **It never merges into `master`.** The landing branch only. The last merge is a human decision, and
   it is the only thing left to be one.
 - **It checks off no criterion whose command it has not run itself.**
 - **It does not modify the text of `docs/spec.md`** — only `[ ]` into `[x]`. A criterion

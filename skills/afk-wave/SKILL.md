@@ -14,8 +14,12 @@ code the previous wave actually wrote, not on the code we imagined.
 
 ## 0 — The guard, before anything else
 
+`$base` below is the landing branch: `BASE_BRANCH` in `.afk.env`, `dev` when unset. A shell
+call does not keep variables: recompute it in each one that uses it.
+
 ```bash
-git fetch -q origin && git switch -q dev && git pull -q
+base=$(. ./.afk.env >/dev/null 2>&1; echo "${BASE_BRANCH:-dev}")   # the landing branch
+git fetch -q origin && git switch -q "$base" && git pull -q
 diff <(git show afk-spec:docs/spec.md | sed 's/\[x\]/[ ]/g') <(sed 's/\[x\]/[ ]/g' docs/spec.md)
 ```
 
@@ -42,8 +46,8 @@ say so and stop: that is the loop's normal end.
 The spec says what we want; it does not say what exists. Before slicing:
 
 ```bash
-git log --oneline afk-spec..dev | head -40
-git diff --stat afk-spec..dev
+git log --oneline "afk-spec..$base" | head -40
+git diff --stat "afk-spec..$base"
 ```
 
 A ticket written against an imagined repo goes looking for files that do not exist and

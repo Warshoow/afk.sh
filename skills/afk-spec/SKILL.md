@@ -132,14 +132,15 @@ git tag afk-spec                     # the spec's reference version
 git branch dev && git push -u origin dev
 ```
 
-`BASE_BRANCH=dev` is not optional: without it the worktrees start from `master` and the
+`BASE_BRANCH` is not optional: without it the worktrees start from `master` and the
 PRs target it — every ticket would then ignore everything the previous waves delivered.
 
 The tag is the guard: `/afk-wave` and `/afk-merge` compare `docs/spec.md` with
 `git show afk-spec:docs/spec.md` and refuse to run if anything other than boxes moved.
 
-`dev` is the landing branch. **`master` is never touched by the loop** — you merge `dev`
-yourself, awake.
+`dev` is the landing branch. Another name works (`develop`, …): an existing branch, named in
+`BASE_BRANCH` — `afk.sh`, `afk-app.sh`, `/afk-wave` and `/afk-merge` all read it there.
+**`master` is never touched by the loop** — you merge the landing branch yourself, awake.
 
 Finally, one GitHub milestone per milestone, in order:
 
