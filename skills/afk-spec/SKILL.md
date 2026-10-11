@@ -72,6 +72,17 @@ What no command judges — a layout, an animation, a tone — **does not go in t
 gets handled later, by hand, outside the loop. A taste criterion in the spec blocks the
 loop forever or gets checked off blind.
 
+Two traps in that command, both met on a real repo:
+
+- **It runs from the repo root, on the host.** `/afk-merge` runs it exactly as written,
+  there. A stack whose tests only run in a container (or in a subfolder) needs a wrapper
+  at the root — `./in-app npx jest …` — or no box is ever checked and the loop stalls.
+- **A name filter that matches nothing exits 0.** `jest -t`, `node --test-name-pattern`,
+  `pytest -k`: no test found, return code 0, the box gets checked with nothing behind it.
+  Wrap the criterion so it fails unless at least one test ran and passed (`./prove <file>
+  "<name>"` in the `mobile` factory template), and check the wrapper on a pattern that
+  matches nothing before trusting it.
+
 The first criterion is always the same: **A0 — the app starts**, with the command that
 proves it. It is the one that catches "every ticket is green and nothing runs".
 
@@ -119,6 +130,14 @@ In this order, each one a prerequisite for the next:
 
 Without the first, `afk.sh` refuses to start. Without the second, the gate will be a pnpm
 monorepo's.
+
+The first writes `docs/agents/triage-labels.md` but does not always create the labels on
+GitHub, and `/afk-wave`'s `gh issue create -l ready-for-agent` fails on a missing label.
+Create those the repo lacks:
+
+```bash
+for l in needs-triage needs-info ready-for-agent ready-for-human wontfix; do gh label create "$l" 2>/dev/null; done
+```
 
 Then a CI that runs the same gate as `VERIFY_CMD` — it is what will verify the PRs, and
 `/afk-merge` merges nothing without it.
