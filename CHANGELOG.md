@@ -10,6 +10,12 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **`/afk-merge` closes the tickets it lands.** `Closes #N` only fires on a merge into
+  the default branch, so tickets landed on `BASE_BRANCH` stayed open in `in-review`
+  (defect 50).
+- **A gate going through `docker compose` no longer leaks one network per worktree.**
+  After each gate, afk prunes the unused networks of the worktree's compose project; two
+  runs used to exhaust Docker's address pools and fail a healthy ticket (defect 48).
 - **The landing branch is no longer hard-wired to `dev`.** `afk-app.sh`, `/afk-wave` and
   `/afk-merge` read `BASE_BRANCH` from `.afk.env`, like `afk.sh` already did; `dev` when
   unset. A repo landing on `develop` used to stop at once (`✗ dev unreachable`).

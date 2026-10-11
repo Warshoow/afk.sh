@@ -75,6 +75,13 @@ Red → the merge that just arrived breaks what was working. Revert it
 as a comment, and carry on with the next ones. A single bad ticket does not cost the
 wave.
 
+Green → close the ticket. The PR's `Closes #<ticket>` only fires on a merge into the
+repo's default branch, and `$base` usually is not it:
+
+```bash
+gh issue close <ticket> --comment "Landed on $base by PR #<pr>."
+```
+
 ## 4 — Checking off
 
 For each unchecked criterion of the current milestone, its command, on `$base`, exactly as

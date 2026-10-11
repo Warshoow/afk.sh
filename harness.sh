@@ -169,7 +169,9 @@ case "$n" in
      git add -A; git commit -qm "feat(#$n): ok"; res; exit 0 ;;
 esac
 X
-chmod +x "$T/bin/gh" "$T/bin/claude"
+# The gate's leftover compose networks are pruned after each gate (defect 48).
+printf '#!/bin/sh\necho "$*" >> "$HARNESS/docker.log"\n' > "$T/bin/docker"
+chmod +x "$T/bin/gh" "$T/bin/claude" "$T/bin/docker"
 
 # ─── Throwaway repo ───────────────────────────────────────────────────────────
 git init -qb master "$T/repo"; git init -q --bare "$T/origin.git"
@@ -231,6 +233,10 @@ want "crashed session named, not a code"           'session ended abnormally \(e
 
 grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-model sonnet' "$T/args-1.txt" &&
   echo "  ✓ session launched in JSON, with fallback" || { echo "  ✗ session flags missing"; fail=1; }
+
+grep -qx 'network prune -f --filter label=com.docker.compose.project=1' "$T/docker.log" &&
+  grep -qx 'network prune -f --filter label=com.docker.compose.project=base' "$T/docker.log" &&
+  echo "  ✓ compose networks pruned after the gate" || { echo "  ✗ compose networks left behind"; fail=1; }
 
 grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ summary written" || { echo "  ✗ summary missing or wrong"; fail=1; }

@@ -219,3 +219,50 @@ Mitigated and not fixed: the column still does not say *which* of the models was
 session's. The first `modelUsage` is (the session calls the API before any subagent exists),
 but relying on that makes a mid-session fallback invisible — the full list plus the number of
 subagents lie about nothing.
+
+## 49 — Sessions run through Firetower write no decision journal — open
+
+*2026-10-11 · project-d1518ddc · #1 #2 #3 #7 #8 #9*
+
+**What was seen.** Two runs in a row, six tickets, not one `.afk/<n>-work.tsv`, neither in
+`.afk/` nor committed in a branch. The prompt does ask for it, at the host's absolute path
+(`.../.afk/9-work.tsv`). Each `.status` says `resume=Firetower session …`, and
+`<n>-<attempt>.json` only holds `total_cost_usd`: no `subtype`, no model, no context.
+
+**The cause.** Probable, not proven: the session runs in a Firetower workspace, where the
+host's `.afk/` path is not reachable, so the journal has nowhere to go and the session says
+nothing about it. Same root as the empty "Model" and "Context" columns: the Firetower path
+brings back less than the local `claude -p` one. The debrief loses what it reads first.
+
+**What is known of the path.** `ftd.py build` (`~/firetower-dispatch/ftd.py`) sends
+`AFK_PROMPT_FILE` unchanged, so the agent on the Firetower server gets the host's absolute
+path. When it hands back, `handoff()` commits and pushes from the server, then `build`
+fetches that branch and resets the worktree onto it. Git is the only thing coming back,
+and the server's checkout is a fresh clone with no `.afk/.gitignore`.
+
+**Proving it first.** Read one session's `GET /api/v1/sessions/<id>/conversation` (the id is
+in `.afk/<n>-ft-session`) and look for a write to `…/<n>-work.tsv`. No write at all = the
+session dropped the instruction. A write that failed or went to a server path = the
+cause above.
+
+**How to fix it.** On the builder side, not in afk: afk must not know about Firetower (see
+`AFK_BUILD_CMD` in CLAUDE.md), and the `afk-base/<n>` push already sits there.
+
+1. Before `create()`, `build` rewrites the journal path in the prompt to the relative
+   `.afk/<n>-work.tsv`: inside the server checkout, so it travels with the branch.
+2. After `git reset --hard FETCH_HEAD`:
+   `git show HEAD:.afk/<n>-work.tsv > <AFK_STATUS_FILE's dir>/<n>-work.tsv`, then
+   `git rm -q --cached .afk/<n>-work.tsv` and a local commit. afk pushes that commit
+   with the rest after a green gate (fast-forward). The PR diff no longer carries the
+   journal (defect 47), only the branch history does.
+3. Attempt 2 needs nothing more: the server still has the file, the session keeps
+   appending to it, and the fetch + reset drops step 2's local commit before redoing it.
+4. Missing file in the branch → no journal, no red, like for local sessions.
+
+On the afk side, optional: export `AFK_JOURNAL` (the absolute path) to the build command
+and list it in the README's table, so `build` does not have to find the path in the prompt
+with a regex that breaks the day `build_prompt` rewords that line.
+
+Not covered: the empty "Model" and "Context" columns. Same cause, but they need the
+`TurnCompleted` events' `usage` (already read for the cost) to carry the model and the
+context, which is still to be checked.

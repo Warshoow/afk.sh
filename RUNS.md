@@ -23,3 +23,7 @@ the same project always yields the same value, and nothing else is disclosed.
 | 2026-09-23 15:21 | project-6c618d6f | 17 | 6 | 1 | 8 | 0 | 0 | 0 | 2 | 7/15 | opus-5 sonnet-5 | $78.30 | 85m54s | green (partial: 10/15) |
 | 2026-09-23 16:33 | project-6c618d6f | 4 | 0 | 0 | 3 | 0 | 0 | 0 | 1 | 0/3 | opus-5 | $15.43 | 32m35s | green |
 | 2026-09-28 13:33 | project-6c618d6f | 10 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 10/10 | opus-5-5 sonnet-5 | $20.40 | 61m53s | green (partial: 7/10) |
+| 2026-10-11 19:40 | project-d1518ddc | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 2/3 | — | $8.20 | 41m29s | green + duplicate numbers |
+| 2026-10-11 20:19 | project-d1518ddc | 4 | 3 | 0 | 0 | 0 | 0 | 1 | 0 | 1/3 | — | $13.96 | 25m18s | red (partial: 2/3) + duplicate paths |
+| 2026-10-11 20:55 | project-d1518ddc | 2 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 1/1 | — | $1.95 | 21m35s | — |
+| 2026-10-11 21:37 | project-d1518ddc | 2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 2/2 | — | $6.93 | 35m13s | green |

@@ -1021,3 +1021,43 @@ relative writes its journal where nobody looks, but at least the safety net's `g
 no longer sweeps it into the branch, and a stacked branch no longer ships its ancestors'
 journals. The harness has #2 write a relative journal and checks that `feat/2` carries
 none.
+
+## 48 — Each worktree leaves a Docker network behind, until the pool runs out and a healthy ticket burns an attempt — fixed
+
+*2026-10-11 · project-d1518ddc · #8*
+
+**What was seen.** #8's first attempt went red on `failed to create network 8_default: all
+predefined address pools have been fully subnetted`, before a single test ran. The second
+attempt went green with no change of approach: $4.86 and 16 minutes spent for nothing. After
+the run, `docker network ls` still lists `1_default`, `2_default`, `3_default`, `7_default`,
+`9_default`, `base_default`, `integration_default` — one per worktree of the last two runs.
+
+**The cause.** A gate that calls `docker compose run --rm` from `.afk/wt/<n>` gets a compose
+project named after the directory, so one new network per ticket, per base check, per
+integration. `--rm` removes the container, never the network, and afk never runs
+`docker compose down` when it is done with a worktree. Docker's default pools hold about
+thirty networks; on a machine with other compose projects, two runs are enough. Any repo
+whose gate goes through compose is exposed, and the trace blames the ticket.
+
+**What was done about it.** Every gate (ticket, base, integration) now goes through
+`gate()`, which runs it then `docker network prune` on the networks labelled with the
+worktree's compose project — only those no container still uses. Not done: classifying an
+"address pools" error as environment rather than `ko / verify`; with the leak gone it
+should not come back.
+
+## 50 — Tickets landed on a landing branch that is not the default one stay open — fixed
+
+*2026-10-11 · project-d1518ddc · #7 #10 #14 #16*
+
+**What was seen.** After a four-wave `afk-app.sh` run, #7, #10, #14 and #16 were still open
+with `in-review`, although their PRs were merged into `develop` and their criteria checked.
+The wave 1 tickets (#1 to #3) were closed, but only because that wave's `/afk-merge` session
+closed them on its own initiative; the next three sessions did not.
+
+**The cause.** The PR body says `Closes #<ticket>`, and GitHub only honours it on a merge
+into the repo's default branch. A landing branch (`dev` by default, `develop` here) is
+almost never the default branch, and `/afk-merge` never told the session to close the
+ticket itself. Any repo is exposed; the open tickets then look like work still in review.
+
+**What was done about it.** `/afk-merge` step 3: once the gate is green after a merge,
+`gh issue close <ticket>` with a comment naming the landing branch and the PR.

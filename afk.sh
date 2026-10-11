@@ -394,6 +394,21 @@ locked() {
   fi
 }
 
+# The gate, run from a worktree. A gate calling `docker compose run --rm` gets a compose
+# project named after the worktree directory: `--rm` removes the container, never the
+# network, and Docker's default pools hold about thirty. Two runs used them up and a
+# healthy ticket burned an attempt on "all predefined address pools have been fully
+# subnetted" (defect 48). Only networks no container uses are removed; compose
+# recreates them on the next call.
+gate() {   # command; cwd = the worktree
+  locked verify bash -c "$1"; local rc=$?
+  if command -v docker >/dev/null; then
+    local p; p=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')
+    docker network prune -f --filter "label=com.docker.compose.project=$p" >/dev/null 2>&1
+  fi
+  return $rc
+}
+
 # ─── Git without a keyboard ───────────────────────────────────────────────────
 # The remote is on SSH, the key has a passphrase, and no ssh-agent runs in the
 # container: every pull and every push asked for the keyboard — in a tool that means
@@ -931,7 +946,7 @@ worker() {
       # already runs — we run it on the base, and it decides between the two.
       echo "  · no commit — running the gate on the base to decide"
       s0=$SECONDS
-      locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
+      gate "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
       t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
       if (( vrc == 0 )); then
         echo "  ≡ absorbed — nothing to do and the base is green: already delivered by a predecessor"
@@ -949,7 +964,7 @@ worker() {
 
     echo "  → verification"
     s0=$SECONDS
-    locked verify bash -c "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
+    gate "$verify" > "$AFK_DIR/$ticket-verify.txt" 2>&1; vrc=$?
     t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
     if (( vrc == 0 )); then
       git diff --name-only "$head0" | grep -qE "$MEMORY_RE" ||
@@ -1353,7 +1368,7 @@ integration_check() {
   [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
     echo "     integration gate: ${INTEGRATION_VERIFY_CMD}"
   local ok=0
-  ( cd "$wt" && locked verify bash -c "$INTEGRATION_VERIFY_CMD" ) \
+  ( cd "$wt" && gate "$INTEGRATION_VERIFY_CMD" ) \
     > "$AFK_DIR/integration-verify.txt" 2>&1 && ok=1
 
   # The verdict CARRIES ITS SCOPE. "The whole compiles" after a branch was set aside at
@@ -1669,7 +1684,7 @@ base_check() {
   # the same way (see `AFK_TICKET` in the worker).
   [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
     locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1
-  if ( cd "$wt" && locked verify bash -c "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
+  if ( cd "$wt" && gate "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
     echo "  ✓ green — a red ticket will really be its own"
   else
     BASE_RED=1
