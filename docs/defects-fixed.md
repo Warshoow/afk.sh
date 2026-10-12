@@ -1205,3 +1205,31 @@ merged. Same repair (pushed `develop` as `feat/30` to reopen, since #33 was alre
 blocker's branch onto the landing branch (`gh pr edit --base`) before `gh pr merge
 --delete-branch`. This entry was first filed as a second "50" by a merge session that only
 read `defects.md`; step 5 now says the next number counts the archive too.
+
+---
+
+## 54 — On the Firetower path, the summary's cost and session time are wrong — fixed
+
+*2026-10-12 · satis · #83–#87*
+
+**What was seen.** Five tickets run through Firetower, all green. #84's "Cost" reads
+`$-2.0035` while its `.afk/84-ft-cost` holds `1.3994`; the other four match their
+`-ft-cost`. And every `.status` writes `t_session` twice, the second time doubled
+(`t_session=604` then `t_session=1208` for #83), so the "Phases" column shows a 20m08s
+session inside an 11m14s ticket.
+
+**The cause.** Two bugs. `afk.sh`'s `AFK_BUILD_CMD` branch added `SECONDS - s0` to
+`t_session` right after the command, then again after the `if`, where the `claude -p` branch
+adds it: every Firetower ticket got its session time twice. And `ftd.py` reports each
+attempt's cost as the session total minus `<n>-ft-cost`, the total seen at the last report;
+that file outlived the run. #84 had a Firetower session in the run killed at 08:22, which
+left `84-ft-cost` at 3.40; the next run's attempt 1 opened a new session, spent 1.40, and
+reported 1.40 − 3.40.
+
+**Damage.** None to what landed: cost and phases are only read by humans. But a negative
+cost and a session longer than its ticket make the whole table look untrustworthy.
+
+**What was done about it (2026-10-12).** `afk.sh` adds the build's time only on the error
+path, which returns before the shared line; `harness.sh` checks `t_session` is written once.
+`ftd.py` deletes `<n>-ft-cost` on attempt 1, since attempt 1 always opens a new session; its
+selftest plants a stale file first.

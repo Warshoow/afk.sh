@@ -572,6 +572,8 @@ grep -qE 'builder job 32' "$T/repo/.afk/summary.md" &&
   ! grep -q 'claude --resume' "$T/repo/.afk/summary.md" &&
   echo "  ✓ resume= replaces claude --resume in the summary" || { echo "  ✗ resume key not shown"; fail=1; }
 [[ -f "$T/prompt-30.txt" ]] && { echo "  ✗ a local build session ran"; fail=1; } || echo "  ✓ no local build session"
+[[ $(grep -c '^t_session=' "$T/repo/.afk/30.status") == 1 ]] &&
+  echo "  ✓ the build's time is counted once" || { echo "  ✗ t_session written twice for one build"; fail=1; }
 
 echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }

@@ -10,6 +10,9 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **Firetower tickets: session time counted once, no negative cost.** The summary doubled
+  the session time on the `AFK_BUILD_CMD` path, and a ticket rebuilt after an interrupted
+  run reported its new session's cost minus the old one's (defect 54).
 - **`CONTEXT.md` no longer stops every parallel branch but the first.** afk sets
   `CONTEXT.md` and `CONTEXT-MAP.md` to `merge=union` in the local `.git/info/attributes`,
   so stacking and the integration pass keep both sides' lines; `/afk-merge` resolves a PR

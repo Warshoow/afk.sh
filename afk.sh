@@ -856,8 +856,8 @@ worker() {
         AFK_GATE_LOG="$([[ $attempt -gt 1 ]] && echo "$AFK_DIR/$ticket-fail.txt")" AFK_STATUS_FILE="$sf" \
         bash -c "$AFK_BUILD_CMD" > "$out" 2> "$AFK_DIR/$ticket-$attempt-build.err" </dev/null
       rc=$?
-      t_session=$(( t_session + SECONDS - s0 )); st "t_session=$t_session"
       if (( rc )); then
+        t_session=$(( t_session + SECONDS - s0 )); st "t_session=$t_session"
         (( rc == 124 )) && why="timeout ${tmo}" || why=$(grep -v '^[[:space:]]*$' "$AFK_DIR/$ticket-$attempt-build.err" | tail -n 1)
         why="${why:-exit code ${rc}}"
         echo "  ✗ AFK_BUILD_CMD: ${why}"
