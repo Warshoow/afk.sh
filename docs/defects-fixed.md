@@ -1256,3 +1256,62 @@ deletes `afk-base/<ticket>` and `feat/<ticket>-*`, each only if `git merge-base
 --is-ancestor` says it is already in the landing branch. Tried on two throwaway branches
 pointing at `develop`: both deleted.
 
+---
+
+## 56 — A Firetower session handed back while its reviewers still ran: the review's fixes never reached the PR — fixed
+
+*2026-10-12 · satis · tranches 1 and 2*
+
+**What was seen.** #1, #2, #21, #46 and #49 ended green, and their final message announced
+a review-fix commit (#1: `fix(auth): keep sign-out and token refreshes from misrouting`;
+#2: "fixed in `19a8d22`"). Their PR holds only the first commit; the fix exists nowhere on
+the remote. Real bugs from those reviews are still in the app.
+
+**The cause.** A session that ends its turn with subagents or background commands still
+running goes to `HandedBack`; each completion then starts a new turn on its own. `ftd.py
+build()` stopped at the first `HandedBack` and pushed. Over 25 sessions ended turn 1 with
+two reviewers running; the 5 that lost are the ones polled (every 10 s) in that window.
+Separately, the prompt never said to wait for such tasks.
+
+**What was done about it (2026-10-12).** `build()` only takes `HandedBack` as the end once
+the conversation is `settled()`: every `TaskStarted` has its `TaskCompleted`, and a
+`TurnCompleted` comes after the last one (5 min cap, for a task that completes without a new
+turn). The prompt says never to end a turn with a background command or a subagent still
+running. Selftest: a session handed back with a task open is waited for.
+
+---
+
+## 57 — Firetower sessions never read their ticket — fixed
+
+*2026-10-12 · satis · tranches 1 and 2*
+
+**What was seen.** 46 of 46 final messages say `gh` is not installed and the API answers
+404: every session built from `docs/spec.md` without the ticket's "What to build", its
+reserved migration number or its comments. Looking for credentials instead, sessions got
+refused by auto mode; both NeedsYou freezes (#39, #57) followed a refused `git credential
+fill`.
+
+**The cause.** afk's prompt says `gh issue view <n> --comments`; the Firetower server has no
+`gh` and no GitHub credentials.
+
+**What was done about it (2026-10-12).** `ftd.py` appends the ticket and its comments
+(`gh issue view` run on the host, `.afk/<n>.body` if that fails) to the prompt, saying it
+replaces `gh issue view` and not to look for credentials. Selftest checks the text is sent.
+
+---
+
+## 58 — Firetower costs counted about twice — fixed
+
+*2026-10-12 · satis · tranches 1 and 2*
+
+**What was seen.** The summaries add up to $180.00 over 46 tickets; the sessions' own last
+`costUsd` add up to about $92.20. #19: three turns at 1.048, 1.320, 1.511 → reported 3.88
+for a real 1.51. `RUNS.md` carries the wrong totals.
+
+**The cause.** `TurnCompleted.usage.costUsd` is the session's running total (its `models`
+token counts grow the same way: turn 2 of #19 has 148 output tokens of its own and adds
+$0.27). `turn_cost()` summed it.
+
+**What was done about it (2026-10-12).** `turn_cost()` takes the largest, i.e. the last.
+Attempt 2 still reports the difference with `<n>-ft-cost`. Selftest: three cumulative turns
+cost the last one. Past `RUNS.md` lines are left as written.

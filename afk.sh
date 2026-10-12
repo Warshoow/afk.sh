@@ -552,7 +552,10 @@ Fresh session, no history.
   "already done".
 - You do not run the verification yourself: the orchestrator runs it after you.
   Running it means running it twice — and a session that yields its turn waiting for
-  it finishes without having committed.
+  it finishes without having committed. To check your work, run only the tests you
+  wrote or touched, in the foreground.
+- Never end your turn with a background command or a subagent still running: wait for
+  it in the same turn. What it finds after your turn ended may never reach the branch.
 - Other tickets may be running in parallel in other worktrees. You only look here, you
   touch no other branch.
 EOF

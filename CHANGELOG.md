@@ -10,6 +10,13 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **Firetower: a session is only finished once its subagents are.** `ftd.py` waited for the
+  first hand-back, so the review fixes of 5 tickets never reached their PR; the prompt now
+  also says not to end a turn with a task running (defect 56).
+- **Firetower sessions get their ticket.** The server has no `gh`: `ftd.py` puts the ticket
+  and its comments in the prompt (defect 57).
+- **Firetower costs no longer doubled.** `costUsd` is a running total, it was summed
+  (defect 58).
 - **`/afk-merge` deletes a remote builder's leftover branches.** `afk-base/<n>` and
   `feat/<n>-<k>` stayed on the remote after every Firetower ticket (defect 55).
 - **Firetower tickets: session time counted once, no negative cost.** The summary doubled
