@@ -1061,3 +1061,147 @@ ticket itself. Any repo is exposed; the open tickets then look like work still i
 
 **What was done about it.** `/afk-merge` step 3: once the gate is green after a merge,
 `gh issue close <ticket>` with a comment naming the landing branch and the PR.
+
+## 49 — Sessions run through Firetower write no decision journal — fixed
+
+*2026-10-11 · project-d1518ddc · #1 #2 #3 #7 #8 #9*
+
+**What was seen.** Two runs in a row, six tickets, not one `.afk/<n>-work.tsv`, neither in
+`.afk/` nor committed in a branch. The prompt does ask for it, at the host's absolute path
+(`.../.afk/9-work.tsv`). Each `.status` says `resume=Firetower session …`, and
+`<n>-<attempt>.json` only holds `total_cost_usd`: no `subtype`, no model, no context.
+
+**The cause.** Probable, not proven: the session runs in a Firetower workspace, where the
+host's `.afk/` path is not reachable, so the journal has nowhere to go and the session says
+nothing about it. Same root as the empty "Model" and "Context" columns: the Firetower path
+brings back less than the local `claude -p` one. The debrief loses what it reads first.
+
+**What is known of the path.** `ftd.py build` (`~/firetower-dispatch/ftd.py`) sends
+`AFK_PROMPT_FILE` unchanged, so the agent on the Firetower server gets the host's absolute
+path. When it hands back, `handoff()` commits and pushes from the server, then `build`
+fetches that branch and resets the worktree onto it. Git is the only thing coming back,
+and the server's checkout is a fresh clone with no `.afk/.gitignore`.
+
+**Proving it first.** Read one session's `GET /api/v1/sessions/<id>/conversation` (the id is
+in `.afk/<n>-ft-session`) and look for a write to `…/<n>-work.tsv`. No write at all = the
+session dropped the instruction. A write that failed or went to a server path = the
+cause above.
+
+**How to fix it.** On the builder side, not in afk: afk must not know about Firetower (see
+`AFK_BUILD_CMD` in CLAUDE.md), and the `afk-base/<n>` push already sits there.
+
+1. Before `create()`, `build` rewrites the journal path in the prompt to the relative
+   `.afk/<n>-work.tsv`: inside the server checkout, so it travels with the branch.
+2. After `git reset --hard FETCH_HEAD`:
+   `git show HEAD:.afk/<n>-work.tsv > <AFK_STATUS_FILE's dir>/<n>-work.tsv`, then
+   `git rm -q --cached .afk/<n>-work.tsv` and a local commit. afk pushes that commit
+   with the rest after a green gate (fast-forward). The PR diff no longer carries the
+   journal (defect 47), only the branch history does.
+3. Attempt 2 needs nothing more: the server still has the file, the session keeps
+   appending to it, and the fetch + reset drops step 2's local commit before redoing it.
+4. Missing file in the branch → no journal, no red, like for local sessions.
+
+On the afk side, optional: export `AFK_JOURNAL` (the absolute path) to the build command
+and list it in the README's table, so `build` does not have to find the path in the prompt
+with a regex that breaks the day `build_prompt` rewords that line.
+
+Not covered: the empty "Model" and "Context" columns. Same cause, but they need the
+`TurnCompleted` events' `usage` (already read for the cost) to carry the model and the
+context, which is still to be checked.
+
+**What was done about it (2026-10-12).** Builder side, `ftd.py` (firetower-dispatch
+`8cb1e0c`): the host path in the prompt becomes `.afk/<n>-work.tsv` with an instruction to
+commit it; after the fetch, `build()` copies the journal to the host's `.afk/` and takes it
+out of the branch with a local commit. Proven on satis waves 5 to 8: every Firetower ticket
+brought its journal back. The journal stays in the branch history (added, then removed).
+
+## 51 — Every parallel ticket edits CONTEXT.md, so every one but the first conflicts at merge — fixed
+
+*2026-10-12 · satis · wave 7*
+
+**What happened.** 4 tickets of one milestone, each told to keep `CONTEXT.md` up to date. The
+integration step merged the first and set aside the other 3, all on `CONTEXT.md` alone (one
+also on `_layout.tsx` and `remaining.ts`). At merge each branch needed `develop` merged in by
+hand, the conflict resolved, then a fresh CI run: ~3 extra CI waits for documentation lines.
+The conflicting text was also stale: notes like "`journal_entries` does not exist yet (A20)"
+written in parallel with A20 itself.
+
+**How to fix it.** Either one section per criterion appended at the end of `CONTEXT.md` (git
+still conflicts on two appends at the same spot), or have the session write its notes to a
+per-ticket file the merge step folds in, or let `/afk-merge` resolve `CONTEXT.md`-only
+conflicts itself (keep both sides, drop notes that a landed ticket made false) before giving up.
+
+**What was done about it (2026-10-12).** `afk.sh` writes `CONTEXT.md merge=union` and
+`CONTEXT-MAP.md merge=union` into the common `.git/info/attributes`: stacking, the
+integration pass and every local merge keep both sides' lines instead of stopping. GitHub's
+own merge does not read it, so `/afk-merge` step 3 merges the landing branch into a
+PR that conflicts on those files only, locally, then rereads the result for notes a landed
+ticket made false. The harness checks the attribute.
+
+## 52 — A Firetower session stuck in NeedsYou with nothing pending turns a healthy ticket red — fixed
+
+*2026-10-12 · satis · wave 8 · #39*
+
+**What was seen.** #39 went `ko` / `build` after 94 s, no commit, no journal:
+`AFK_BUILD_CMD: session needs you but nothing is pending`. The Firetower session
+(`.afk/39-ft-session`) still reads `NeedsYou` hours later. Its whole conversation (176
+events) holds no `RequestOpened` and no `UserInputRequested`: the last events are two
+`Bash` calls, the first `ItemCompleted … Failed`, the second never completed. #40 froze
+behind it. The ticket did nothing wrong; it never got to start.
+
+**The cause.** Firetower set the status to `NeedsYou` (most likely a permission prompt on
+the second `Bash`) without writing the request event to the conversation. `ftd.py step()`
+finds nothing to answer and `sys.exit`s, which afk reads as a build failure. Note also that
+`pending_request()` only reads `?tail=5`: a request followed by more than four events would
+be missed the same way, even when Firetower does write it.
+
+**What to do.** Builder side (`~/firetower-dispatch/ftd.py`), not afk: read the whole
+conversation instead of `tail=5`; when `NeedsYou` has nothing pending, wait and re-read a
+few times, then send a turn ("go on, nobody can approve; find another way") before giving
+up. Report the missing event to Firetower. Relaunched #39 as-is.
+
+**What was done about it (2026-10-12).** `ftd.py` (firetower-dispatch `c4934b1`): `step()`
+re-reads the last 200 events for a minute, then raises `Stuck`; `build()` stops the session
+(`POST /sessions/<id>/stop`; a turn does not unblock it, and a turn after the stop leaves it
+`Failed`) and starts a new one from the same HEAD with the same prompt, once. Stuck twice
+still exits nonzero. The missing event itself is Firetower's, not reported upstream yet.
+
+## 53 — `/afk-merge --delete-branch` closes the stacked PR instead of retargeting it — fixed
+
+*2026-10-12 · satis · wave 8 · PR #41 → #42*
+
+**What was seen.** PR #42 (`feat/38`, base `feat/37`) waited on #41. `gh pr merge 41
+--merge --delete-branch` deleted `feat/37`, and GitHub **closed** #42 rather than moving
+it to `develop`. A closed PR cannot change base. Fixed by hand: push `feat/37` back from the
+merge's second parent, reopen #42, `gh pr edit 42 --base develop`, delete `feat/37` again.
+The new base also reran CI, and #42 was merged while it was still pending.
+
+**The cause.** GitHub only retargets dependants when the branch is deleted by its own
+"auto-delete head branches" setting; a deletion through the API (what `gh --delete-branch`
+does) just closes them. `/afk-merge` step 3 prescribes `--delete-branch` on stacked chains.
+
+**What to do.** In `/afk-merge`: before merging a blocker, `gh pr edit <dependant> --base
+$base` for each PR whose base is the blocker's branch; or merge without `--delete-branch` and
+delete the branches once the whole chain has landed.
+
+**Seen first** *2026-10-12 · satis · wave 5*
+
+**What happened.** #23 and #24 were stacked on `feat/19` (PR base = `feat/19`). `/afk-merge`
+ran `gh pr merge 22 --merge --delete-branch`. GitHub did not retarget them to `develop`: it
+closed both, and a closed PR's base can no longer be edited.
+
+**Repair used.** Push the blocker's old head back (`git push origin <sha>:refs/heads/feat/19`),
+`gh pr reopen`, `gh pr edit --base <landing branch>`, then delete the branch again. CI
+re-ran on both.
+
+**How to fix it.** In `/afk-merge` step 3: before merging a blocker, `gh pr edit <dependant>
+--base <landing branch>` for every PR whose base is the blocker's branch, or merge the
+blocker without `--delete-branch` and delete it after its dependants are merged.
+
+**Again** *2026-10-12 · satis · wave 7*: PR #36 (base `feat/30`) closed the same way when #33
+merged. Same repair (pushed `develop` as `feat/30` to reopen, since #33 was already in it).
+
+**What was done about it (2026-10-12).** `/afk-merge` step 3 retargets the PRs based on the
+blocker's branch onto the landing branch (`gh pr edit --base`) before `gh pr merge
+--delete-branch`. This entry was first filed as a second "50" by a merge session that only
+read `defects.md`; step 5 now says the next number counts the archive too.

@@ -238,6 +238,9 @@ grep -qx 'network prune -f --filter label=com.docker.compose.project=1' "$T/dock
   grep -qx 'network prune -f --filter label=com.docker.compose.project=base' "$T/docker.log" &&
   echo "  ✓ compose networks pruned after the gate" || { echo "  ✗ compose networks left behind"; fail=1; }
 
+[[ "$(git check-attr merge CONTEXT.md)" == "CONTEXT.md: merge: union" ]] &&
+  echo "  ✓ CONTEXT.md merges as a line union" || { echo "  ✗ CONTEXT.md has no union merge"; fail=1; }
+
 grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ summary written" || { echo "  ✗ summary missing or wrong"; fail=1; }
 grep -qE '\| 0m[0-9]{2}s \|' "$T/repo/.afk/summary.md" &&

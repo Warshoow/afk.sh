@@ -6,6 +6,19 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-10-12
+
+### Fixed
+
+- **`CONTEXT.md` no longer stops every parallel branch but the first.** afk sets
+  `CONTEXT.md` and `CONTEXT-MAP.md` to `merge=union` in the local `.git/info/attributes`,
+  so stacking and the integration pass keep both sides' lines; `/afk-merge` resolves a PR
+  that conflicts on those files alone by merging the landing branch in locally (defect 51).
+- **`/afk-merge` retargets stacked PRs before deleting their base branch.** GitHub closed
+  them instead of moving them to the landing branch (defect 53).
+- **Defect numbers count the archive.** `/afk-merge` reused a number already in
+  `docs/defects-fixed.md`.
+
 ## 2026-10-11
 
 ### Fixed

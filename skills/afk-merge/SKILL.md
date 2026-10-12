@@ -58,11 +58,23 @@ blocker brings the other one's work in through a merge that does not say so.
 
 ```bash
 grep -h '^base_ref=' .afk/*.status        # the chain, ticket by ticket
+# before merging a blocker: move the PRs stacked on its branch onto $base
+gh pr list --base <blocker branch> --json number -q '.[].number' |
+  xargs -r -I{} gh pr edit {} --base "$base"
 gh pr merge <n> --merge --delete-branch   # in order: blocker first
 ```
 
 `--merge`, not `--squash`: a squash rewrites the blocker's commits, and the dependant
 brings them back a second time.
+
+The retarget comes first because `--delete-branch` deletes the branch through the API,
+and GitHub then **closes** the PRs based on it instead of moving them; a closed PR's base
+can no longer be changed (defect 53).
+
+A PR that GitHub says conflicts, on `CONTEXT.md` or `CONTEXT-MAP.md` only: merge `$base`
+into its branch locally and push. afk sets those files to `merge=union` in
+`.git/info/attributes`, so git keeps both sides' lines (defect 51); then reread the merged
+file and drop the notes a landed ticket made false ("X does not exist yet").
 
 **After each merge**, the gate on `$base` (`git pull -q` first: the merge happened on GitHub):
 
@@ -126,7 +138,9 @@ gh issue edit <n> --add-label ready-for-human --remove-label ready-for-agent
 ```
 
 And record in afk's `docs/defects.md` whatever would have broken the same way on any
-repo — `/afk-debrief` says which ones. Nothing to record is the normal case.
+repo — `/afk-debrief` says which ones. Nothing to record is the normal case. The next
+number is the highest one in `docs/defects.md` **and** `docs/defects-fixed.md` plus one,
+and a defect already there gets an "Again" paragraph, not a new number.
 
 ## 6 — The milestone
 

@@ -373,6 +373,15 @@ memory_present() {
 }
 memory_present || echo "⚠  no CONTEXT.md, no CONTEXT-MAP.md, no docs/adr/ — the agents will have no project memory"
 
+# Every parallel ticket appends to the glossaries, so every branch but the first conflicts
+# on them when stacked, integrated or merged (defect 51). A line union keeps both sides.
+# Local only: info/attributes lives in the common git dir, shared by every worktree, and
+# never reaches the repo. GitHub's own merge button does not read it.
+MERGE_ATTR="$(git rev-parse --git-common-dir)/info/attributes"
+grep -qsx 'CONTEXT.md merge=union' "$MERGE_ATTR" || {
+  mkdir -p "${MERGE_ATTR%/*}"
+  printf '%s\n' 'CONTEXT.md merge=union' 'CONTEXT-MAP.md merge=union' >> "$MERGE_ATTR"; }
+
 (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && ! command -v flock >/dev/null && {
   echo "⚠  flock missing: verifications will run in parallel (shared Postgres and ports)"; }
 
