@@ -1315,3 +1315,27 @@ $0.27). `turn_cost()` summed it.
 **What was done about it (2026-10-12).** `turn_cost()` takes the largest, i.e. the last.
 Attempt 2 still reports the difference with `<n>-ft-cost`. Selftest: three cumulative turns
 cost the last one. Past `RUNS.md` lines are left as written.
+
+---
+
+## 61 — "No commit" blamed the base when the ticket's own gate failed on it — fixed
+
+*2026-10-12 · satis · tranche 3*
+
+**What was seen.** #109, attempt 1: the Firetower session read the code for 81 s, wrote its
+journal, said "Writing the journal (seams) now, then the failing test." and ended its turn
+without a single edit. afk printed "✗ no commit — the agent produced nothing (and the base
+is not green)", although the run had checked the base green a few minutes earlier.
+Attempt 2 (the same session, sent the gate log) did the work: green, PR #111.
+
+**The cause.** On "no commit", afk runs the ticket's gate on the base to tell "absorbed"
+from "not done". That gate is the ticket's `Verify:` line, whose tests the ticket has to
+write: it fails on any base without the work, so "not green" only means "not done". The
+message said the base was broken, and `/afk-debrief`'s table sent the reader to fix it.
+
+**What was done about it (2026-10-12).** The message says the ticket's gate still fails on
+the base and work remains; `<n>-fail.txt` says the same. `/afk-debrief`'s "no commit" row
+reads `.afk/base-verify.txt` before blaming the base, and otherwise points to a session that
+stopped early (turn ended announcing its next step, or a refusal, defect 60). A turn ending
+before any edit still costs an attempt: Firetower sees edits made through Bash as commands,
+so ftd cannot tell it apart from a session with nothing left to do.

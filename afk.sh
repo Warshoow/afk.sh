@@ -968,8 +968,11 @@ worker() {
           "$verify" "${base#origin/}")" >/dev/null 2>&1
         return
       fi
-      echo "  ✗ no commit — the agent produced nothing (and the base is not green)"
-      { printf 'no commit produced (rc=%s). Gate on the base:\n\n' "$rc"
+      # Defect 61: this said "the base is not green", and /afk-debrief read it as a broken
+      # base. The base was checked green before the run; what fails here is the ticket's own
+      # gate, which fails on any base the work is not on yet: the ticket is simply not done.
+      echo "  ✗ no commit — the agent produced nothing (the ticket's gate still fails on the base: work remains)"
+      { printf 'no commit produced (rc=%s). The ticket'"'"'s gate on the base, still failing:\n\n' "$rc"
         tail -n 40 "$AFK_DIR/$ticket-verify.txt"; } > "$AFK_DIR/$ticket-fail.txt"
       continue
     fi
