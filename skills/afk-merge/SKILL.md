@@ -94,6 +94,17 @@ repo's default branch, and `$base` usually is not it:
 gh issue close <ticket> --comment "Landed on $base by PR #<pr>."
 ```
 
+Then delete what a remote builder (`AFK_BUILD_CMD`) left on the remote for this ticket:
+the `afk-base/<ticket>` it pushed to start from, and its own branch `feat/<ticket>-<k>`
+that afk copied into `feat/<ticket>`. Only those already contained in `$base`:
+
+```bash
+git fetch -q origin
+for b in $(git ls-remote --heads origin "afk-base/<ticket>" "feat/<ticket>-*" | sed 's#.*refs/heads/##'); do
+  git merge-base --is-ancestor "origin/$b" "origin/$base" && git push -q origin --delete "$b"
+done
+```
+
 ## 4 — Checking off
 
 For each unchecked criterion of the current milestone, its command, on `$base`, exactly as

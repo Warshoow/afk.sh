@@ -1233,3 +1233,26 @@ cost and a session longer than its ticket make the whole table look untrustworth
 path, which returns before the shared line; `harness.sh` checks `t_session` is written once.
 `ftd.py` deletes `<n>-ft-cost` on attempt 1, since attempt 1 always opens a new session; its
 selftest plants a stale file first.
+
+---
+
+## 55 — A Firetower run leaves two remote branches per ticket — fixed
+
+*2026-10-12 · satis · tranche 2*
+
+**What was seen.** After the tranche 2 runs, the remote held `afk-base/75`, `afk-base/76`,
+`afk-base/85`, `afk-base/86`, `feat/83-2`, `feat/84-2` (and earlier `feat/39-2`,
+`feat/57-2`), every one already contained in `develop`.
+
+**The cause.** `ftd.py` pushes `afk-base/<n>` when the worktree's HEAD is not the base (a
+stacked ticket), so that Firetower can cut from it, and Firetower pushes its work to its own
+branch (`feat/<n>-2` when `feat/<n>` exists). afk copies that work into `feat/<n>` and opens
+the PR from there; `gh pr merge --delete-branch` deletes `feat/<n>` only. Nothing ever
+deleted the other two. Deleting them in `ftd.py` right after the build would break attempt
+2, which goes on in the same session, on the same branches.
+
+**What was done about it (2026-10-12).** `/afk-merge` step 3, once a ticket has landed,
+deletes `afk-base/<ticket>` and `feat/<ticket>-*`, each only if `git merge-base
+--is-ancestor` says it is already in the landing branch. Tried on two throwaway branches
+pointing at `develop`: both deleted.
+

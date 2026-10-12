@@ -10,6 +10,8 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **`/afk-merge` deletes a remote builder's leftover branches.** `afk-base/<n>` and
+  `feat/<n>-<k>` stayed on the remote after every Firetower ticket (defect 55).
 - **Firetower tickets: session time counted once, no negative cost.** The summary doubled
   the session time on the `AFK_BUILD_CMD` path, and a ticket rebuilt after an interrupted
   run reported its new session's cost minus the old one's (defect 54).
