@@ -16,7 +16,8 @@ else, and it writes the only judge the loop will ever have.
 ## The rule that holds up all the rest
 
 **`docs/spec.md` is written here and never changes again.** The later waves are only
-allowed to check boxes — not to add, not to reword, not to remove a criterion.
+allowed to check boxes — not to add, not to reword, not to remove a criterion. If the spec
+turns out wrong after the tag, a human fixes it, re-tags, and says so.
 
 Otherwise the loop declares itself the winner all by itself: whoever writes the criteria
 and whoever fills them are the same model. It is the only failure mode that shows up
@@ -35,10 +36,10 @@ on its own. A loop over fifty criteria spends its nights piling up code nobody r
 
 The most boring one that holds. Two constraints, in this order:
 
-- **the gate runs with no external service.** Each ticket runs in a throwaway worktree:
-  a live Postgres, a Redis, a `docker compose` and every ticket dies red for a reason
-  that is not its own. File-backed SQLite, in-memory server, fake client — it is a wave-0
-  decision, not a detail.
+- **the gate needs no service already running.** Each ticket runs in a throwaway
+  worktree: a Postgres or a Redis started by hand, and every ticket dies red for a reason
+  that is not its own. File-backed SQLite, in-memory server, fake client, or a service the
+  gate starts itself (`docker compose run --rm`) — it is a wave-0 decision, not a detail.
 - **the model knows it without looking things up.** A niche stack costs one documentation
   session per ticket, every night.
 
@@ -131,9 +132,10 @@ In this order, each one a prerequisite for the next:
 Without the first, `afk.sh` refuses to start. Without the second, the gate will be a pnpm
 monorepo's.
 
-The first writes `docs/agents/triage-labels.md` but does not always create the labels on
-GitHub, and `/afk-wave`'s `gh issue create -l ready-for-agent` fails on a missing label.
-Create those the repo lacks:
+Before mattpocock-skills 1.3, the first writes `docs/agents/triage-labels.md` without
+always creating the labels on GitHub, and `/afk-wave`'s `gh issue create -l
+ready-for-agent` fails on a missing label. Create those the repo lacks, whatever the
+version:
 
 ```bash
 for l in needs-triage needs-info ready-for-agent ready-for-human wontfix; do gh label create "$l" 2>/dev/null; done
@@ -178,8 +180,3 @@ whole loop — after it, nobody reviews anything before you wake up.
 What matters in that review: does the list of criteria, once all checked, describe the
 app you wanted? If not, it is now, not in three waves. Once approved, the next step is
 `/afk-wave`.
-
-## Guardrail
-
-**After the tag, `docs/spec.md` is only ever changed by a human**: if the spec is wrong,
-they fix it, re-tag, and say so.

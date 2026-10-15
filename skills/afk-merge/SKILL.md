@@ -9,8 +9,7 @@ disable-model-invocation: true
 The run is over. This skill lands what holds, leaves the rest outside, and decides the
 loop's only question: **do we launch one more wave?**
 
-It does not diagnose the reds — `/afk-debrief` does that, better, and without redoing it
-here. This skill decides; the other one explains.
+This skill decides; `/afk-debrief` explains the reds (step 5 calls it).
 
 ## The rule
 
@@ -44,7 +43,7 @@ A ticket lands if **all three** are true:
 
 | | where it is written |
 |---|---|
-| `GREEN` in the summary (not `OK` — `OK` contains the unproven greens) | `.afk/summary.md` |
+| "Result" column `ok` or `ok ⚠` — not `unproven green`, `draft`, `… / CI red` | `.afk/summary.md` |
 | the PR is not a draft | `grep '^draft=' .afk/<n>.status \| tail -1` |
 | the PR's CI is green | `gh pr checks <n>` |
 
@@ -52,6 +51,13 @@ An `unproven green` (local gate shrunk **and** CI inconclusive) does not land: n
 the complete gate. It goes out as `ready-for-human`.
 
 ## 3 — Merging, in base order
+
+afk stacks: a blocked ticket's branch starts from its blocker's. Merging it before its
+blocker brings the other one's work in through a merge that does not say so. The chain:
+
+```bash
+grep -h '^base_ref=' .afk/*.status
+```
 
 First, decide whether the gate needs to run between merges. The run's integration pass
 already ran the complete gate on its branches merged together, and wrote the content it
@@ -77,11 +83,9 @@ git worktree remove --force .afk/wt/_trial
 - `DIFFERENT`, `CONFLICT`, or no `.afk/green.tree` (a green ticket held back, an
   integration pass red or skipped) → the gate after each merge, as below.
 
-afk stacks: a blocked ticket's branch starts from its blocker's. Merging it before its
-blocker brings the other one's work in through a merge that does not say so.
+Then merge, blocker first:
 
 ```bash
-grep -h '^base_ref=' .afk/*.status        # the chain, ticket by ticket
 # before merging a blocker: move the PRs stacked on its branch onto $base
 gh pr list --base <blocker branch> --json number -q '.[].number' |
   xargs -r -I{} gh pr edit {} --base "$base"
@@ -170,8 +174,7 @@ on a sentence of the spec.
 /afk-debrief
 ```
 
-Do not redo its work. What you need from it is one thing per red: **ticket or
-environment**.
+What you need from it is one thing per red: **ticket or environment**.
 
 - environment (wrong gate, red base, `setup`, push refused) → the ticket starts again
   as-is on the next wave, after the fix it points at
@@ -181,10 +184,7 @@ environment**.
 gh issue edit <n> --add-label ready-for-human --remove-label ready-for-agent
 ```
 
-And record in afk's `docs/defects.md` whatever would have broken the same way on any
-repo — `/afk-debrief` says which ones. Nothing to record is the normal case. The next
-number is the highest one in `docs/defects.md` **and** `docs/defects-fixed.md` plus one,
-and a defect already there gets an "Again" paragraph, not a new number.
+`/afk-debrief` records afk's own defects itself (its step 7).
 
 ## 6 — The milestone
 
@@ -207,7 +207,7 @@ report. The report says which case holds, so the morning reads the same verdict:
 "The wave went badly" is not a stop: one red wave in three is the normal regime, and the
 next one re-slices smaller.
 
-In every other case the report says `Next: /afk-wave`. Do not run it: the loop does.
+In every other case the report says `Next: /afk-wave`, which the loop runs.
 
 ## 8 — Reporting
 

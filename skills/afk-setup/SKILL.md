@@ -46,7 +46,7 @@ one demanding a live Postgres, protects nothing: it fails healthy tickets.
 |---|---|---|
 | **`test` in watch mode** (`vitest`, `jest --watch`, `nodemon`) | the ticket dies on a 45-minute `TIMEOUT`, every time | take `test:run`, or add `--run` / `--watchAll=false` |
 | **No lockfile at the root** (monorepo in two halves, Python repo) | `SETUP_CMD="auto"` installs nothing, the fresh worktree has no dependencies | declare `SETUP_CMD` explicitly |
-| **Gate requiring a service** (Postgres, Redis, docker compose) | red in a throwaway worktree, for nothing | exclude it from the global gate; the tickets concerned will carry their own `Verify:` line |
+| **Gate needing a service already running** (a Postgres, a Redis started by hand) | red in a throwaway worktree, for nothing | have the gate start it itself (`docker compose run --rm …`: afk runs one gate at a time, `VERIFY_LOCK`, and prunes its networks), or leave it out of the global gate and give the tickets concerned their own `Verify:` line |
 | **No tests in the repo** | "green" means nothing | offer at least a typecheck / a compile, and say so plainly |
 | **Indispensable gitignored files** (`.env` outside the known paths) | verification fails in the worktree for an off-topic reason | add the paths to `SEED_GLOBS` |
 
@@ -68,7 +68,7 @@ timeout 180 bash -c '<the proposed command>'; echo "rc=$?"
 
 ## 5 — Propose, then write
 
-Show the proposed `.afk.env` and **wait for approval**. Do not write it unprompted.
+Show the proposed `.afk.env` and **wait for approval** before writing it.
 
 ```bash
 # .afk.env — verification gate for afk.sh
@@ -82,7 +82,7 @@ One comment per line, saying **why** — especially when you have ruled somethin
 The file is versioned: it will be reread in six months by someone who does not have
 this context.
 
-Then say it should be committed, **do not commit yourself**.
+Then tell the user to commit it: the commit is theirs.
 
 ## Variables
 
@@ -95,8 +95,11 @@ README's "Usage" section, next to `afk.sh`: read them there, not from memory.
 | `SETUP_CMD` | no root lockfile, or non-JS dependencies |
 | `SEED_GLOBS` | indispensable gitignored files elsewhere |
 | `MEMORY_RE` | ADR/glossary conventions filed differently |
+| `INTEGRATION_VERIFY_CMD` | the gate caches its results (`turbo`, `nx`, `pytest` cache): put the uncached form here, run once per run on the merged branches |
+| `AFK_BUILD_CMD` | the tickets are built somewhere else than a local `claude -p` (contract in the README, "Building elsewhere") |
 | `TIMEOUT` | repo where tickets are systematically heavier |
 | `JOBS` | never here — it is a run decision, not a project one |
 | `CLAUDE_CONFIG_DIR` | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |
 
-`BASE_BRANCH` is deduced from the remote: do not touch it without a reason.
+`BASE_BRANCH` defaults to the remote's default branch. A repo prepared by `/afk-spec`
+already sets it to the landing branch; keep that value.

@@ -17,11 +17,8 @@ seeded, the model unavailable. Sorting that out is the whole job.
 cat .afk/summary.md
 ```
 
-No file → no run made it to the end; go to `.afk/<n>.out`.
-
-Columns: result, PR, attempt, model, context, cost, duration. Below the table:
-integration verdict, gates used, green rate on the 1st attempt, and the resume commands
-for the reds.
+No file → no run made it to the end; go to `.afk/<n>.out`. The file's own legend explains
+its columns.
 
 ## 2 — Read the run before the tickets
 
@@ -37,7 +34,7 @@ once:
 | **"Model" column ≠ the requested model, without `(+N subagents)`** | `FALLBACK_MODEL` kicked in: the main one was unavailable. Last night's greens ran on the backup model, read them more closely |
 | **"Model" column with `(+N subagents)`** | the session spawned N subagents; they carry the model of their definition (`.claude/agents/*.md`) and not the ticket's. One extra model comes from them, not from a fallback — and part of the cost too (defect 41) |
 | **"Context" column close to the window** | ticket too big, even green. It is the thermometer of the slicing, not a quality grade |
-| **"the base was already red before the run"** | the gate was failing on `origin/<base>` before any ticket ran. Open `.afk/base-verify.txt` **before** judging a red: a ticket whose `<n>-fail.txt` names the same failure is not to blame, and relaunches as-is once the base is fixed |
+| **"the base was already red before the run"** | the gate was failing on `origin/<base>` before any ticket ran. Open `.afk/base-verify.txt` **before** judging a red: a ticket whose `<n>-fail.txt` names the same failure is not to blame, and relaunches as-is once the base is fixed. A `base-verify.txt` starting `not rerun:` means green: the base had the content of the last complete gate that passed |
 | **"no CI on this repo"** | the local gate is the only one that ran for the whole run. If it was replaced on some tickets, those had no complete gate at all — the line names them |
 
 And one warning: **a 100% green rate means nothing if the gate verifies nothing.** The
@@ -59,12 +56,14 @@ cat .afk/<n>.out             # the orchestrator's trace for this ticket
 | `ko` / `setup` | `<n>-setup.log` | the install failed **in the worktree**: no lockfile at the root, an indispensable gitignored file not seeded | fix `SETUP_CMD` or `SEED_GLOBS` in `.afk.env`, then relaunch the ticket |
 | `ko` / `verify` | `<n>-fail.txt` (last failure kept) | to be decided: wrong gate or real failure — see step 5 | depending on the verdict |
 | `ko` / `pr` | `<n>.out` | a PR is already open on this branch | close the PR, or close the ticket |
+| `ko` / `build` | `<n>-<attempt>-build.err`, and the summary's `resume=` line | the build command (`AFK_BUILD_CMD`) exited nonzero; its last stderr line is the reason. No second attempt | fix on the build command's side, then relaunch as-is |
+| `conflict` | `<n>-wt.err` | stacking its blockers' branches conflicted, before any session | serialise the blockers, or resolve by hand and relaunch |
 | `ko`, no commit | `<n>-verify.txt` | the agent produced nothing, on every attempt, and the ticket's gate fails on the base (so nothing absorbed it). The base itself is broken only if the summary says so (`.afk/base-verify.txt`); otherwise the session stopped early: it ended its turn announcing its next step, or refused | base red: fix it first, the whole batch depends on it. Otherwise read the session's last message and relaunch as-is |
 | `draft` / `cut` | the PR itself | the `timeout` fired: the session may have been cut **in the middle of a file** | reread it in full before leaving draft, and see whether the ticket deserves a `Timeout:` line |
 | `draft` / `abnormal` | the PR + `<n>-<attempt>.json` | the session stopped between two actions, `subtype` says which | reread; the work present compiles, its completeness is not guaranteed |
 | `draft` / `not committed` | the PR itself | the orchestrator caught up a working tree the agent had not committed | the work is there; check the commit message, it carries the ticket title and not the repo's format |
 | `unproven green` | the summary | local gate replaced (`Verify:`) **and** CI inconclusive: nothing ran the complete gate | rerun CI, or run the complete gate by hand on the branch |
-| `push refused` | `<n>-push.txt` | the remote refused the branch (token without the `workflow` scope, branch already there). The work is complete and green locally | push by hand from the kept worktree; **do not** relaunch the ticket, the session would redo the same work |
+| `push refused` | `<n>-push.txt` | the remote refused the branch (token without the `workflow` scope, branch already there). The work is complete and green locally | push by hand from the kept worktree — that is the whole fix: a relaunch would redo the same work |
 | `frozen` | `<n>.out` | its blocker was not delivered — or the session itself said a prerequisite was missing from its base (`result=frozen`, the reason is in a comment on the issue and in `<n>-<attempt>.json`) | nothing to do about it: deliver what is missing and it will start. The label has not moved |
 | `absorbed` | the comment left on the issue | nothing to do, the base was already green: a predecessor had delivered its content | check then close the ticket |
 | `/ CI red` | `<n>-ci.txt` | the local gate was green, the repo's CI was not: the local gate is narrower than CI | widen `VERIFY_CMD`, or the ticket's `Verify:` line |
@@ -123,7 +122,7 @@ gate, not the ticket: the worktree does not have what it needs, or the gate is w
 the scope. It complains about files **from the list** → real failure, and `<n>-fail.txt`
 says which one.
 
-Do not reset the worktree onto the base to decide: that destroys the state of the
+Decide in the worktree as it is: resetting it onto the base destroys the state of the
 failure, which is exactly what you came to read.
 
 ## 6 — Decide, then propose
@@ -138,8 +137,7 @@ Then the actions, ready to paste — the exact label names are in
 gh issue edit <n> --add-label <ready-for-agent> --remove-label <ready-for-human>
 ```
 
-And when a ticket has to be re-sliced, say so explicitly: that is `/to-tickets`'s job,
-not this skill's.
+A ticket to re-slice gets named as such; `/afk-preflight` step 5 cuts it.
 
 **Propose, wait for approval, relabel nothing unprompted.** A ticket put back to
 `ready-for-agent` starts again the next night: it is a run decision.
@@ -167,8 +165,10 @@ An afk defect is recognised by one thing: the trace blames the wrong culprit. A 
 ticket marked red, a freeze with no real blocker, a green that compiled nothing, a ticket
 burning its attempts for a reason that is not its own.
 
-Next number, verdict in the title (**fixed** if you already have the fix, **open**
-otherwise), and three paragraphs: what was seen, the cause, what was done about it.
+Next number — the highest in `docs/defects.md` **and** `docs/defects-fixed.md`, plus one;
+a defect already there gets an "Again" paragraph, not a new number. Verdict in the title
+(**fixed** if you already have the fix, **open** otherwise), and three paragraphs: what
+was seen, the cause, what was done about it.
 An entry is written in `docs/defects.md`, which only keeps the live defects; a **fixed**
 defect goes into `docs/defects-fixed.md`, and one that a later fix closes moves there
 as-is, keeping its number.
@@ -176,8 +176,7 @@ Then **show the entry you wrote**. Unlike tickets and PRs, you do not wait for a
 on this one: a defect that is not recorded comes back, and gets re-diagnosed from
 scratch.
 
-Nothing to record is the normal case. Do not fill the register for the sake of filling
-it.
+Nothing to record is the normal case.
 
 ## 8 — Cleanup
 
@@ -187,5 +186,4 @@ Red worktrees are kept on purpose. Once the ticket is understood:
 git worktree remove --force .afk/wt/<n>
 ```
 
-Do not delete them before you have concluded — they contain the exact state of the
-failure, `node_modules` included.
+Until then they hold the exact state of the failure, `node_modules` included.
