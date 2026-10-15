@@ -176,13 +176,10 @@ Show the spec and the stack, **wait for approval**. It is the only stopping poin
 whole loop — after it, nobody reviews anything before you wake up.
 
 What matters in that review: does the list of criteria, once all checked, describe the
-app you wanted? If not, it is now, not in three waves.
+app you wanted? If not, it is now, not in three waves. Once approved, the next step is
+`/afk-wave`.
 
-## What this skill does not do
+## Guardrail
 
-- It does not run `afk.sh` and opens no ticket: that is `/afk-wave`, once the spec is
-  approved.
-- It writes no application code — only the skeleton that makes A0 pass.
-- It does not put in the spec what no command judges.
-- It never comes back to `docs/spec.md` after the tag. If the spec is wrong, that is a
-  human decision: fix it, re-tag, and say so.
+**After the tag, `docs/spec.md` is only ever changed by a human**: if the spec is wrong,
+they fix it, re-tag, and say so.

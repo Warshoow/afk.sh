@@ -140,7 +140,8 @@ done
 ## 4 — Checking off
 
 For each unchecked criterion of the current milestone, its command, on `$base`, exactly as
-written in the spec:
+written in the spec. `timeout 300`, longer than the 180 s that prove a command in
+`/afk-setup`: this is the real run on the whole landed wave, not a quick proof.
 
 ```bash
 timeout 300 bash -c '<the criterion command>'; echo "rc=$?"
@@ -219,15 +220,11 @@ Out    : #61 — the gate on the landing branch breaks after merging, revert don
 Next   : /afk-wave (milestone 2)
 ```
 
-## What this skill does not do
+## Guardrails
 
-- **It never merges into `master`.** The landing branch only. The last merge is a human decision, and
-  it is the only thing left to be one.
-- **It checks off no criterion whose command it has not run itself.**
-- **It does not modify the text of `docs/spec.md`** — only `[ ]` into `[x]`. A criterion
-  that turns out to be impossible is flagged in the report and stops the loop; it does
-  not get rewritten.
-- It opens no ticket: that is `/afk-wave`.
-- It does not review the greens' code. The gate and CI are what we have; widening them
-  is a `.afk.env` change, not an end-of-wave judgement.
-- It does not relaunch `afk.sh`.
+- **Merge into the landing branch only, never into `master`.** The last merge is a human
+  decision, and it is the only thing left to be one.
+- **Check off only what you ran**: a box moves on the return code of a command you ran
+  yourself, in step 4.
+- **The text of `docs/spec.md` stays as tagged** — only `[ ]` becomes `[x]`. A criterion
+  that turns out to be impossible is flagged in the report and stops the loop.

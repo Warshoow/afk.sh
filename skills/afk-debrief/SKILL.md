@@ -189,13 +189,3 @@ git worktree remove --force .afk/wt/<n>
 
 Do not delete them before you have concluded — they contain the exact state of the
 failure, `node_modules` included.
-
-## What this skill does not do
-
-- It merges no PR and does not review the greens' code: that is the review.
-- It does not relaunch `afk.sh`.
-- It relabels and closes no ticket without approval.
-- It does not conclude from a red that the ticket was bad: half the reds are gates, not
-  tickets.
-- It does not write the worked-on project's problems into `docs/defects.md`: that
-  register is about afk only, it is read from every project.

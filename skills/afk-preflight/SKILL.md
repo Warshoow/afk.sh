@@ -11,8 +11,8 @@ the night — and if it blocks the others, it costs their night too. This skill 
 the batch before the run and returns a list of corrections.
 
 `./afk.sh -n` already gives the whole mechanism: waves, bases, stacks, frozen, effective
-gate per ticket. **Do not redo it.** This skill judges the *content* of the tickets,
-which the script cannot do.
+gate per ticket. Read it from there; if you and the script disagree, the script is right.
+This skill judges the *content* of the tickets, which the script cannot do.
 
 ## 1 — Prerequisites
 
@@ -47,6 +47,9 @@ there are none, as `afk.sh` reads them: `/to-tickets` (mattpocock-skills 1.3+) l
 section out when it set the links.
 
 ## 4 — What to look for
+
+Every ticket of the batch against every row of this table. Done when each pair has a
+verdict — most are "does not apply", and that is still a verdict.
 
 | What you see | What will happen | Fix |
 |---|---|---|
@@ -127,14 +130,8 @@ Two tickets never get the same one.
 
 ## 6 — Prove every `Verify:` line before proposing it
 
-Non-negotiable, same rule as `/afk-setup`: an untested gate is an invented gate.
-
-```bash
-timeout 180 bash -c '<the command from the Verify: line>'; echo "rc=$?"
-```
-
-`rc=124` = it never returns (`vitest` without `--run`, `jest --watch`): the ticket will
-die on `TIMEOUT` for a reason that has nothing to do with it.
+Prove each one by the rule of `/afk-setup` step 4 (`../afk-setup/SKILL.md`): `timeout 180`,
+then read `rc` there — `rc=124` is the watch trap.
 
 Prove the command the script will **actually** run, not the one the ticket looks like it
 writes: `./afk.sh -n` prints it, extracted. Two forms pass — the bare command, and the
@@ -153,22 +150,23 @@ gh issue edit <n> --body-file -    # corrected body
 gh issue edit <n> --remove-label <ready-for-agent>   # take it out of the batch
 ```
 
-**Propose, wait for approval, edit nothing unprompted.** A ticket body is trust surface:
-its `Verify:` and `Timeout:` lines are executed as-is by the run.
+What happens to them depends on how you were invoked:
 
-Finish with the launch command suited to the batch, without running it:
+- **`/afk-preflight`** (a human): propose, and wait for approval before any edit, label,
+  ticket created or closed. A ticket body is trust surface: its `Verify:` and `Timeout:`
+  lines are executed as-is by the run. An uncheckable criterion gets a proposed wording;
+  the human decides. Finish with the launch command suited to the batch, for the human
+  to run:
 
-```bash
-nohup ./afk.sh -j 3 43 48 49 &
-```
+  ```bash
+  nohup ./afk.sh -j 3 43 48 49 &
+  ```
 
-## Apply mode — `/afk-preflight apply`
+- **`/afk-preflight apply`** (only `afk-app.sh`'s loop, where nobody is awake to approve
+  a table): apply the fixes yourself, within the limits of the next section, then give
+  the table anyway.
 
-Invoked with the word `apply`, and only there. `afk-app.sh` uses it inside the wave loop,
-where nobody is awake to approve a table: a session that proposes and waits changes
-nothing and has burned the night's first 45 minutes. Steps 1 to 6 are **identical** — same
-reading, same proof of every `Verify:` line. Only step 7 changes: you apply instead of
-proposing.
+## Apply mode — what it may change
 
 What you may apply on your own, because it is mechanical and `./afk.sh -n` proves it:
 
@@ -192,19 +190,5 @@ It will come back through `/afk-wave` on a later wave, or by hand. An emptied ba
 result: `afk-app.sh` stops on it and says so.
 
 Re-run `./afk.sh -n` after your edits and check it agrees with what you intended. It is
-the script that is right. Then finish with the step 7 table anyway, in the session's
-output: it is the only trace the morning will have of what you changed.
-
-Outside `apply`, everything below holds.
-
-## What this skill does not do
-
-- It does not run `afk.sh`. A run takes hours, detached; it has no business inside a
-  session.
-- It does not rewrite the acceptance criteria for you: it says which ones are not
-  checkable and proposes a wording, you decide.
-- It creates, closes and relabels no ticket without approval — cutting a ticket in three
-  is proposed like the rest, commands ready to paste. Except in `apply` mode, which is
-  reserved for `afk-app.sh`'s loop and whose limits are listed above.
-- It does not replay `./afk.sh -n`'s computation. If the two disagree, the script is
-  right.
+the script that is right. Then finish with the step 7 table, in the session's output: it
+is the only trace the morning will have of what you changed.

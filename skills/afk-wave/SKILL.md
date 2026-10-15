@@ -53,6 +53,9 @@ git diff --stat "afk-spec..$base"
 A ticket written against an imagined repo goes looking for files that do not exist and
 burns its session. That is the difference between this wave and the previous one.
 
+Done when every file, route or table your tickets will name exists on `$base`
+(`git ls-files`, `grep`), or the ticket says it creates it.
+
 ## 3 — The reds from the previous wave
 
 ```bash
@@ -71,9 +74,9 @@ conditions; letting it pass silently costs every night that follows.
 **3 to 6 criteria**, no more. The plan covers code that does not exist yet: beyond that
 it is guessed, and the next wave will throw it away.
 
-A ticket that delivers **no criterion from the spec** does not get opened. No exceptions
-— that is exactly the door through which the loop goes off building what nobody asked
-for.
+Every ticket delivers **unchecked criteria of the spec**, and only those. No exceptions
+— a ticket outside them is exactly the door through which the loop goes off building
+what nobody asked for. A need discovered on the way goes into the report.
 
 ## 5 — Writing the tickets
 
@@ -103,31 +106,16 @@ The criteria copied **word for word** from the spec, number included. That is wh
 `/afk-merge` check them off mechanically, and lets you review without opening two files.
 
 The `Verify:` line is the criterion's command. If the ticket carries several, chain the
-commands with `&&`. Prove it before writing it — on a test file that does not exist yet,
-it must fail cleanly, not hang:
-
-```bash
-timeout 120 bash -c '<the command>'; echo "rc=$?"
-```
-
-`rc=124` = it never returns (`vitest` without `run`, `jest --watch`): the ticket will die
-on `TIMEOUT` for a reason that is not its own.
+commands with `&&`. Prove it before writing it, by the rule of `/afk-setup` step 4
+(`../afk-setup/SKILL.md`): `timeout 180`, then read `rc` there. The test file does not
+exist yet, so the proof you want here is a clean failure, not `rc=0`: `rc=124` is the
+watch trap.
 
 ## 6 — Serialising what steps on what
 
-Two tickets of the same wave each start from a base that does not contain the other:
-both are green and the breakage only shows at integration — or never, when both create
-the **same path** with two APIs each right on its own side.
-
-Two tickets announcing the same files → a `Blocked by` on whichever can wait. Not a
-merge: the second then starts from the first one's branch and sees its work.
-
-And the numbers that get fought over (ADR, migration) are handed out **in the body**,
-before the run:
-
-```bash
-ls docs/adr | tail -3
-```
+Apply `/afk-preflight` step 5 (`../afk-preflight/SKILL.md`) to the batch you just wrote:
+serialise the tickets that announce the same files, and hand out the ADR and migration
+numbers in the bodies. Done here, the `apply` pass that follows finds nothing to fix.
 
 ## 7 — Rereading your own batch
 
@@ -157,17 +145,9 @@ nohup ./afk.sh -j 3 &
 ```
 
 Unlike `/afk-preflight`, this skill **opens** the tickets without waiting for approval:
-it runs in a loop where nobody is awake. That is why its prohibitions are mechanical and
-not a matter of judgement — see below.
+it runs in a loop where nobody is awake. What keeps it honest is the guardrail below.
 
-## What this skill does not do
+## Guardrail
 
-- **It never touches `docs/spec.md`.** Not a box, not a word. Checking off is
-  `/afk-merge`'s job, after running the criterion's command.
-- **It invents no criterion.** A need discovered on the way that is not in the spec goes
-  into the report; it does not become a ticket.
-- It does not reopen an already checked criterion.
-- It does not work two milestones at once.
-- It does not run `afk.sh`: a run takes hours, it has no business inside a session. It
-  is the loop above that calls it.
-- It merges nothing and closes no ticket.
+**`docs/spec.md` is read-only here** — not a box, not a word. Checking off is
+`/afk-merge`'s job, after running the criterion's command.

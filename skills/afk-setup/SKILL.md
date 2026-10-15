@@ -52,14 +52,17 @@ one demanding a live Postgres, protects nothing: it fails healthy tickets.
 
 ## 4 — Prove the gate before writing it
 
-Non-negotiable. An untested gate is an invented gate:
+Non-negotiable. An untested gate is an invented gate. This is the one rule for proving a
+command that afk will run; `/afk-preflight` and `/afk-wave` prove theirs by it:
 
 ```bash
 timeout 180 bash -c '<the proposed command>'; echo "rc=$?"
 ```
 
 - `rc=0` → good.
-- `rc=124` → **it does not return**. That is the watch trap. Fix it, retry.
+- `rc=124` → **it never returns** (`vitest` without `run`, `jest --watch`, `nodemon`). That
+  is the watch trap: the ticket would die on `TIMEOUT` for a reason that is not its own.
+  Fix it, retry.
 - anything else → either the command is wrong, or the repo is already red. Tell the two
   apart before concluding; a repo red on `main` is not a config problem.
 
@@ -97,10 +100,3 @@ README's "Usage" section, next to `afk.sh`: read them there, not from memory.
 | `CLAUDE_CONFIG_DIR` | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |
 
 `BASE_BRANCH` is deduced from the remote: do not touch it without a reason.
-
-## What this skill does not do
-
-- It does not run `afk.sh`. A run takes hours, detached; it has no business inside a
-  session.
-- It does not create the triage labels: `afk.sh` handles that at startup.
-- It commits nothing.
