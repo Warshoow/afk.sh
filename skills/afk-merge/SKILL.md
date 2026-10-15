@@ -53,6 +53,30 @@ the complete gate. It goes out as `ready-for-human`.
 
 ## 3 — Merging, in base order
 
+First, decide whether the gate needs to run between merges. The run's integration pass
+already ran the complete gate on its branches merged together, and wrote the content it
+passed on in `.afk/green.tree` (line 1: a git tree). Try the same merges locally, without
+touching the remote:
+
+```bash
+base=$(. ./.afk.env >/dev/null 2>&1; echo "${BASE_BRANCH:-dev}")
+git worktree add -q --detach .afk/wt/_trial "origin/$base"
+for b in <the landable branches, in base order>; do
+  git -C .afk/wt/_trial merge -q --no-edit "origin/$b" || { git -C .afk/wt/_trial merge --abort; echo CONFLICT; break; }
+done
+git -C .afk/wt/_trial diff --quiet "$(head -1 .afk/green.tree)" HEAD -- . ':(exclude)docs/spec.md' &&
+  echo SAME || echo DIFFERENT
+git worktree remove --force .afk/wt/_trial
+```
+
+- `SAME` → that exact content already passed the gate: merge them all below **without**
+  the gate after each merge. Once all are in and pulled, run the same `git diff --quiet`
+  against `$base`'s `HEAD`: still `SAME` → close each ticket and clean its branches, as
+  in "Green" below. `DIFFERENT` at that point should not happen: run the gate once; red →
+  merge nothing more, stop the loop and say so.
+- `DIFFERENT`, `CONFLICT`, or no `.afk/green.tree` (a green ticket held back, an
+  integration pass red or skipped) → the gate after each merge, as below.
+
 afk stacks: a blocked ticket's branch starts from its blocker's. Merging it before its
 blocker brings the other one's work in through a merge that does not say so.
 
@@ -77,10 +101,17 @@ into its branch locally and push. afk sets those files to `merge=union` in
 `.git/info/attributes`, so git keeps both sides' lines (defect 51); then reread the merged
 file and drop the notes a landed ticket made false ("X does not exist yet").
 
-**After each merge**, the gate on `$base` (`git pull -q` first: the merge happened on GitHub):
+**After each merge**, unless the trial above said `SAME`, the gate on `$base` (`git pull -q`
+first: the merge happened on GitHub):
 
 ```bash
 <VERIFY_CMD>; echo "rc=$?"
+```
+
+Green after the last merge → record it, so the next run does not gate this content again:
+
+```bash
+printf '%s\n%s\n' "$(git rev-parse 'HEAD^{tree}')" '<VERIFY_CMD>' > .afk/green.tree
 ```
 
 Red → the merge that just arrived breaks what was working. Revert it

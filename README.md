@@ -132,6 +132,7 @@ and you read it back on waking up.
 | `EFFORT` | empty | thinking level (`low`…`max`); empty = the default, overridable per ticket |
 | `FALLBACK_MODEL` | `sonnet` | fallback model when the main one is unavailable; always on, the variable only picks the model |
 | `INTEGRATION` | `1` | integration pass over the green branches at the end of the run; `0` = skip |
+| `REUSE_GREEN` | `1` | skip the base gate when the base has the content of the last complete gate that passed (`.afk/green.tree`, `docs/spec.md` aside); `0` = always run it, for a gate that depends on more than the code |
 | `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | read from `docs/agents/triage-labels.md` | |
 | `MEMORY_RE` | root + `apps/*` + `packages/*` | paths that count as "decision captured" |
 | `BASE_BRANCH` | the remote's default branch | |

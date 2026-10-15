@@ -257,6 +257,7 @@ TIMEOUT="${TIMEOUT:-45m}"                # guard rail: bounds a run (no --max-tu
 CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # how long we wait for CI; 0 = do not consult it
 CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # seconds before retrying a "no checks" (see ci_phase)
 INTEGRATION="${INTEGRATION:-1}"          # integration pass over the green branches at the end
+REUSE_GREEN="${REUSE_GREEN:-1}"          # skip the base gate on content already gated green; 0 = always run it
 
 # The sessions' model and thinking level. Empty = claude(1)'s defaults.
 # Overridable per ticket: "Model:" and "Effort:" lines of the body.
@@ -1395,6 +1396,7 @@ integration_check() {
   local scope="" n=${#INTEG_MERGED[@]} m=${#OK[@]}
   (( ${#INTEG_CONFLICTS[@]} )) && scope=" — PARTIAL: ${n}/${m} branches, without ${INTEG_CONFLICTS[*]}"
   if (( ok )); then
+    note_green "$wt" "$INTEGRATION_VERIFY_CMD"
     INTEG_VERDICT="green"; echo "  ✓ the whole compiles${scope}"
   else
     INTEG_VERDICT="red"; echo "  ✗ red at integration${scope} — .afk/integration-verify.txt"
@@ -1688,10 +1690,33 @@ trap finish EXIT INT TERM
 # A red does not stop the run: whoever launched it has gone. It is said in the header,
 # in the summary and in `summary.md`, and a ticket red with a failure that also appears
 # in `base-verify.txt` is not the ticket's fault.
+# The complete gate used to run three times on the same code: at the end of the run on the
+# integrated branches, after each merge in /afk-merge, and at the start of the next run on
+# the base — about 20 of a wave's 80 minutes. `green.tree` holds the content (git tree) of
+# the last complete gate that passed, and the command that passed: a base with the same
+# content, docs/spec.md aside (/afk-merge checks its boxes after landing), already passed.
+# A gate that depends on more than the code (network, clock) wants REUSE_GREEN=0.
+GREEN_TREE="$AFK_DIR/green.tree"
+note_green() {   # worktree, command
+  printf '%s\n%s\n' "$(git -C "$1" rev-parse 'HEAD^{tree}')" "$2" > "$GREEN_TREE"
+}
+already_green() {   # committish
+  [[ "$REUSE_GREEN" == "1" && -f "$GREEN_TREE" ]] || return 1
+  local tree cmd; { read -r tree; read -r cmd; } < "$GREEN_TREE"
+  [[ "$cmd" == "$VERIFY_CMD" || "$cmd" == "$INTEGRATION_VERIFY_CMD" ]] || return 1
+  git diff --quiet "$tree" "$1" -- . ':(exclude)docs/spec.md' 2>/dev/null
+}
+
 BASE_RED=0
 base_check() {
   local wt="$WORKTREE_DIR/_base"
   echo; echo "═══ Base (${BASE_REF}) ═══"
+  if already_green "$BASE_REF"; then
+    echo "  ✓ green — same content as the last complete gate that passed (.afk/green.tree)"
+    printf 'not rerun: %s has the content of the last green complete gate (%s)\n' \
+      "$BASE_REF" "$(head -1 "$GREEN_TREE")" > "$AFK_DIR/base-verify.txt"
+    return 0
+  fi
   git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
   # Detached: no branch to clean up behind, we commit nothing here.
   git worktree add -q --detach "$wt" "$BASE_REF" 2>"$AFK_DIR/base-wt.err" || {
@@ -1703,6 +1728,7 @@ base_check() {
   [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
     locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1
   if ( cd "$wt" && gate "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
+    note_green "$wt" "$VERIFY_CMD"
     echo "  ✓ green — a red ticket will really be its own"
   else
     BASE_RED=1

@@ -305,6 +305,7 @@ want2() {
 }
 echo
 want2 "in-review dropped from the list"           '#11 is in-review — skipped'
+want2 "base already gated green: not rerun"       'same content as the last complete gate'
 want2 "outsider's ticket dropped from the list"   '#29 not written by a collaborator'
 [[ ! -e "$T/pwned" && ! -e "$T/prompt-29.txt" ]] &&
   echo "  ✓ outsider's ticket: no session, no Verify: run" ||
@@ -525,7 +526,7 @@ echo
 out9=$(VERIFY_CMD='test -f NOPE' NO_CHECKS=1 JOBS=1 bash "$AFK" 23 2>&1) || true
 printf '%s\n' "$out9" > "$T/run9.log"
 grep -qE 'RED BEFORE THE RUN' <<<"$out9" &&
-  echo "  ✓ red base: said before the first worktree" ||
+  echo "  ✓ red base: said before the first worktree (another gate: green.tree not reused)" ||
   { echo "  ✗ red base not detected"; fail=1; }
 grep -qE 'base red BEFORE the run' <<<"$out9" &&
   echo "  ✓ and repeated in the summary, where the reds are read" ||

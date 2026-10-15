@@ -8,6 +8,14 @@ code concerned; the verdict on proposed ideas is in
 
 ## 2026-10-15
 
+### Changed
+
+- **The complete gate no longer runs three times on the same code.** afk records the
+  content of the last complete gate that passed (`.afk/green.tree`). The next run skips
+  the base gate when the base has that content (`docs/spec.md` aside; `REUSE_GREEN=0`
+  to always run it), and `/afk-merge` tries the merges locally first: same content as the
+  integration pass → no gate between merges. About 20 minutes per wave on a 5-ticket wave.
+
 ### Fixed
 
 - **The glossary may be `GLOSSARY.md`.** mattpocock-skills 1.3 renamed `CONTEXT.md` /
