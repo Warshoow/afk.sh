@@ -240,6 +240,8 @@ grep -qx 'network prune -f --filter label=com.docker.compose.project=1' "$T/dock
 
 [[ "$(git check-attr merge CONTEXT.md)" == "CONTEXT.md: merge: union" ]] &&
   echo "  ✓ CONTEXT.md merges as a line union" || { echo "  ✗ CONTEXT.md has no union merge"; fail=1; }
+[[ "$(git check-attr merge GLOSSARY.md)" == "GLOSSARY.md: merge: union" ]] &&
+  echo "  ✓ GLOSSARY.md merges as a line union" || { echo "  ✗ GLOSSARY.md has no union merge"; fail=1; }
 
 grep -qE '^\| #7 \| ko \|' "$T/repo/.afk/summary.md" &&
   echo "  ✓ summary written" || { echo "  ✗ summary missing or wrong"; fail=1; }

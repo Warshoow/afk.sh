@@ -307,8 +307,9 @@ VERIFY_CMD="${VERIFY_CMD:-pnpm typecheck && pnpm test && pnpm lint}"
 INTEGRATION_VERIFY_CMD="${INTEGRATION_VERIFY_CMD:-$VERIFY_CMD}"
 
 # Paths that count as "decision captured". A multi-context monorepo keeps its glossaries
-# and ADRs per app, not only at the root.
-MEMORY_RE="${MEMORY_RE:-^(CONTEXT(-MAP)?\.md|(apps|packages)/[^/]+/CONTEXT\.md|docs/adr/|(apps|packages)/[^/]+/docs/adr/)}"
+# and ADRs per app, not only at the root. The glossary is CONTEXT.md in repos set up before
+# mattpocock-skills 1.3, GLOSSARY.md after: both count.
+MEMORY_RE="${MEMORY_RE:-^((CONTEXT|GLOSSARY)(-MAP)?\.md|(apps|packages)/[^/]+/(CONTEXT|GLOSSARY)\.md|docs/adr/|(apps|packages)/[^/]+/docs/adr/)}"
 
 REPO_ROOT="$PWD"
 # afk's own repo, which is NOT the repo being worked on: the script is mounted into the
@@ -368,19 +369,20 @@ grep -qi 'github' docs/agents/issue-tracker.md || {
 
 # Project memory: single-context root, or map + per-app contexts.
 memory_present() {
-  [[ -f CONTEXT.md || -f CONTEXT-MAP.md || -d docs/adr ]] && return 0
-  compgen -G '*/*/CONTEXT.md' >/dev/null
+  local g; for g in CONTEXT GLOSSARY; do [[ -f $g.md || -f $g-MAP.md ]] && return 0; done
+  [[ -d docs/adr ]] && return 0
+  compgen -G '*/*/CONTEXT.md' >/dev/null || compgen -G '*/*/GLOSSARY.md' >/dev/null
 }
-memory_present || echo "⚠  no CONTEXT.md, no CONTEXT-MAP.md, no docs/adr/ — the agents will have no project memory"
+memory_present || echo "⚠  no GLOSSARY.md (or CONTEXT.md), no map, no docs/adr/ — the agents will have no project memory"
 
 # Every parallel ticket appends to the glossaries, so every branch but the first conflicts
 # on them when stacked, integrated or merged (defect 51). A line union keeps both sides.
 # Local only: info/attributes lives in the common git dir, shared by every worktree, and
 # never reaches the repo. GitHub's own merge button does not read it.
 MERGE_ATTR="$(git rev-parse --git-common-dir)/info/attributes"
-grep -qsx 'CONTEXT.md merge=union' "$MERGE_ATTR" || {
-  mkdir -p "${MERGE_ATTR%/*}"
-  printf '%s\n' 'CONTEXT.md merge=union' 'CONTEXT-MAP.md merge=union' >> "$MERGE_ATTR"; }
+mkdir -p "${MERGE_ATTR%/*}"
+for f in CONTEXT.md CONTEXT-MAP.md GLOSSARY.md GLOSSARY-MAP.md; do
+  grep -qsx "$f merge=union" "$MERGE_ATTR" || echo "$f merge=union" >> "$MERGE_ATTR"; done
 
 (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && ! command -v flock >/dev/null && {
   echo "⚠  flock missing: verifications will run in parallel (shared Postgres and ports)"; }
@@ -472,7 +474,7 @@ relabel() {   # ticket, label removed, label added
 # it renames on the way a typed contract it just inherited, because it did not read the
 # ADR its predecessor had just written for it.
 # No file to produce, no format to impose on the agent: the predecessor already commits
-# its decisions (see the CONTEXT.md/ADR instruction below), and the DAG acts as a
+# its decisions (see the glossary/ADR instruction below), and the DAG acts as a
 # filter — the base only contains this ticket's ancestors, nothing else from the run.
 # The argument is the HEAD from BEFORE the session: on attempt 2, HEAD already carries
 # the agent's own work, which it has nothing to learn from.
@@ -505,15 +507,16 @@ Fresh session, no history.
 - Read the ticket: gh issue view ${ticket} --comments. It is authoritative — you do
   not change its acceptance criteria to make them pass.
 - The repo is configured by /setup-matt-pocock-skills: CLAUDE.md, docs/agents/*.md,
-  CONTEXT-MAP.md, each context's CONTEXT.md and the ADRs (docs/adr/ and
-  <context>/docs/adr/) are the project's memory. You conform to them.
+  the glossary (GLOSSARY.md, or CONTEXT.md in older repos; a -MAP.md file at the root
+  points to one per context) and the ADRs (docs/adr/ and <context>/docs/adr/) are the
+  project's memory. You conform to them.
 - You stay within the ticket's scope. No off-topic files.
 - Done = this command goes green: ${verify}
 - If holding the scope makes that command unreachable (a typed contract crossing the
   apps, for instance), do the strict minimum outside the scope to make it green and
   say so in an ADR: it is the ticket's slicing that was wrong, not you.
 - Every non-trivial decision taken on the way (architecture, convention, constraint
-  discovered, debt accepted) goes into a CONTEXT.md or an ADR, BEFORE you finish.
+  discovered, debt accepted) goes into the glossary or an ADR, BEFORE you finish.
   The next session will know nothing of this run.
 - You also keep a decision journal at ${AFK_DIR}/${ticket}-work.tsv — that path is
   ABSOLUTE and outside your worktree, use it as written: a journal written to a
@@ -983,7 +986,7 @@ worker() {
     t_verify=$(( t_verify + SECONDS - s0 )); st "t_verify=$t_verify"
     if (( vrc == 0 )); then
       git diff --name-only "$head0" | grep -qE "$MEMORY_RE" ||
-        echo "  ⚠  no CONTEXT.md or ADR touched — decisions not captured, read closely"
+        echo "  ⚠  no glossary or ADR touched — decisions not captured, read closely"
 
       # A crashed session passes verification exactly like a healthy one: typecheck and
       # lint do not know what is missing. The work is not thrown away, but it comes out

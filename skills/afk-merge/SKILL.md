@@ -71,7 +71,8 @@ The retarget comes first because `--delete-branch` deletes the branch through th
 and GitHub then **closes** the PRs based on it instead of moving them; a closed PR's base
 can no longer be changed (defect 53).
 
-A PR that GitHub says conflicts, on `CONTEXT.md` or `CONTEXT-MAP.md` only: merge `$base`
+A PR that GitHub says conflicts, on the glossary only (`GLOSSARY.md`, `GLOSSARY-MAP.md`, or
+`CONTEXT.md` / `CONTEXT-MAP.md` in older repos): merge `$base`
 into its branch locally and push. afk sets those files to `merge=union` in
 `.git/info/attributes`, so git keeps both sides' lines (defect 51); then reread the merged
 file and drop the notes a landed ticket made false ("X does not exist yet").

@@ -38,9 +38,13 @@ the same time as whom), the **bases** (who stacks on whom), and the `Verify:` /
 
 ```bash
 gh issue view <n> --json title,body,labels -q '.title, .body'
+gh api "repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by" --jq '.[].number'
 ```
 
 One ticket per call, for the whole batch. It is the raw material for everything else.
+The blockers are the native GitHub links first, the body's `Blocked by` section when
+there are none, as `afk.sh` reads them: `/to-tickets` (mattpocock-skills 1.3+) leaves the
+section out when it set the links.
 
 ## 4 — What to look for
 

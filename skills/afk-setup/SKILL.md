@@ -23,7 +23,8 @@ Missing or non-GitHub → **stop**. Tell the user to run
 `/mattpocock-skills:setup-matt-pocock-skills` first: `afk.sh` refuses to start without
 it, and triage will not have its labels.
 
-Also flag (without blocking) the absence of `CONTEXT.md` / `CONTEXT-MAP.md` / `docs/adr/`:
+Also flag (without blocking) the absence of a glossary (`GLOSSARY.md` / `GLOSSARY-MAP.md`, or
+`CONTEXT.md` / `CONTEXT-MAP.md` before mattpocock-skills 1.3) and of `docs/adr/`:
 the sessions will run with no project memory.
 
 ## 2 — Find the gate
@@ -90,7 +91,7 @@ README's "Usage" section, next to `afk.sh`: read them there, not from memory.
 | `VERIFY_CMD` | **almost always** — it is the whole point of the file |
 | `SETUP_CMD` | no root lockfile, or non-JS dependencies |
 | `SEED_GLOBS` | indispensable gitignored files elsewhere |
-| `MEMORY_RE` | ADR/CONTEXT conventions filed differently |
+| `MEMORY_RE` | ADR/glossary conventions filed differently |
 | `TIMEOUT` | repo where tickets are systematically heavier |
 | `JOBS` | never here — it is a run decision, not a project one |
 | `CLAUDE_CONFIG_DIR` | several Claude accounts on the machine — this repo's sessions must log in and bill on the right one, whatever the shell exports |

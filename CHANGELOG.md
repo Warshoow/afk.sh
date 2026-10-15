@@ -6,6 +6,16 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-10-15
+
+### Fixed
+
+- **The glossary may be `GLOSSARY.md`.** mattpocock-skills 1.3 renamed `CONTEXT.md` /
+  `CONTEXT-MAP.md`; afk reads both names (memory check, "decision captured", line-union
+  merge, prompt, `/afk-merge`, `/afk-setup`).
+- **`/afk-preflight` sees GitHub's native blocking links**, which `/to-tickets` now sets
+  instead of writing a `Blocked by` section.
+
 ## 2026-10-12
 
 ### Fixed
