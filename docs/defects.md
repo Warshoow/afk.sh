@@ -219,39 +219,3 @@ Mitigated and not fixed: the column still does not say *which* of the models was
 session's. The first `modelUsage` is (the session calls the API before any subagent exists),
 but relying on that makes a mid-session fallback invisible — the full list plus the number of
 subagents lie about nothing.
-
----
-
-## 59 — Docker networks run out on the Firetower worker — open
-
-*2026-10-12 · satis · tranche 2*
-
-**What was seen.** From #56 to #87 (22 sessions), every `docker compose` on the worker failed
-with "all predefined address pools have been fully subnetted". Sessions worked around it by
-hand with `docker run` (2 to 8 lost commands each); #8 committed a workaround into the
-project (`docker-compose.yml` on the default bridge, ADR 0004).
-
-**The cause.** The project's wrappers (`./in-app`, `./prove`) run inside sessions create a
-compose network per worktree, and nothing removes it when the session ends. Defect 48 fixed
-the same leak on the host only.
-
-**What to do.** Nothing in `ftd.py` reaches the worker's Docker: it needs a cleanup on the
-worker side (`docker network prune -f --filter until=1h` when a session ends), or the prompt
-asking for `docker compose down` before handing back. Until then, prune by hand on the
-worker before a run.
-
----
-
-## 60 — A model refusal on the Firetower path is reported as "no commit" — open
-
-*2026-10-12 · satis · #3, #9, #47, #75*
-
-**What was seen.** `model_refusal_no_fallback` in the conversation of #3, #9, #47 and #75
-(plus 23 "safeguards stopped the response" notices); #3, #9 and #75 lost attempt 1, which afk
-wrote down as "no commit" or red.
-
-**The cause.** Defect 46 classifies a refusal from the `claude -p` envelope; `ftd.py build()`
-does not look for it in the Firetower events. Why the refusals happen is not known.
-
-**What to do.** `build()` looks for the refusal in the `Raw` events and exits with a message
-afk classifies like defect 46.

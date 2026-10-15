@@ -10,18 +10,14 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
-- **Firetower: a session is only finished once its subagents are.** `ftd.py` waited for the
-  first hand-back, so the review fixes of 5 tickets never reached their PR; the prompt now
-  also says not to end a turn with a task running (defect 56).
-- **Firetower sessions get their ticket.** The server has no `gh`: `ftd.py` puts the ticket
-  and its comments in the prompt (defect 57).
-- **Firetower costs no longer doubled.** `costUsd` is a running total, it was summed
-  (defect 58).
+- **Sessions wait for their subagents.** The prompt says not to end a turn with a
+  background command or a subagent still running, and to run only the tests the session
+  wrote or touched, in the foreground: the review fixes of 5 tickets never reached their
+  PR (defect 56).
 - **`/afk-merge` deletes a remote builder's leftover branches.** `afk-base/<n>` and
-  `feat/<n>-<k>` stayed on the remote after every Firetower ticket (defect 55).
-- **Firetower tickets: session time counted once, no negative cost.** The summary doubled
-  the session time on the `AFK_BUILD_CMD` path, and a ticket rebuilt after an interrupted
-  run reported its new session's cost minus the old one's (defect 54).
+  `feat/<n>-<k>` stayed on the remote after every ticket built through `AFK_BUILD_CMD`
+  (defect 55).
+- **`AFK_BUILD_CMD`: session time counted once.** The summary doubled it (defect 54).
 - **`CONTEXT.md` no longer stops every parallel branch but the first.** afk sets
   `CONTEXT.md` and `CONTEXT-MAP.md` to `merge=union` in the local `.git/info/attributes`,
   so stacking and the integration pass keep both sides' lines; `/afk-merge` resolves a PR

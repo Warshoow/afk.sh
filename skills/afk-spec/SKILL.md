@@ -80,7 +80,7 @@ Two traps in that command, both met on a real repo:
 - **A name filter that matches nothing exits 0.** `jest -t`, `node --test-name-pattern`,
   `pytest -k`: no test found, return code 0, the box gets checked with nothing behind it.
   Wrap the criterion so it fails unless at least one test ran and passed (`./prove <file>
-  "<name>"` in the `mobile` factory template), and check the wrapper on a pattern that
+  "<name>"`, for example), and check the wrapper on a pattern that
   matches nothing before trusting it.
 
 The first criterion is always the same: **A0 — the app starts**, with the command that

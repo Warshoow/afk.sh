@@ -8,6 +8,9 @@ They are kept because a fix gets reread: the correction is in `afk.sh` next to t
 but what the defect cost before it was seen is written only here. A code comment pointing
 at "defect 17" points at this file as soon as 17 is fixed.
 
+Missing numbers (49, 52, 57 to 60) were defects of a build command outside afk
+(`AFK_BUILD_CMD`): they are kept with that command.
+
 ---
 
 ## 1 — SSH passphrase asked for at every git operation — fixed
@@ -1062,62 +1065,9 @@ ticket itself. Any repo is exposed; the open tickets then look like work still i
 **What was done about it.** `/afk-merge` step 3: once the gate is green after a merge,
 `gh issue close <ticket>` with a comment naming the landing branch and the PR.
 
-## 49 — Sessions run through Firetower write no decision journal — fixed
-
-*2026-10-11 · project-d1518ddc · #1 #2 #3 #7 #8 #9*
-
-**What was seen.** Two runs in a row, six tickets, not one `.afk/<n>-work.tsv`, neither in
-`.afk/` nor committed in a branch. The prompt does ask for it, at the host's absolute path
-(`.../.afk/9-work.tsv`). Each `.status` says `resume=Firetower session …`, and
-`<n>-<attempt>.json` only holds `total_cost_usd`: no `subtype`, no model, no context.
-
-**The cause.** Probable, not proven: the session runs in a Firetower workspace, where the
-host's `.afk/` path is not reachable, so the journal has nowhere to go and the session says
-nothing about it. Same root as the empty "Model" and "Context" columns: the Firetower path
-brings back less than the local `claude -p` one. The debrief loses what it reads first.
-
-**What is known of the path.** `ftd.py build` (`~/firetower-dispatch/ftd.py`) sends
-`AFK_PROMPT_FILE` unchanged, so the agent on the Firetower server gets the host's absolute
-path. When it hands back, `handoff()` commits and pushes from the server, then `build`
-fetches that branch and resets the worktree onto it. Git is the only thing coming back,
-and the server's checkout is a fresh clone with no `.afk/.gitignore`.
-
-**Proving it first.** Read one session's `GET /api/v1/sessions/<id>/conversation` (the id is
-in `.afk/<n>-ft-session`) and look for a write to `…/<n>-work.tsv`. No write at all = the
-session dropped the instruction. A write that failed or went to a server path = the
-cause above.
-
-**How to fix it.** On the builder side, not in afk: afk must not know about Firetower (see
-`AFK_BUILD_CMD` in CLAUDE.md), and the `afk-base/<n>` push already sits there.
-
-1. Before `create()`, `build` rewrites the journal path in the prompt to the relative
-   `.afk/<n>-work.tsv`: inside the server checkout, so it travels with the branch.
-2. After `git reset --hard FETCH_HEAD`:
-   `git show HEAD:.afk/<n>-work.tsv > <AFK_STATUS_FILE's dir>/<n>-work.tsv`, then
-   `git rm -q --cached .afk/<n>-work.tsv` and a local commit. afk pushes that commit
-   with the rest after a green gate (fast-forward). The PR diff no longer carries the
-   journal (defect 47), only the branch history does.
-3. Attempt 2 needs nothing more: the server still has the file, the session keeps
-   appending to it, and the fetch + reset drops step 2's local commit before redoing it.
-4. Missing file in the branch → no journal, no red, like for local sessions.
-
-On the afk side, optional: export `AFK_JOURNAL` (the absolute path) to the build command
-and list it in the README's table, so `build` does not have to find the path in the prompt
-with a regex that breaks the day `build_prompt` rewords that line.
-
-Not covered: the empty "Model" and "Context" columns. Same cause, but they need the
-`TurnCompleted` events' `usage` (already read for the cost) to carry the model and the
-context, which is still to be checked.
-
-**What was done about it (2026-10-12).** Builder side, `ftd.py` (firetower-dispatch
-`8cb1e0c`): the host path in the prompt becomes `.afk/<n>-work.tsv` with an instruction to
-commit it; after the fetch, `build()` copies the journal to the host's `.afk/` and takes it
-out of the branch with a local commit. Proven on satis waves 5 to 8: every Firetower ticket
-brought its journal back. The journal stays in the branch history (added, then removed).
-
 ## 51 — Every parallel ticket edits CONTEXT.md, so every one but the first conflicts at merge — fixed
 
-*2026-10-12 · satis · wave 7*
+*2026-10-12 · project-d1518ddc · wave 7*
 
 **What happened.** 4 tickets of one milestone, each told to keep `CONTEXT.md` up to date. The
 integration step merged the first and set aside the other 3, all on `CONTEXT.md` alone (one
@@ -1138,37 +1088,9 @@ own merge does not read it, so `/afk-merge` step 3 merges the landing branch int
 PR that conflicts on those files only, locally, then rereads the result for notes a landed
 ticket made false. The harness checks the attribute.
 
-## 52 — A Firetower session stuck in NeedsYou with nothing pending turns a healthy ticket red — fixed
-
-*2026-10-12 · satis · wave 8 · #39*
-
-**What was seen.** #39 went `ko` / `build` after 94 s, no commit, no journal:
-`AFK_BUILD_CMD: session needs you but nothing is pending`. The Firetower session
-(`.afk/39-ft-session`) still reads `NeedsYou` hours later. Its whole conversation (176
-events) holds no `RequestOpened` and no `UserInputRequested`: the last events are two
-`Bash` calls, the first `ItemCompleted … Failed`, the second never completed. #40 froze
-behind it. The ticket did nothing wrong; it never got to start.
-
-**The cause.** Firetower set the status to `NeedsYou` (most likely a permission prompt on
-the second `Bash`) without writing the request event to the conversation. `ftd.py step()`
-finds nothing to answer and `sys.exit`s, which afk reads as a build failure. Note also that
-`pending_request()` only reads `?tail=5`: a request followed by more than four events would
-be missed the same way, even when Firetower does write it.
-
-**What to do.** Builder side (`~/firetower-dispatch/ftd.py`), not afk: read the whole
-conversation instead of `tail=5`; when `NeedsYou` has nothing pending, wait and re-read a
-few times, then send a turn ("go on, nobody can approve; find another way") before giving
-up. Report the missing event to Firetower. Relaunched #39 as-is.
-
-**What was done about it (2026-10-12).** `ftd.py` (firetower-dispatch `c4934b1`): `step()`
-re-reads the last 200 events for a minute, then raises `Stuck`; `build()` stops the session
-(`POST /sessions/<id>/stop`; a turn does not unblock it, and a turn after the stop leaves it
-`Failed`) and starts a new one from the same HEAD with the same prompt, once. Stuck twice
-still exits nonzero. The missing event itself is Firetower's, not reported upstream yet.
-
 ## 53 — `/afk-merge --delete-branch` closes the stacked PR instead of retargeting it — fixed
 
-*2026-10-12 · satis · wave 8 · PR #41 → #42*
+*2026-10-12 · project-d1518ddc · wave 8 · PR #41 → #42*
 
 **What was seen.** PR #42 (`feat/38`, base `feat/37`) waited on #41. `gh pr merge 41
 --merge --delete-branch` deleted `feat/37`, and GitHub **closed** #42 rather than moving
@@ -1184,7 +1106,7 @@ does) just closes them. `/afk-merge` step 3 prescribes `--delete-branch` on stac
 $base` for each PR whose base is the blocker's branch; or merge without `--delete-branch` and
 delete the branches once the whole chain has landed.
 
-**Seen first** *2026-10-12 · satis · wave 5*
+**Seen first** *2026-10-12 · project-d1518ddc · wave 5*
 
 **What happened.** #23 and #24 were stacked on `feat/19` (PR base = `feat/19`). `/afk-merge`
 ran `gh pr merge 22 --merge --delete-branch`. GitHub did not retarget them to `develop`: it
@@ -1198,7 +1120,7 @@ re-ran on both.
 --base <landing branch>` for every PR whose base is the blocker's branch, or merge the
 blocker without `--delete-branch` and delete it after its dependants are merged.
 
-**Again** *2026-10-12 · satis · wave 7*: PR #36 (base `feat/30`) closed the same way when #33
+**Again** *2026-10-12 · project-d1518ddc · wave 7*: PR #36 (base `feat/30`) closed the same way when #33
 merged. Same repair (pushed `develop` as `feat/30` to reopen, since #33 was already in it).
 
 **What was done about it (2026-10-12).** `/afk-merge` step 3 retargets the PRs based on the
@@ -1208,121 +1130,70 @@ read `defects.md`; step 5 now says the next number counts the archive too.
 
 ---
 
-## 54 — On the Firetower path, the summary's cost and session time are wrong — fixed
+## 54 — On the `AFK_BUILD_CMD` path, the summary counts the session time twice — fixed
 
-*2026-10-12 · satis · #83–#87*
+*2026-10-12 · project-d1518ddc · #83–#87*
 
-**What was seen.** Five tickets run through Firetower, all green. #84's "Cost" reads
-`$-2.0035` while its `.afk/84-ft-cost` holds `1.3994`; the other four match their
-`-ft-cost`. And every `.status` writes `t_session` twice, the second time doubled
-(`t_session=604` then `t_session=1208` for #83), so the "Phases" column shows a 20m08s
-session inside an 11m14s ticket.
+**What was seen.** Five tickets built through `AFK_BUILD_CMD`, all green. Every `.status`
+writes `t_session` twice, the second time doubled (`t_session=604` then `t_session=1208`
+for #83), so the "Phases" column shows a 20m08s session inside an 11m14s ticket.
 
-**The cause.** Two bugs. `afk.sh`'s `AFK_BUILD_CMD` branch added `SECONDS - s0` to
-`t_session` right after the command, then again after the `if`, where the `claude -p` branch
-adds it: every Firetower ticket got its session time twice. And `ftd.py` reports each
-attempt's cost as the session total minus `<n>-ft-cost`, the total seen at the last report;
-that file outlived the run. #84 had a Firetower session in the run killed at 08:22, which
-left `84-ft-cost` at 3.40; the next run's attempt 1 opened a new session, spent 1.40, and
-reported 1.40 − 3.40.
+**The cause.** `afk.sh`'s `AFK_BUILD_CMD` branch added `SECONDS - s0` to `t_session` right
+after the command, then again after the `if`, where the `claude -p` branch adds it.
 
-**Damage.** None to what landed: cost and phases are only read by humans. But a negative
-cost and a session longer than its ticket make the whole table look untrustworthy.
+**Damage.** None to what landed: phases are only read by humans. But a session longer than
+its ticket makes the whole table look untrustworthy.
 
 **What was done about it (2026-10-12).** `afk.sh` adds the build's time only on the error
 path, which returns before the shared line; `harness.sh` checks `t_session` is written once.
-`ftd.py` deletes `<n>-ft-cost` on attempt 1, since attempt 1 always opens a new session; its
-selftest plants a stale file first.
 
 ---
 
-## 55 — A Firetower run leaves two remote branches per ticket — fixed
+## 55 — A remote build command leaves its branches on the remote — fixed
 
-*2026-10-12 · satis · tranche 2*
+*2026-10-12 · project-d1518ddc · tranche 2*
 
 **What was seen.** After the tranche 2 runs, the remote held `afk-base/75`, `afk-base/76`,
-`afk-base/85`, `afk-base/86`, `feat/83-2`, `feat/84-2` (and earlier `feat/39-2`,
-`feat/57-2`), every one already contained in `develop`.
+`afk-base/85`, `afk-base/86`, `feat/83-2`, `feat/84-2`, every one already contained in the
+landing branch.
 
-**The cause.** `ftd.py` pushes `afk-base/<n>` when the worktree's HEAD is not the base (a
-stacked ticket), so that Firetower can cut from it, and Firetower pushes its work to its own
-branch (`feat/<n>-2` when `feat/<n>` exists). afk copies that work into `feat/<n>` and opens
-the PR from there; `gh pr merge --delete-branch` deletes `feat/<n>` only. Nothing ever
-deleted the other two. Deleting them in `ftd.py` right after the build would break attempt
-2, which goes on in the same session, on the same branches.
+**The cause.** A build command that builds somewhere else publishes `afk-base/<n>` for a
+stacked ticket (README, "Building elsewhere"), and may push its work to its own
+`feat/<n>-<k>`. afk copies that work into `feat/<n>` and opens the PR from there;
+`gh pr merge --delete-branch` deletes `feat/<n>` only. The command cannot delete the others
+right after the build: attempt 2 may go on from them.
 
 **What was done about it (2026-10-12).** `/afk-merge` step 3, once a ticket has landed,
 deletes `afk-base/<ticket>` and `feat/<ticket>-*`, each only if `git merge-base
 --is-ancestor` says it is already in the landing branch. Tried on two throwaway branches
-pointing at `develop`: both deleted.
+pointing at the landing branch: both deleted.
 
 ---
 
-## 56 — A Firetower session handed back while its reviewers still ran: the review's fixes never reached the PR — fixed
+## 56 — A session ended its turn while its reviewers still ran: the review's fixes never reached the PR — fixed
 
-*2026-10-12 · satis · tranches 1 and 2*
+*2026-10-12 · project-d1518ddc · tranches 1 and 2*
 
 **What was seen.** #1, #2, #21, #46 and #49 ended green, and their final message announced
 a review-fix commit (#1: `fix(auth): keep sign-out and token refreshes from misrouting`;
 #2: "fixed in `19a8d22`"). Their PR holds only the first commit; the fix exists nowhere on
-the remote. Real bugs from those reviews are still in the app.
+the remote.
 
-**The cause.** A session that ends its turn with subagents or background commands still
-running goes to `HandedBack`; each completion then starts a new turn on its own. `ftd.py
-build()` stopped at the first `HandedBack` and pushed. Over 25 sessions ended turn 1 with
-two reviewers running; the 5 that lost are the ones polled (every 10 s) in that window.
-Separately, the prompt never said to wait for such tasks.
+**The cause.** The sessions ended their turn with subagents still running, and what those
+found arrived after the work had been collected. The prompt never said to wait for such
+tasks. (The build command also took the first end of turn as the end; fixed on its side.)
 
-**What was done about it (2026-10-12).** `build()` only takes `HandedBack` as the end once
-the conversation is `settled()`: every `TaskStarted` has its `TaskCompleted`, and a
-`TurnCompleted` comes after the last one (5 min cap, for a task that completes without a new
-turn). The prompt says never to end a turn with a background command or a subagent still
-running. Selftest: a session handed back with a task open is waited for.
-
----
-
-## 57 — Firetower sessions never read their ticket — fixed
-
-*2026-10-12 · satis · tranches 1 and 2*
-
-**What was seen.** 46 of 46 final messages say `gh` is not installed and the API answers
-404: every session built from `docs/spec.md` without the ticket's "What to build", its
-reserved migration number or its comments. Looking for credentials instead, sessions got
-refused by auto mode; both NeedsYou freezes (#39, #57) followed a refused `git credential
-fill`.
-
-**The cause.** afk's prompt says `gh issue view <n> --comments`; the Firetower server has no
-`gh` and no GitHub credentials.
-
-**What was done about it (2026-10-12).** `ftd.py` appends the ticket and its comments
-(`gh issue view` run on the host, `.afk/<n>.body` if that fails) to the prompt, saying it
-replaces `gh issue view` and not to look for credentials. Selftest checks the text is sent.
-
----
-
-## 58 — Firetower costs counted about twice — fixed
-
-*2026-10-12 · satis · tranches 1 and 2*
-
-**What was seen.** The summaries add up to $180.00 over 46 tickets; the sessions' own last
-`costUsd` add up to about $92.20. #19: three turns at 1.048, 1.320, 1.511 → reported 3.88
-for a real 1.51. `RUNS.md` carries the wrong totals.
-
-**The cause.** `TurnCompleted.usage.costUsd` is the session's running total (its `models`
-token counts grow the same way: turn 2 of #19 has 148 output tokens of its own and adds
-$0.27). `turn_cost()` summed it.
-
-**What was done about it (2026-10-12).** `turn_cost()` takes the largest, i.e. the last.
-Attempt 2 still reports the difference with `<n>-ft-cost`. Selftest: three cumulative turns
-cost the last one. Past `RUNS.md` lines are left as written.
+**What was done about it (2026-10-12).** The prompt says never to end a turn with a
+background command or a subagent still running, and to run only the tests the session
+wrote or touched, in the foreground.
 
 ---
 
 ## 61 — "No commit" blamed the base when the ticket's own gate failed on it — fixed
 
-*2026-10-12 · satis · tranche 3*
+*2026-10-12 · project-d1518ddc · tranche 3*
 
-**What was seen.** #109, attempt 1: the Firetower session read the code for 81 s, wrote its
+**What was seen.** #109, attempt 1 (built through `AFK_BUILD_CMD`): the session read the code for 81 s, wrote its
 journal, said "Writing the journal (seams) now, then the failing test." and ended its turn
 without a single edit. afk printed "✗ no commit — the agent produced nothing (and the base
 is not green)", although the run had checked the base green a few minutes earlier.
@@ -1336,6 +1207,5 @@ message said the base was broken, and `/afk-debrief`'s table sent the reader to 
 **What was done about it (2026-10-12).** The message says the ticket's gate still fails on
 the base and work remains; `<n>-fail.txt` says the same. `/afk-debrief`'s "no commit" row
 reads `.afk/base-verify.txt` before blaming the base, and otherwise points to a session that
-stopped early (turn ended announcing its next step, or a refusal, defect 60). A turn ending
-before any edit still costs an attempt: Firetower sees edits made through Bash as commands,
-so ftd cannot tell it apart from a session with nothing left to do.
+stopped early (turn ended announcing its next step, or a refusal). A turn ending
+before any edit still costs an attempt.
