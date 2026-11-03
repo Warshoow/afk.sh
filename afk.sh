@@ -1276,11 +1276,20 @@ INTEG_NOTES=""              # duplicate numbers, paths created twice, stale refe
 # Against ITS base, not against BASE_REF: a stacked branch carries its blocker's
 # commits, so it also "adds" that one's files.
 added_files() {
-  local t b
+  local t b o f
   for t in "${OK[@]}"; do
     b=$(sget "$t" base); b="${b:-$BASE_REF}"
     git diff --name-only --diff-filter=A "$b...${BRANCH_OF[$t]}" 2>/dev/null |
-      sed "s|^|${BRANCH_OF[$t]} |"
+      while IFS= read -r f; do
+        # A second blocker is merged in ("absorbs"), not used as the base: the files it
+        # created show up here too. They are that branch's, not this one's (defect 62).
+        for o in "${OK[@]}"; do
+          [[ $o != "$t" ]] || continue
+          git merge-base --is-ancestor "${BRANCH_OF[$o]}" "${BRANCH_OF[$t]}" 2>/dev/null &&
+            git cat-file -e "${BRANCH_OF[$o]}:$f" 2>/dev/null && continue 2
+        done
+        printf '%s %s\n' "${BRANCH_OF[$t]}" "$f"
+      done
   done
 }
 

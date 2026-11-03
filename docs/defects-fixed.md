@@ -1209,3 +1209,25 @@ the base and work remains; `<n>-fail.txt` says the same. `/afk-debrief`'s "no co
 reads `.afk/base-verify.txt` before blaming the base, and otherwise points to a session that
 stopped early (turn ended announcing its next step, or a refusal). A turn ending
 before any edit still costs an attempt.
+
+## 62 — "Same path created by several branches" flagged a file a ticket only absorbed from its second blocker — fixed
+
+**What was seen.** Satis, 2026-11-03, 8 tickets. #149 was blocked by #137 and #148: the
+plan stacked it on `feat/137` and merged `feat/148` in (`absorbs: feat/148`). At
+integration the summary warned that the migration `20261103000100_delete_my_account.sql`
+and `account.test.ts` were "created by several branches: feat/148 feat/149". The two files
+were byte for byte the same (same hash on both branches): #149 had created nothing, it
+carried #148's work. A reader following the debrief table goes looking for two competing
+APIs that do not exist.
+
+**The cause.** `added_files` diffs each green branch against its **base** (`sget base`),
+which is only the first blocker. A second blocker is merged into the worktree, not used as
+the base, so every file it created shows up as added by the dependant too. Any ticket with
+two blockers on two different branches triggers it, on any repo. `numbering_clashes` reads
+the same list; it was spared here only because its `sort -u` crushes identical lines.
+
+**What was done about it (2026-11-04).** `added_files` drops a file when another green
+branch of the run is an ancestor of this one and already has that path: it is that
+branch's creation. Two branches that each create the path without one containing the other
+are still flagged. Checked on this run's branches: the warning goes away, a control without
+the filter still prints both files; `check.sh` passes.
