@@ -481,10 +481,13 @@ locked() {
 # volume with a fixed `name:` may be the developer's data. The worktree's own volumes are
 # removed after (#30): compose labels both kinds with the project, but only its own are
 # named `<project>_<volume>` — a fixed `name:` does not carry the prefix.
+# Only a name afk computed is cleaned up (#31): the worker exports it, so a name that
+# differs from `compose_name` came from the environment — the developer's own stack.
 gate() {   # command; cwd = the worktree
-  local p="${COMPOSE_PROJECT_NAME:-$(compose_name "${REPO_ROOT##*/}" "${PWD##*/}")}"
+  local mine; mine=$(compose_name "${REPO_ROOT##*/}" "${PWD##*/}")
+  local p="${COMPOSE_PROJECT_NAME:-$mine}"
   COMPOSE_PROJECT_NAME="$p" locked verify bash -c "$1"; local rc=$?
-  if command -v docker >/dev/null; then
+  if [[ "$p" == "$mine" ]] && command -v docker >/dev/null; then
     COMPOSE_PROJECT_NAME="$p" docker compose down --remove-orphans --rmi local >/dev/null 2>&1
     docker network prune -f --filter "label=com.docker.compose.project=$p" >/dev/null 2>&1
     docker volume ls -q --filter "label=com.docker.compose.project=$p" 2>/dev/null |

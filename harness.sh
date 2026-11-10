@@ -654,5 +654,17 @@ grep -q 'dependency install failed' <<<"$out11b" && grep -q 'timed out after 1' 
 (( SECONDS - s0 < 30 )) && echo "  ✓ neither waited for its command" || { echo "  ✗ the timeout did not bound them"; fail=1; }
 
 echo
+# ─── Twelfth run: a compose project name set by the environment (#31) ─────────
+# 37: the gate leaves the developer's own stack alone — no down, no prune, no volume rm
+printf '## Blocked by\n\nNone\n' > "$T/fix/37.body"
+: > "$T/docker.log"
+out12=$(COMPOSE_PROJECT_NAME=shop MAX_ATTEMPTS=1 NO_CHECKS=1 INTEGRATION=0 JOBS=1 bash "$AFK" 37 2>&1) || true
+printf '%s\n' "$out12" > "$T/run12.log"
+grep -qE 'green  \(1\): 37' <<<"$out12" && grep -qx 'shop' "$T/compose.log" &&
+  ! grep -qE '^(compose down|network prune|volume rm)' "$T/docker.log" &&
+  echo "  ✓ a project name from the environment is not cleaned up" ||
+  { echo "  ✗ the gate cleaned up the developer's own compose project"; fail=1; }
+
+echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }
 echo "ok"

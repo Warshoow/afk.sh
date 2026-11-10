@@ -46,6 +46,10 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A gate no longer touches a compose project it did not name.** With `COMPOSE_PROJECT_NAME`
+  set in the environment or `.afk.env`, the gate runs no `down`, no network prune and no
+  volume removal: that stack is the developer's own. Only the name afk computes is cleaned
+  up (#31).
 - **A GitHub error no longer ends `afk-app.sh` as "nothing left to open".** When the
   `ready-for-agent` count fails, the loop stops with "GitHub unreachable" — after `/afk-wave`
   and after `/afk-preflight apply`. Before, the count fell back to 0 and a network blip
