@@ -10,6 +10,9 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A gate or a dependency install that hangs no longer stops the run.** Each is bounded by
+  `GATE_TIMEOUT` (`30m`, `0` = no limit); past it the ticket is red and its log says
+  `timed out`. Before, a hanging gate kept the gate lock and every other ticket waited (#22).
 - **A compose gate no longer runs another repo's image.** afk gives each gate the compose
   project `<repo>-<worktree dir>` instead of the bare directory name (`4`, `integration`),
   which every repo shared: `compose run` picked up an image built elsewhere and the run

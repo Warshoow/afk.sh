@@ -126,6 +126,7 @@ and you read it back on waking up.
 | `INTEGRATION_VERIFY_CMD` | `$VERIFY_CMD` | the integration pass's gate — put the **uncached** form there (`turbo … --force`) |
 | `MAX_ATTEMPTS` | `2` | 1 attempt + 1 retry, in a fresh session |
 | `TIMEOUT` | `45m` | bounds a run (`--max-turns` is gone in 2.1.x), overridable per ticket |
+| `GATE_TIMEOUT` | `30m` | bounds each gate and each dependency install (`SETUP_CMD`); past it the gate is red and its log says `timed out`. `0` = no limit |
 | `CI_TIMEOUT` | `15m` | how long we wait for CI after opening a PR; `0` = do not consult it |
 | `CI_RETRY_WAIT` | `10` | seconds before retrying a "not registered yet" CI |
 | `MODEL` | empty | the sessions' model; empty = `claude`'s default, overridable per ticket |

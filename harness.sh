@@ -582,5 +582,21 @@ grep -qE 'builder job 32' "$T/repo/.afk/summary.md" &&
   echo "  ✓ the build's time is counted once" || { echo "  ✗ t_session written twice for one build"; fail=1; }
 
 echo
+# ─── Eleventh run: a gate, then a dependency install, that never return ───────
+# 34: its Verify: hangs → red within GATE_TIMEOUT, and the log says why (#22)
+# 35: SETUP_CMD hangs   → the same, on the install
+printf 'Verify: sleep 30\n\n## Blocked by\n\nNone\n' > "$T/fix/34.body"
+printf '## Blocked by\n\nNone\n'                    > "$T/fix/35.body"
+s0=$SECONDS
+out11=$(GATE_TIMEOUT=1 MAX_ATTEMPTS=1 NO_CHECKS=1 INTEGRATION=0 JOBS=1 bash "$AFK" 34 2>&1) || true
+out11b=$(GATE_TIMEOUT=1 SETUP_CMD='sleep 30' NO_CHECKS=1 INTEGRATION=0 JOBS=1 bash "$AFK" 35 2>&1) || true
+printf '%s\n' "$out11" "$out11b" > "$T/run11.log"
+grep -qE 'red    \(1\): 34' <<<"$out11" && grep -q 'timed out after 1 (GATE_TIMEOUT)' "$T/repo/.afk/34-fail.txt" &&
+  echo "  ✓ a hanging gate is red, and its log says it timed out" || { echo "  ✗ hanging gate"; fail=1; }
+grep -q 'dependency install failed' <<<"$out11b" && grep -q 'timed out after 1' "$T/repo/.afk/35-setup.log" &&
+  echo "  ✓ a hanging install too" || { echo "  ✗ hanging install"; fail=1; }
+(( SECONDS - s0 < 30 )) && echo "  ✓ neither waited for its command" || { echo "  ✗ the timeout did not bound them"; fail=1; }
+
+echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }
 echo "ok"

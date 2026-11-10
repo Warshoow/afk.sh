@@ -254,6 +254,7 @@ AFK_BUILD_CMD="${AFK_BUILD_CMD:-}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"        # 1 attempt + 1 retry, in a fresh session
 TIMEOUT="${TIMEOUT:-45m}"                # guard rail: bounds a run (no --max-turns in 2.1.x)
                                          # overridable per ticket: "Timeout:" line of the body
+GATE_TIMEOUT="${GATE_TIMEOUT:-30m}"      # bounds each gate and each dependency install; 0 = no limit
 CI_TIMEOUT="${CI_TIMEOUT:-15m}"          # how long we wait for CI; 0 = do not consult it
 CI_RETRY_WAIT="${CI_RETRY_WAIT:-10}"     # seconds before retrying a "no checks" (see ci_phase)
 INTEGRATION="${INTEGRATION:-1}"          # integration pass over the green branches at the end
@@ -396,14 +397,20 @@ fmt_dur() { local n=${1:-0}; printf '%dm%02ds' $(( n / 60 )) $(( n % 60 )); }
 # parent's arrays. It drops key=value lines, the parent reads them back.
 sget() { grep -E "^$2=" "$AFK_DIR/$1.status" 2>/dev/null | tail -1 | cut -d= -f2-; }
 
-# Serialise a command behind a named lock, when running in parallel.
+# Serialise a command behind a named lock, when running in parallel. Every gate and every
+# dependency install goes through here, so GATE_TIMEOUT bounds them here — inside the lock,
+# so waiting for it does not count. Without it a hanging gate kept the lock: every other
+# ticket's gate waited behind it and the run never ended (#22). `-k` because a test
+# runner may ignore TERM; it then exits 137 and gets no message: an OOM kill exits 137 too.
 locked() {
-  local name="$1"; shift
+  local name="$1" rc; shift
   if (( JOBS > 1 )) && [[ "$VERIFY_LOCK" == "1" ]] && command -v flock >/dev/null; then
-    flock "$AFK_DIR/$name.lock" "$@"
+    flock "$AFK_DIR/$name.lock" timeout -k 30s "$GATE_TIMEOUT" "$@"; rc=$?
   else
-    "$@"
+    timeout -k 30s "$GATE_TIMEOUT" "$@"; rc=$?
   fi
+  (( rc == 124 )) && echo "afk: timed out after ${GATE_TIMEOUT} (GATE_TIMEOUT)"
+  return $rc
 }
 
 # The gate, run from a worktree. A gate calling `docker compose run --rm` gets a compose
