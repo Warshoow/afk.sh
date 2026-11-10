@@ -282,6 +282,11 @@ EFFORT="${EFFORT:-}"
 # the variable only picks which model.
 FALLBACK_MODEL="${FALLBACK_MODEL:-sonnet}"
 
+# A session loads the schema of every MCP tool it can reach before reading the ticket. Set,
+# the sessions see only the servers of this file (#29); unset, nothing changes — off by
+# default because a verify-<app> skill may need Playwright.
+AFK_MCP_CONFIG="${AFK_MCP_CONFIG:-}"
+
 # A blocker delivered by hand — PR open, not merged yet — is neither "in the run" nor
 # "closed": it froze its dependants until it merged, although its branch is pushed and
 # readable. We stack on it like on a blocker delivered by the run. The PR will target
@@ -836,6 +841,7 @@ worker() {
   [[ -n "$mdl" ]] && copts+=(--model "$mdl")
   [[ -n "$eff" ]] && copts+=(--effort "$eff")
   [[ -n "$FALLBACK_MODEL" ]] && copts+=(--fallback-model "$FALLBACK_MODEL")
+  [[ -n "$AFK_MCP_CONFIG" ]] && copts+=(--strict-mcp-config --mcp-config "$AFK_MCP_CONFIG")
 
   echo "  worktree    : ${wt#$REPO_ROOT/}"
   echo "  base        : ${base}"

@@ -132,6 +132,7 @@ and you read it back on waking up.
 | `MODEL` | empty | the sessions' model; empty = `claude`'s default, overridable per ticket |
 | `EFFORT` | empty | thinking level (`low`…`max`); empty = the default, overridable per ticket |
 | `FALLBACK_MODEL` | `sonnet` | fallback model when the main one is unavailable; always on, the variable only picks the model |
+| `AFK_MCP_CONFIG` | empty | an MCP config file: the sessions see only its servers (`--strict-mcp-config --mcp-config`), so they stop loading every tool schema before the first turn; empty = the project's and the user's servers, as in an interactive session |
 | `INTEGRATION` | `1` | integration pass over the green branches at the end of the run; `0` = skip |
 | `REUSE_GREEN` | `1` | skip the base gate when the base has the content of the last complete gate that passed (`.afk/green.tree`, `docs/spec.md` aside); `0` = always run it, for a gate that depends on more than the code |
 | `LABEL` / `LABEL_REVIEW` / `LABEL_KO` | read from `docs/agents/triage-labels.md` | |
@@ -171,6 +172,9 @@ It is shell from the repo, executed as-is — the same trust surface as a ticket
 Several Claude accounts on the machine? Put the repo's in it —
 `CLAUDE_CONFIG_DIR="$HOME/.claude-pro"` — it wins over whatever the shell exports. The
 run prints the one it uses (`· Claude account: …`) before anything else.
+
+The claude.ai connectors are loaded by every session too, whatever `AFK_MCP_CONFIG` says.
+To leave them out: `export ENABLE_CLAUDEAI_MCP_SERVERS=false` in `.afk.env`.
 
 ### The integration gate separates from the tickets'
 

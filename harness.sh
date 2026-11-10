@@ -235,6 +235,8 @@ want "crashed session named, not a code"           'session ended abnormally \(e
 
 grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-model sonnet' "$T/args-1.txt" &&
   echo "  ✓ session launched in JSON, with fallback" || { echo "  ✗ session flags missing"; fail=1; }
+! grep -q -- '--strict-mcp-config' "$T/args-1.txt" &&
+  echo "  ✓ no AFK_MCP_CONFIG, no MCP flags" || { echo "  ✗ MCP flags without AFK_MCP_CONFIG"; fail=1; }
 
 grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-1' "$T/docker.log" &&
   grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-base' "$T/docker.log" &&
@@ -504,8 +506,10 @@ grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
 # "No CI declared" is a property of the REPO: saying it ticket by ticket would mark the
 # whole batch "unproven", and the real unproven would drown in it.
 echo
-out7=$(NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
+out7=$(AFK_MCP_CONFIG="$T/mcp.json" NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
 printf '%s\n' "$out7" > "$T/run7.log"
+grep -qF -- "--strict-mcp-config --mcp-config $T/mcp.json" "$T/args-21.txt" 2>/dev/null &&
+  echo "  ✓ AFK_MCP_CONFIG passes both MCP flags" || { echo "  ✗ AFK_MCP_CONFIG not passed"; fail=1; }
 grep -qE 'no CI on this repo.*REPLACED on 21' <<<"$out7" &&
   echo "  ✓ repo without CI: one line for the run, not one per ticket" ||
   { echo "  ✗ the absence of CI is reported ticket by ticket"; fail=1; }

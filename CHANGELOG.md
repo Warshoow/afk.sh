@@ -24,6 +24,9 @@ code concerned; the verdict on proposed ideas is in
   A line on a test file that already exists is left alone (#21).
 - **A second attempt writes down and tests the first one's assumption before fixing.** The
   retry prompt asks for a journal line in phase `premise` and its command, run first (#23).
+- **`AFK_MCP_CONFIG` limits the sessions to the MCP servers of one file.** Unset, nothing
+  changes. The README also gives `ENABLE_CLAUDEAI_MCP_SERVERS=false` for the claude.ai
+  connectors (#29).
 
 ### Fixed
 
