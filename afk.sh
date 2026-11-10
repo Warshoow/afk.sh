@@ -380,7 +380,7 @@ DRY_RUN="${DRY_RUN:-0}"
 
 # A fresh worktree only contains tracked files. The .env files are gitignored and the
 # backend does not start without them: without this seeding, verification fails in a
-# worktree for a reason that has nothing to do with the ticket.
+# worktree for a reason that has nothing to do with the ticket. Ignored files only.
 SEED_GLOBS="${SEED_GLOBS:-.env .env.local apps/*/.env apps/*/.env.local packages/*/.env}"
 
 # Install the worktree's dependencies. "auto" = deduced from the lockfile.
@@ -779,6 +779,9 @@ seed_worktree() {
   local wt="$1" f n=0
   for f in $SEED_GLOBS; do
     [[ -f "$f" ]] || continue
+    # A tracked .env is already in the worktree at its committed version: copying the
+    # main tree's edit over it would let `git add -A` push a local secret (#35).
+    git check-ignore -q -- "$f" || continue
     mkdir -p "$wt/$(dirname "$f")" && cp -p "$f" "$wt/$f" && n=$(( n + 1 ))
   done
   echo "$n"

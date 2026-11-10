@@ -142,7 +142,7 @@ and you read it back on waking up.
 | `VERIFY_LOCK` | `1` | serialises the verifications when `JOBS > 1` |
 | `SETUP_CMD` | deduced from the lockfile | seeding a worktree (`pnpm install --frozen-lockfile`) — receives `AFK_TICKET` and `AFK_WORKTREE` |
 | `AFK_BUILD_CMD` | empty | a command that builds the ticket instead of `claude -p` here (see "Building elsewhere") |
-| `SEED_GLOBS` | `.env`, `apps/*/.env`, … | gitignored files copied into each worktree |
+| `SEED_GLOBS` | `.env`, `apps/*/.env`, … | gitignored files copied into each worktree; a tracked or unignored match is skipped |
 | `KEEP_WORKTREES` | `0` | keep the green worktrees too (the red ones always are) |
 | `AFK_HOME` | the script's folder | where `RUNS.md` is written — redirect it if afk's repo is mounted read-only |
 | `STACK_ON_OPEN_PR` | `1` | stack on an out-of-run blocker with an open PR, instead of freezing |

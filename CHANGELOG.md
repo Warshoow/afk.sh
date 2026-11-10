@@ -46,6 +46,10 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **Worktree seeding copies only gitignored files.** A file matching `SEED_GLOBS` that git
+  tracks (a Symfony-style committed `.env`) or does not ignore is skipped: the main tree's
+  local edit, a real key, no longer lands in the worktree where `git add -A` would commit
+  and push it (#35).
 - **A gate no longer touches a compose project it did not name.** With `COMPOSE_PROJECT_NAME`
   set in the environment or `.afk.env`, the gate runs no `down`, no network prune and no
   volume removal: that stack is the developer's own. Only the name afk computes is cleaned

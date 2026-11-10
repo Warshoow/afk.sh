@@ -666,5 +666,21 @@ grep -qE 'green  \(1\): 37' <<<"$out12" && grep -qx 'shop' "$T/compose.log" &&
   { echo "  ✗ the gate cleaned up the developer's own compose project"; fail=1; }
 
 echo
+# ─── Thirteenth run: seeding copies only ignored files (#35) ──────────────────────
+# 38: .env is tracked and edited locally → not copied, the branch keeps the committed one;
+#     .env.local is gitignored → still copied and counted
+printf '## Blocked by\n\nNone\n' > "$T/fix/38.body"
+echo 'APP_KEY=committed' > .env; echo '.env.local' > .gitignore
+git add .env .gitignore && git commit -qm "track .env" && git push -q origin master
+echo 'APP_KEY=real-secret' > .env; echo 'LOCAL=1' > .env.local
+out13=$(SEED_GLOBS='.env .env.local' MAX_ATTEMPTS=1 NO_CHECKS=1 INTEGRATION=0 JOBS=1 bash "$AFK" 38 2>&1) || true
+printf '%s\n' "$out13" > "$T/run13.log"
+[[ "$(git show feat/38:.env 2>/dev/null)" == 'APP_KEY=committed' ]] &&
+  echo "  ✓ a tracked file edited in the main tree is not copied over" ||
+  { echo "  ✗ the local edit of a tracked .env reached the branch"; fail=1; }
+grep -qE 'seeded      : 1 ignored' <<<"$out13" &&
+  echo "  ✓ a gitignored file is still seeded and counted" || { echo "  ✗ ignored file not seeded"; fail=1; }
+
+echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }
 echo "ok"
