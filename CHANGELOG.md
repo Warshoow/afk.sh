@@ -40,6 +40,10 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A GitHub error no longer ends `afk-app.sh` as "nothing left to open".** When the
+  `ready-for-agent` count fails, the loop stops with "GitHub unreachable" — after `/afk-wave`
+  and after `/afk-preflight apply`. Before, the count fell back to 0 and a network blip
+  looked like the normal end after one wave (#32).
 - **The gates no longer leave their compose volumes behind.** After `down`, the volumes of the
   worktree's own project (`<project>_<volume>`) are removed; a volume with a fixed `name:` is
   left alone (#30).

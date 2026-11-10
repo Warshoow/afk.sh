@@ -57,7 +57,9 @@ spec_ok() {
 # yield "0\n0", and the loop's arithmetic with it.
 done_n()  { local n; n=$(grep -c '^- \[x\]' docs/spec.md 2>/dev/null); echo "${n:-0}"; }
 todo_n()  { local n; n=$(grep -c '^- \[ \]' docs/spec.md 2>/dev/null); echo "${n:-0}"; }
-ready_n() { gh issue list --state open --label ready-for-agent --limit 200 --json number -q '. | length' 2>/dev/null || echo 0; }
+# No `|| echo 0` fallback: a gh failure must not read as an empty batch (the normal end).
+# It prints nothing and returns nonzero; callers stop with "GitHub unreachable".
+ready_n() { gh issue list --state open --label ready-for-agent --limit 200 --json number -q '. | length' 2>/dev/null; }
 
 # A steering session. Short by nature — it reads, it opens tickets or it merges. The
 # timeout is not there to rein it in but so that a mute session does not eat the night
@@ -98,7 +100,7 @@ for (( w=1; w<=WAVES; w++ )); do
 
   pilot afk-wave "$LOG_DIR/w${w}-plan.json" || { stop="the slicing session failed"; break; }
 
-  n=$(ready_n)
+  n=$(ready_n) || { stop="GitHub unreachable"; break; }
   if (( n == 0 )); then stop="nothing left to open"; break; fi
 
   # Reread the batch before burning the night on it: a ticket too big for its budget, a
@@ -111,7 +113,7 @@ for (( w=1; w<=WAVES; w++ )); do
     echo "  ⚠  batch not reviewed, the wave runs as opened"
 
   # Recounted: preflight cuts and serialises, so the number has moved.
-  n=$(ready_n)
+  n=$(ready_n) || { stop="GitHub unreachable"; break; }
   if (( n == 0 )); then stop="preflight emptied the batch"; break; fi
   echo "  · ${n} ready-for-agent ticket(s)"
 
