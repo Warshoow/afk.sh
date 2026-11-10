@@ -66,6 +66,28 @@ timeout 180 bash -c '<the proposed command>'; echo "rc=$?"
 - anything else → either the command is wrong, or the repo is already red. Tell the two
   apart before concluding; a repo red on `main` is not a config problem.
 
+`rc=0` proves the gate returns, not that it can fail. Then break the code on purpose, in a
+throwaway worktree — never the user's tree:
+
+```bash
+wt=$(mktemp -d)/red && git worktree add -q --detach "$wt" HEAD
+# install the dependencies there (the SETUP_CMD you will write), copy the gitignored
+# files the gate needs, then ONE break the gate must see: invert an assertion of an
+# existing test, or make a source file the tests cover fail to compile
+(cd "$wt" && timeout 180 bash -c '<the proposed command>'); echo "rc=$?"
+git worktree remove --force "$wt"   # whatever the result
+```
+
+Done when the gate is `rc≠0` (and not `124`) on the broken worktree, **and** its output
+names the break — a red from a missing dependency or `.env` proves nothing. `rc=0` → the
+gate sees nothing; the usual causes:
+
+- `--passWithNoTests` (or a glob that matches no file)
+- a `test` script that is empty or `echo ok`
+- a filter that leaves out the folder the tickets write to
+
+Fix it and start step 4 again. A gate that cannot go red makes every ticket green.
+
 ## 5 — Propose, then write
 
 Show the proposed `.afk.env` and **wait for approval** before writing it.

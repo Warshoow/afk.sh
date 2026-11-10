@@ -17,6 +17,8 @@ code concerned; the verdict on proposed ideas is in
 - **`/afk-merge` takes out a PR that conflicts on code.** Label `ready-for-human`, a comment
   listing the conflicting files, its stacked PRs out with it; the other PRs keep landing, and
   the report counts them as `Out (conflict)` (#20).
+- **`/afk-setup` proves the gate can go red.** After `rc=0`, it breaks the code in a throwaway
+  worktree and requires the gate to fail on that break (#14).
 
 ### Fixed
 
