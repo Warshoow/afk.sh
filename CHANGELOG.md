@@ -40,6 +40,9 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **The gates no longer leave their compose volumes behind.** After `down`, the volumes of the
+  worktree's own project (`<project>_<volume>`) are removed; a volume with a fixed `name:` is
+  left alone (#30).
 - **A gate or a dependency install that hangs no longer stops the run.** Each is bounded by
   `GATE_TIMEOUT` (`30m`, `0` = no limit); past it the ticket is red and its log says
   `timed out`. Before, a hanging gate kept the gate lock and every other ticket waited (#22).

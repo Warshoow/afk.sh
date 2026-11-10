@@ -478,13 +478,17 @@ locked() {
 # `down` comes first: `run --rm` leaves the `depends_on` services running, and their
 # networks are in use, so the prune skipped them (defect 48, again). `--rmi local` removes
 # the image compose built for this worktree, which no later run reuses; never `-v`, a
-# volume with a fixed `name:` may be the developer's data.
+# volume with a fixed `name:` may be the developer's data. The worktree's own volumes are
+# removed after (#30): compose labels both kinds with the project, but only its own are
+# named `<project>_<volume>` — a fixed `name:` does not carry the prefix.
 gate() {   # command; cwd = the worktree
   local p="${COMPOSE_PROJECT_NAME:-$(compose_name "${REPO_ROOT##*/}" "${PWD##*/}")}"
   COMPOSE_PROJECT_NAME="$p" locked verify bash -c "$1"; local rc=$?
   if command -v docker >/dev/null; then
     COMPOSE_PROJECT_NAME="$p" docker compose down --remove-orphans --rmi local >/dev/null 2>&1
     docker network prune -f --filter "label=com.docker.compose.project=$p" >/dev/null 2>&1
+    docker volume ls -q --filter "label=com.docker.compose.project=$p" 2>/dev/null |
+      awk -v pre="${p}_" 'index($0, pre) == 1' | xargs -r docker volume rm >/dev/null 2>&1
   fi
   return $rc
 }

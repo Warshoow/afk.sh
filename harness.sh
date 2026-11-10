@@ -184,7 +184,14 @@ case "$n" in
 esac
 X
 # The gate's leftover compose networks are pruned after each gate (defect 48).
-printf '#!/bin/sh\necho "$*" >> "$HARNESS/docker.log"\n' > "$T/bin/docker"
+# `volume ls` answers for the project in its filter: its own volume, and one with a fixed
+# `name:` that compose labels with the project too (#30).
+cat > "$T/bin/docker" <<'X'
+#!/usr/bin/env bash
+echo "$*" >> "$HARNESS/docker.log"
+if [[ "$1 $2" == "volume ls" ]]; then a="$*"; p=${a##*compose.project=}; printf '%s_db\nshared-dev-data\n' "$p"; fi
+exit 0
+X
 chmod +x "$T/bin/gh" "$T/bin/claude" "$T/bin/docker"
 
 # ─── Throwaway repo ───────────────────────────────────────────────────────────
@@ -254,6 +261,10 @@ grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-mo
 grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-1' "$T/docker.log" &&
   grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-base' "$T/docker.log" &&
   echo "  ✓ compose networks pruned after the gate" || { echo "  ✗ compose networks left behind"; fail=1; }
+grep -qx 'volume rm repo-1_db' "$T/docker.log" && grep -qx 'volume rm repo-base_db' "$T/docker.log" &&
+  ! grep -q 'volume rm.*shared-dev-data' "$T/docker.log" &&
+  echo "  ✓ the gate removes its project's own volumes, not a fixed-name one" ||
+  { echo "  ✗ compose volumes: own ones left, or a fixed-name one removed"; fail=1; }
 grep -qx 'compose down --remove-orphans --rmi local' "$T/docker.log" &&
   echo "  ✓ the gate's compose project is brought down" || { echo "  ✗ no compose down after the gate"; fail=1; }
 grep -qx 'repo-1' "$T/compose-1.txt" &&
