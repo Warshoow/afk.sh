@@ -46,6 +46,12 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A blocker dropped from the batch, or whose state is unreadable, is handled as a blocker
+  outside the run.** A ticket blocked by one that is `in-review` (or not written by a
+  collaborator) waited forever and ended "dependency cycle or undeliverable blocker". It
+  now stacks on that ticket's open PR, or freezes with "blockers open outside the run". A
+  blocker whose state `gh` cannot read counts as open, not closed. The harness has a run
+  for each (#37).
 - **A ticket whose CI is red is no longer counted green.** It showed in the terminal
   "green (N)" line and in `RUNS.md`'s Green column while also listed under "CI red" and
   relabelled `ready-for-human`. The harness now has a red-CI run (#36).

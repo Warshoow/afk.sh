@@ -95,7 +95,8 @@ case "$1" in
              [[ "$*" == *"--json body"*   ]] && { cat "$FIX/$n.body" 2>/dev/null; exit 0; }
              [[ "$*" == *"--json title"*  ]] && { echo "title of ticket $n"; exit 0; }
              [[ "$*" == *"--json labels"* ]] && { cat "$FIX/$n.labels" 2>/dev/null || echo enhancement; exit 0; }
-             [[ "$*" == *"--json state"*  ]] && { echo OPEN; exit 0; } ;;
+             # FAIL_STATE: the lookup breaks (network, rate limit) and prints nothing.
+             [[ "$*" == *"--json state"*  ]] && { [[ -n "${FAIL_STATE:-}" ]] && exit 1; echo OPEN; exit 0; } ;;
            edit)    log "edit $*" ;;
            comment) log "comment $3" ;;
            list)    printf '1\n2\n' ;;
@@ -103,8 +104,9 @@ case "$1" in
   pr)    case "$2" in
            # Open PR for #99, only when the test asks for it: the first run needs #99
            # not to have one, to check the freeze.
-           list)   [[ -n "${OPEN_PR:-}" && "$*" == *"--head feat/99"* ]] && echo "feat/99"
-                   exit 0 ;;
+           list)   for h in 99 40; do
+                     [[ -n "${OPEN_PR:-}" && "$*" == *"--head feat/$h"* ]] && echo "feat/$h"
+                   done; exit 0 ;;
            create) for a in "$@"; do [[ ${prev:-} == --head ]] && b=$a; prev=$a; done
                    log "pr create $*"; echo "https://x/y/pull/9${b##*/}"; exit 0 ;;
            # NO_CHECKS       : the repo has no CI, --watch exits immediately.
@@ -213,6 +215,9 @@ git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
 # A blocker delivered by hand: branch pushed, PR open, ticket still open.
 git checkout -qb feat/99 && echo 99 > from99.txt && git add -A && git commit -qm "feat(#99): by hand"
 git push -q origin feat/99 && git checkout -q master && git branch -qD feat/99
+# Same for #40, but it is in-review, so dropped from the batch (#37).
+git checkout -qb feat/40 && echo 40 > from40.txt && git add -A && git commit -qm "feat(#40): by hand"
+git push -q origin feat/40 && git checkout -q master && git branch -qD feat/40
 
 # ─── Execution ────────────────────────────────────────────────────────────────
 # AFK_HOME redirected: without it, every harness run would append its lines to the real
@@ -698,6 +703,40 @@ grep -qE '^  green  \(0\): —' <<<"$out14" &&
   echo "  ✓ a red CI is not in the green count" || { echo "  ✗ a red CI counted green"; fail=1; }
 [[ "$(tail -1 "$T/RUNS.md" | awk -F' [|] ' '{print $4}')" == 0 ]] &&
   echo "  ✓ a red CI is not in RUNS.md's Green column" || { echo "  ✗ RUNS.md counts a red CI green"; fail=1; }
+
+# ─── Fifteenth run: blockers dropped from the batch, unreadable blocker (#37) ───
+# 40, 42: in-review → dropped. 40 has an open PR, 42 has none.
+# 41 blocked by 40 (listed first: the drop must be known before blockers are read),
+# 43 blocked by 42, 44 blocked by 45 (outside the run, its state cannot be read).
+printf '## Blocked by\n\nNone\n' > "$T/fix/40.body"
+printf '## Blocked by\n\n- #40\n' > "$T/fix/41.body"
+printf '## Blocked by\n\nNone\n' > "$T/fix/42.body"
+printf '## Blocked by\n\n- #42\n' > "$T/fix/43.body"
+printf '## Blocked by\n\n- #45\n' > "$T/fix/44.body"
+printf 'in-review\n' > "$T/fix/40.labels"; printf 'in-review\n' > "$T/fix/42.labels"
+
+echo
+out15=$(OPEN_PR=1 FAIL_STATE=1 INTEGRATION=0 JOBS=1 bash "$AFK" 41 40 43 42 44 2>&1) || true
+printf '%s\n' "$out15" > "$T/run15.log"
+want15() {
+  if grep -qE -- "$2" <<<"$out15"; then printf '  ✓ %s\n' "$1"
+  else printf '  ✗ %s\n     expected: /%s/\n' "$1" "$2"; fail=1; fi
+}
+want15 "dropped blocker with an open PR: stacked on"  '#41: blocker #40 delivered outside the run \(open PR\) → base origin/feat/40'
+want15 "dropped blocker without a PR: outside the run" '#43 frozen — blockers open outside the run: 42'
+want15 "unreadable blocker state counts as open"        '#44 frozen — blockers open outside the run: 45'
+grep -q 'dependency cycle' <<<"$out15" &&
+  { echo "  ✗ a dropped blocker is reported as a cycle"; fail=1; } ||
+  echo "  ✓ no \"dependency cycle\" for a dropped blocker"
+out15n=$(OPEN_PR=1 FAIL_STATE=1 bash "$AFK" -n 41 40 43 42 44 2>&1) || true
+printf '%s\n' "$out15n" > "$T/run15n.log"
+grep -qE '#41 +base origin/feat/40' <<<"$out15n" &&
+  echo "  ✓ plan: #41 starts from the dropped blocker's branch" ||
+  { echo "  ✗ plan: wrong base for #41"; printf '%s\n' "$out15n"; fail=1; }
+grep -qE '#43 frozen — blockers open outside the run: 42' <<<"$out15n" &&
+  grep -qE '#44 frozen — blockers open outside the run: 45' <<<"$out15n" &&
+  echo "  ✓ plan: the same freezes as the run" ||
+  { echo "  ✗ plan disagrees with the run"; printf '%s\n' "$out15n"; fail=1; }
 
 echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }

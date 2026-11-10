@@ -681,7 +681,12 @@ EOF
 declare -A DEPS=() EXT=() TITLE=() VERIFY=() TMO=() MDL=() EFF=()
 EXT_FETCH=(); DROPPED=()
 
-in_run() { local n="$1" t; for t in "${TICKETS[@]}"; do [[ "$t" == "$n" ]] && return 0; done; return 1; }
+# A dropped ticket is not run: as a blocker it is outside the run, like any other (#37).
+in_run() {
+  local n="$1" t
+  [[ " ${DROPPED[*]-} " == *" $n "* ]] && return 1
+  for t in "${TICKETS[@]}"; do [[ "$t" == "$n" ]] && return 0; done; return 1
+}
 
 # Branch of an open PR delivering this ticket, if there is one. We first look for the
 # convention the orchestrator imposes itself (feat/<n>), then, for a branch named
@@ -737,6 +742,13 @@ plan_run() {
       echo "  ⏭  #${t} is ${LABEL_REVIEW} — skipped (ALLOW_REVIEW=1 to force)"
       DROPPED+=("$t"); continue
     fi
+  done
+
+  # Second pass: `in_run` only knows who is dropped once every ticket has been read, so
+  # a ticket listed before its dropped blocker would still wait on it forever.
+  for t in "${TICKETS[@]}"; do
+    [[ " ${DROPPED[*]-} " == *" $t "* ]] && continue
+    body=$(cat "$AFK_DIR/$t.body")
 
     # Native GitHub dependencies first; otherwise the body's "Blocked by" section.
     local raw
@@ -746,7 +758,9 @@ plan_run() {
     deps=""; ext=""
     for b in $raw; do
       if in_run "$b"; then deps+="$b "; continue; fi
-      [[ "$(gh issue view "$b" --json state -q .state 2>/dev/null)" == "OPEN" ]] || continue
+      # Only an explicit CLOSED lifts a blocker: an unreadable state (network, rate
+      # limit) would start the ticket on a base without its prerequisite.
+      [[ "$(gh issue view "$b" --json state -q .state 2>/dev/null)" == "CLOSED" ]] && continue
       # Open and outside the run. If it has a PR, its branch is a valid base: freezing
       # until it merges means refusing to stack on work already pushed.
       pb=$(open_pr_branch "$b")
