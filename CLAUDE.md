@@ -78,7 +78,8 @@ integration phases). It found three bugs on its first execution.
 `afk.sh` splits in two at the line `[[ -n "${AFK_LIB:-}" ]] && return 0`:
 
 - **above**: the pure parsers (`label_for`, `blocked_refs`, `meta_line`, `deepest_branch`,
-  `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`). `check.sh` does
+  `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`, `compose_name`,
+  `journal_notes`). `check.sh` does
   `AFK_LIB=1 source ./afk.sh` to test them alone. They must read no global and write
   nothing. The override validation patterns (`RE_TIMEOUT`, `RE_MODEL`, `RE_EFFORT`,
   `RE_VERIFY`) are there too, so `check.sh` tests the ones that actually serve rather than

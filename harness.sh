@@ -163,6 +163,12 @@ case "$n" in
   6) echo x > work-$n.txt; git add -A; git commit -qm "feat(#6): ok"
      res error_during_execution true; exit 1 ;;
   7) touch BROKEN; git add -A; git commit -qm "feat(#7): breaks"; res; exit 0 ;;
+  # Writes the two journal phases that go into the PR body (#17), at the absolute path
+  # the prompt gives, and one that does not.
+  21) j=$(grep -o '/[^ ]*/21-work.tsv' <<<"$p" | head -1)
+      printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' > "$j"
+      printf '1\tseams\tseam-not-for-the-pr\t\t\t\n2\tnoticed\tleft-the-formatter-alone\tout of scope\t\t\n' >> "$j"
+      echo x > work-21.txt; git add -A; git commit -qm "feat(#21): ok"; res; exit 0 ;;
   18) echo "export const a = 1" > shared.ts
       mkdir -p docs; echo "the list: #19 is the one that will open it" > docs/stale.md
       git add -A; git commit -qm "feat(#18): ok"; res; exit 0 ;;
@@ -510,6 +516,10 @@ grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
 echo
 out7=$(AFK_MCP_CONFIG="$T/mcp.json" NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
 printf '%s\n' "$out7" > "$T/run7.log"
+grep -q 'left-the-formatter-alone (out of scope)' "$T/gh.log" && ! grep -q 'seam-not-for-the-pr' "$T/gh.log" &&
+  [[ $(grep -c 'Noticed but not touched' "$T/gh.log") == 1 ]] &&
+  echo "  ✓ the journal's noticed line is in the PR body; no line, no section" ||
+  { echo "  ✗ journal notes in the PR body"; fail=1; }
 grep -qF -- "--strict-mcp-config --mcp-config $T/mcp.json" "$T/args-21.txt" 2>/dev/null &&
   echo "  ✓ AFK_MCP_CONFIG passes both MCP flags" || { echo "  ✗ AFK_MCP_CONFIG not passed"; fail=1; }
 grep -qE 'no CI on this repo.*REPLACED on 21' <<<"$out7" &&

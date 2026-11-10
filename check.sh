@@ -275,4 +275,11 @@ printf '0001-x.md\n0001-y.md\n' | clashing_numbers | grep -q 'in \./' ||
 [[ "$(compose_name afk.sh 12)" == "afksh-12" ]] || { echo "FAIL compose_name dot"; exit 1; }
 [[ "$(compose_name My_Repo- 4)" == "my_repo-4" ]] || { echo "FAIL compose_name case/separators"; exit 1; }
 
+# ─── journal_notes ────────────────────────────────────────────────────────────
+
+got=$(printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n1\tseams\tPOST /tasks\tcriteria\t\t\n2\tnoticed\tduplicate formatter in utils\tout of scope\t\t\n3\tconcern\tno index on tasks.owner\t\t\t\n4\tpremise\tx\ty\t\t\n' | journal_notes)
+want=$'- **noticed** — duplicate formatter in utils (out of scope)\n- **concern** — no index on tasks.owner'
+[[ "$got" == "$want" ]] || { echo "FAIL journal_notes: $got"; exit 1; }
+[[ -z "$(printf 'ts\tphase\n' | journal_notes)" ]] || { echo "FAIL journal_notes empty"; exit 1; }
+
 echo "ok"

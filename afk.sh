@@ -203,6 +203,14 @@ compose_name() {
     sed -E 's/^[_-]+//; s/[_-]*-[_-]*/-/g'
 }
 
+# The journal lines the PR reviewer should read (#17): what the session saw and left alone,
+# and its concerns. The journal is gitignored and overwritten by the next run, the PR stays.
+# TSV on stdin (ts, phase, decision, why, evidence, result) → one Markdown bullet per line.
+journal_notes() {
+  awk -F'\t' '$2 == "noticed" || $2 == "concern" {
+    printf "- **%s** — %s%s\n", $2, $3, ($4 == "" ? "" : " (" $4 ")") }'
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourced by check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
@@ -557,7 +565,9 @@ Fresh session, no history.
   that header line first if the file does not exist). One line per decision the diff
   cannot show: a hypothesis taken because nobody was there to decide, an option ruled
   out and what ruled it out, a red gate and what you concluded from it, a premise that
-  turned out false, anything you did outside the ticket's scope. Not the mechanical
+  turned out false, anything you did outside the ticket's scope. Two phases go into
+  the PR body for the reviewer: "noticed" (something you saw and deliberately left
+  alone) and "concern" (a risk in your own work). Not the mechanical
   steps — if every line matches a line of diff, it is a changelog, stop. The ADRs
   above keep the PROJECT's durable decisions; this file keeps what happened during
   THIS run, and it is what /afk-debrief reads instead of rebuilding it from the
@@ -833,7 +843,7 @@ worker() {
   # sum.
   local s0 vrc t_setup=0 t_session=0 t_verify=0
   local -a copts
-  local suspect pr_url pr_num pr_body
+  local suspect pr_url pr_num pr_body notes
 
   st() { printf '%s\n' "$*" >> "$sf"; }
   : > "$sf"
@@ -1062,6 +1072,8 @@ worker() {
         pr_body+=$'\n\n'"> ⚠ **The agent session ended abnormally** (${why:-code ${rc}}). The work present passes verification, but nothing guarantees it is complete — hence the draft. Session: \`.afk/${ticket}-${attempt}.json\`."
       fi
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ The agent did not commit by itself: the orchestrator caught up the working tree."
+      notes=$(journal_notes < "$AFK_DIR/$ticket-work.tsv" 2>/dev/null)
+      [[ -n "$notes" ]] && pr_body+=$'\n\n'"### Noticed but not touched, and concerns (session journal)"$'\n\n'"$notes"
 
       # The branch is complete, green and committed: what failed is the transport (token
       # without the `workflow` scope, branch already on the remote), not the work. A

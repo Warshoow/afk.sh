@@ -30,6 +30,8 @@ code concerned; the verdict on proposed ideas is in
 - **On a red base, the session is told what was already red.** When its gate is `VERIFY_CMD`,
   the prompt carries the tail of `.afk/base-verify.txt`; a ticket with its own `Verify:` gets
   none (#24).
+- **The PR body carries what the session noticed and left alone, and its concerns.** Journal
+  lines in phase `noticed` or `concern` are copied into a section of the PR (#17).
 
 ### Fixed
 
