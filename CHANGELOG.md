@@ -14,6 +14,9 @@ code concerned; the verdict on proposed ideas is in
   section and, when the ticket adds one more of something the repo already has, a
   `Pattern: <file>:<lines>` line to imitate. `/afk-preflight` reads overlaps from the section
   and counts more than ~8 files as a ticket to cut (#15, #16).
+- **`/afk-merge` takes out a PR that conflicts on code.** Label `ready-for-human`, a comment
+  listing the conflicting files, its stacked PRs out with it; the other PRs keep landing, and
+  the report counts them as `Out (conflict)` (#20).
 
 ### Fixed
 

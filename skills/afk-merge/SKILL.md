@@ -105,6 +105,22 @@ into its branch locally and push. afk sets those files to `merge=union` in
 `.git/info/attributes`, so git keeps both sides' lines (defect 51); then reread the merged
 file and drop the notes a landed ticket made false ("X does not exist yet").
 
+A PR that conflicts on any other file: do not resolve it. List the files, take the ticket
+out, and carry on with the next PRs:
+
+```bash
+git worktree add -q --detach .afk/wt/_conflict "origin/<branch>"
+git -C .afk/wt/_conflict merge --no-commit --no-ff "origin/$base" >/dev/null 2>&1
+files=$(git -C .afk/wt/_conflict diff --name-only --diff-filter=U)
+git -C .afk/wt/_conflict merge --abort; git worktree remove --force .afk/wt/_conflict
+gh issue edit <ticket> --add-label ready-for-human --remove-label ready-for-agent
+gh issue comment <ticket> --body "afk-merge: PR #<pr> conflicts with $base on:
+$files"
+```
+
+The PRs stacked on its branch carry its commits: they stay out too, same label, a comment
+naming the blocker.
+
 **After each merge**, unless the trial above said `SAME`, the gate on `$base` (`git pull -q`
 first: the merge happened on GitHub):
 
@@ -217,6 +233,7 @@ Short, it is read on waking up, in series with the other waves:
 Wave 4 — 3 tickets, 2 merged, 1 taken out
 Checked: A7 A8   (14/26)
 Out    : #61 — the gate on the landing branch breaks after merging, revert done
+Out (conflict): 1 — #63 on src/db/schema.ts
 Next   : /afk-wave (milestone 2)
 ```
 
