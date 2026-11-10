@@ -1257,4 +1257,6 @@ common service name is hit.
 same name. A `COMPOSE_PROJECT_NAME` already in the environment is kept. A `VERIFY_CMD` passing
 its own `-p` escapes both: its networks are then its own to remove. The images already built
 under the old names (`integration-app`, `7-app`…) stay on disk until removed by hand. The
-harness checks the name the gate receives and the one pruned.
+harness checks the name the gate receives and the one pruned. Within one repo, `compose run`
+still reuses an image an earlier run built: `/afk-setup` and `/afk-spec` now write
+`docker compose run --rm --build`, which rebuilds from the layer cache.

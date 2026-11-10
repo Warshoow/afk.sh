@@ -14,6 +14,8 @@ code concerned; the verdict on proposed ideas is in
   project `<repo>-<worktree dir>` instead of the bare directory name (`4`, `integration`),
   which every repo shared: `compose run` picked up an image built elsewhere and the run
   blamed the base (defect 63).
+- **`/afk-setup` and `/afk-spec` write compose gates with `--build`**, so a ticket that
+  changes the `Dockerfile` or the dependencies is gated on a rebuilt image, not the last run's.
 
 ## 2026-10-15
 

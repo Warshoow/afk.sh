@@ -39,7 +39,7 @@ The most boring one that holds. Two constraints, in this order:
 - **the gate needs no service already running.** Each ticket runs in a throwaway
   worktree: a Postgres or a Redis started by hand, and every ticket dies red for a reason
   that is not its own. File-backed SQLite, in-memory server, fake client, or a service the
-  gate starts itself (`docker compose run --rm`) — it is a wave-0 decision, not a detail.
+  gate starts itself (`docker compose run --rm --build`) — it is a wave-0 decision, not a detail.
 - **the model knows it without looking things up.** A niche stack costs one documentation
   session per ticket, every night.
 
