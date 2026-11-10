@@ -46,6 +46,9 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A ticket whose CI is red is no longer counted green.** It showed in the terminal
+  "green (N)" line and in `RUNS.md`'s Green column while also listed under "CI red" and
+  relabelled `ready-for-human`. The harness now has a red-CI run (#36).
 - **Worktree seeding copies only gitignored files.** A file matching `SEED_GLOBS` that git
   tracks (a Symfony-style committed `.env`) or does not ignore is skipped: the main tree's
   local edit, a real key, no longer lands in the worktree where `git add -A` would commit

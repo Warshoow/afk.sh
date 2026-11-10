@@ -1882,11 +1882,12 @@ integration_check
 # A ticket with a replaced local gate whose CI did not conclude was seen by NO complete
 # gate, and a draft PR does not get merged. Both facts were printed, three lines apart,
 # without ever being crossed: it was up to the reader to match two lists of numbers to
-# notice that a "green" was not one.
+# notice that a "green" was not one. A red CI is the same: the ticket is relabelled
+# ready-for-human, so it is not green either (#36).
 GREEN=(); UNPROVEN=(); REDUCED=()
 for t in "${OK[@]}"; do
   [[ "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]] && REDUCED+=("$t")
-  if   [[ " ${DRAFT[*]} " == *" $t "* ]]; then continue
+  if   [[ " ${DRAFT[*]} " == *" $t "* || " ${CI_RED[*]} " == *" $t "* ]]; then continue
   elif [[ " ${CI_UNKNOWN[*]} " == *" $t "* && "${VERIFY[$t]:-}" != "$VERIFY_CMD" ]]; then UNPROVEN+=("$t")
   else GREEN+=("$t"); fi
 done

@@ -123,7 +123,7 @@ handles it in its default branch).
 `ABSORBED` `PUSH_KO` `BRANCH_OF` `FIRST_TRY`), which then feed `ci_phase`,
 `integration_check` and the summary. `GREEN` and `UNPROVEN` are computed at summary time
 only: `OK` stays the raw list of tickets that opened a PR, `GREEN` removes from it anything
-no complete gate has seen (draft, or reduced gate + inconclusive CI). It is `GREEN` that is
+no complete gate has seen (draft, red CI, or reduced gate + inconclusive CI). It is `GREEN` that is
 displayed.
 
 ### Isolation

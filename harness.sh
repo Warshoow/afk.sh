@@ -108,12 +108,14 @@ case "$1" in
            create) for a in "$@"; do [[ ${prev:-} == --head ]] && b=$a; prev=$a; done
                    log "pr create $*"; echo "https://x/y/pull/9${b##*/}"; exit 0 ;;
            # NO_CHECKS       : the repo has no CI, --watch exits immediately.
+           # FAIL_CI         : CI ran and is red (#36).
            # NO_CHECKS_ONCE  : CI exists but is not registered YET (the real case,
            #                   ~4 s after `gh pr create`) — afk must retry.
            checks) [[ "$3" == --help ]] && { echo "  --fail-fast"; exit 0; }
                    nc() { echo "no checks reported on the 'feat/x' branch"; exit 1; }
                    [[ -n "${HANG_CI:-}" ]] && sleep 987   # CI still running: timeout
                    [[ -n "${NO_CHECKS:-}" ]] && nc
+                   [[ -n "${FAIL_CI:-}" ]] && { echo "build	fail	1m0s"; exit 1; }
                    [[ -n "${NO_CHECKS_ONCE:-}" && ! -f "$HARNESS/ci-$3" ]] && { touch "$HARNESS/ci-$3"; nc; }
                    exit 0 ;;
          esac ;;
@@ -680,6 +682,22 @@ printf '%s\n' "$out13" > "$T/run13.log"
   { echo "  ✗ the local edit of a tracked .env reached the branch"; fail=1; }
 grep -qE 'seeded      : 1 ignored' <<<"$out13" &&
   echo "  ✓ a gitignored file is still seeded and counted" || { echo "  ✗ ignored file not seeded"; fail=1; }
+
+echo
+# ─── Fourteenth run: a red CI is not counted green (#36) ──────────────────────────
+printf '## Blocked by\n\nNone\n' > "$T/fix/39.body"
+out14=$(FAIL_CI=1 MAX_ATTEMPTS=1 INTEGRATION=0 JOBS=1 bash "$AFK" 39 2>&1) || true
+printf '%s\n' "$out14" > "$T/run14.log"
+grep -qE 'edit issue edit 39 .*--remove-label in-review .*--add-label ready-for-human' "$T/gh.log" &&
+  echo "  ✓ CI red: relabelled in-review → ready-for-human" || { echo "  ✗ CI red not relabelled"; fail=1; }
+grep -qx 'comment 39' "$T/gh.log" &&
+  echo "  ✓ CI red: ticket commented" || { echo "  ✗ CI red not commented"; fail=1; }
+grep -qE 'CI red \(1\): 39' <<<"$out14" &&
+  echo "  ✓ CI red line in the summary" || { echo "  ✗ no CI red line"; fail=1; }
+grep -qE '^  green  \(0\): —' <<<"$out14" &&
+  echo "  ✓ a red CI is not in the green count" || { echo "  ✗ a red CI counted green"; fail=1; }
+[[ "$(tail -1 "$T/RUNS.md" | awk -F' [|] ' '{print $4}')" == 0 ]] &&
+  echo "  ✓ a red CI is not in RUNS.md's Green column" || { echo "  ✗ RUNS.md counts a red CI green"; fail=1; }
 
 echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }
