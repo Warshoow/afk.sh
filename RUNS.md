@@ -45,3 +45,4 @@ the same project always yields the same value, and nothing else is disclosed.
 | 2026-11-04 00:12 | project-d1518ddc | 8 | 8 | 0 | 0 | 0 | 0 | 0 | 0 | 6/8 | — | $16.69 | 74m30s | red + duplicate paths |
 | 2026-11-06 22:37 | project-d1518ddc | 5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 5/5 | — | $14.27 | 99m44s | green |
 | 2026-11-09 17:43 | project-39dea6cd | 7 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 7/7 | opus-5-5 | $20.04 | 58m11s | red |
+| 2026-11-10 14:59 | project-39dea6cd | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0/3 | opus-5-5 | $9.40 | 49m33s | red |
