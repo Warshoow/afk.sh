@@ -38,6 +38,12 @@ code concerned; the verdict on proposed ideas is in
   suppressions (`@ts-ignore`, `eslint-disable`, `# noqa`…) and deleted test files are listed in
   the PR body and in `summary.md`. It never blocks, and the Result column does not change (#13).
 
+### Changed
+
+- **`RUNS.md` project ids cannot be guessed back.** The digest of the repo directory name is
+  salted with a random value kept in a gitignored `.runs-salt` in afk's repo, created on the
+  first run. Same project, same id; rows written before this no longer match newer ones (#34).
+
 ### Fixed
 
 - **A GitHub error no longer ends `afk-app.sh` as "nothing left to open".** When the

@@ -1555,8 +1555,19 @@ append_run_log() {
   total=$(for t in "${TICKETS[@]}"; do sget "$t" cost; done | awk '{s+=$1} END{if(s) printf "$%.2f", s}')
   # The project is not named here: this log lives in afk's repo, which is public and
   # read out of context. A stable digest keeps one project's rows grouped — which is the
-  # only thing the column is read for — without disclosing which project it is.
-  project="project-$(printf '%s' "${REPO_ROOT##*/}" | sha1sum | cut -c1-8)"
+  # only thing the column is read for — without disclosing which project it is. Salted:
+  # an unsalted digest lets anyone with a candidate name confirm it (#34). The salt stays
+  # in a gitignored file; the tmp + `ln` creation never exposes a half-written salt to a
+  # concurrent run, and no salt means no row rather than a guessable one.
+  local salt="$AFK_HOME/.runs-salt" tmp
+  if [[ ! -s "$salt" ]]; then
+    tmp=$(mktemp "$AFK_HOME/.runs-salt.XXXXXX" 2>/dev/null) || return 0
+    head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$tmp"
+    ln "$tmp" "$salt" 2>/dev/null
+    rm -f "$tmp"
+    [[ -s "$salt" ]] || return 0
+  fi
+  project="project-$(printf '%s%s' "$(<"$salt")" "${REPO_ROOT##*/}" | sha1sum | cut -c1-8)"
 
   [[ -f "$f" ]] || {
     printf '# Run log\n\n'
@@ -1565,8 +1576,10 @@ append_run_log() {
     printf "and it spans projects, this repo being mounted in each of them.\n\n"
     printf "Facts only. Anything needing judgement goes into\n"
     printf '[docs/defects.md](docs/defects.md), written by `/afk-debrief`.\n\n'
-    printf 'The project column is a stable digest of the repo directory name, not its name:\n'
-    printf 'the same project always yields the same value, and nothing else is disclosed.\n\n'
+    printf 'The project column is a salted digest of the repo directory name, not its name:\n'
+    printf 'the same project always yields the same value, and nothing else is disclosed.\n'
+    printf 'The salt (`.runs-salt`, gitignored) was introduced after the first rows: rows written\n'
+    printf 'before it no longer match newer ones of the same project.\n\n'
     printf '| Date | Project | Tickets | Green | Unproven | Draft | Red | Push refused | Frozen | Absorbed | 1st try | Model | Cost | Duration | Integration |\n'
     printf '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n'
   } > "$f"

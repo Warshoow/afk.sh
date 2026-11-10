@@ -396,6 +396,12 @@ The path is the script's (`AFK_HOME`), not the project's: whether you launch `af
 a devcontainer where it is mounted or from outside, it writes to the same place.
 Repo mounted read-only → nothing is logged, and that is not a run error.
 
+The `project` column is a digest of the repo directory name, salted with a random value kept
+in `$AFK_HOME/.runs-salt` (gitignored, created on the first run): nobody can confirm a
+candidate name from the public log, and a project still gets the same id every run. Rows
+written before the salt existed no longer match newer ones. Salt cannot be created → the row
+is skipped.
+
 In series, the trace also comes out live on screen. In parallel it is set aside and dumped
 in one block when the ticket finishes, otherwise the outputs interleave; a
 `…  running: #48 (3m12) #50 (1m04)` line every two minutes says who is working.
