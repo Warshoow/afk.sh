@@ -186,12 +186,6 @@ the only one the summary reads. afk knows nothing of what the command does — n
 name belongs here. The `afk-base/<n>` publication for absorbed blockers is the command's
 job (`HEAD` ahead of `AFK_BASE`), not afk's. The harness covers it with a fake builder.
 
-### Deliberate duplication
-
-The `DRY_RUN` block redoes `launch()`'s base/absorption computation (the run's branches do
-not exist yet, so `deepest_branch` falls back on its fallback). **The two must stay in
-agreement** — changing one without the other makes `-n` lie.
-
 ### Git auth
 
 `setup_git_auth` rewrites github.com to HTTPS and wires gh's credential helper, only through

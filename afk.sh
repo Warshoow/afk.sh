@@ -1182,18 +1182,26 @@ deps_state() {   # 0 = ready, 1 = wait, 2 = frozen
   return $state
 }
 
+# A ticket's base and the blockers' branches left to merge on top of it, in STACK_BASE and
+# STACK_ABSORB. Shared by launch() and the -n plan, so the plan cannot lie. A blocker with
+# no branch yet (only in the plan: the run has not made it) falls back to feat/<n>, which
+# is the worst case for deepest_branch, and the one to show.
+ticket_stack() {
+  local b stack=()
+  STACK_BASE="$BASE_REF"; STACK_ABSORB=()
+  for b in ${DEPS[$1]}; do stack+=("${BRANCH_OF[$b]:-feat/$b}"); done
+  (( ${#stack[@]} )) || return 0
+  STACK_BASE=$(deepest_branch "${stack[@]}")
+  for b in "${stack[@]}"; do
+    [[ "$b" == "$STACK_BASE" ]] && continue
+    git merge-base --is-ancestor "$b" "$STACK_BASE" 2>/dev/null && continue  # already in
+    STACK_ABSORB+=("$b")
+  done
+}
+
 launch() {
-  local t="$1" base="$BASE_REF" stack=() b rest=() wt rc
-  for b in ${DEPS[$t]}; do stack+=("${BRANCH_OF[$b]}"); done
-  if (( ${#stack[@]} )); then
-    base=$(deepest_branch "${stack[@]}")
-    for b in "${stack[@]}"; do
-      [[ "$b" == "$base" ]] && continue
-      git merge-base --is-ancestor "$b" "$base" 2>/dev/null && continue  # already in
-      rest+=("$b")
-    done
-    stack=("${rest[@]}")
-  fi
+  local t="$1" wt rc base stack
+  ticket_stack "$t"; base="$STACK_BASE"; stack=("${STACK_ABSORB[@]}")
 
   wt=$(make_worktree "$t" "$base" "${stack[@]}"); rc=$?
   if (( rc == 2 )); then
@@ -1767,21 +1775,9 @@ if [[ "$DRY_RUN" == "1" ]]; then
     (( ${#wave[@]} == 0 )) && { for t in "${next[@]}"; do echo "  ⏸  #${t} frozen — undeliverable blocker"; done; break; }
     echo "  wave ${local_wave} ($( (( ${#wave[@]} > 1 && JOBS > 1 )) && echo "parallel, ${JOBS} at a time" || echo "sequential" )):"
     for t in "${wave[@]}"; do
-      # Same computation as launch(): the base, then what is left to merge on top.
-      # The run's branches do not exist yet, so deepest_branch falls back to the last
-      # one listed — that is the worst case, and the one to show.
-      stack=(); for b in ${DEPS[$t]}; do stack+=("${BRANCH_OF[$b]:-feat/$b}"); done
-      base="$BASE_REF"; absorb=()
-      if (( ${#stack[@]} )); then
-        base=$(deepest_branch "${stack[@]}")
-        for b in "${stack[@]}"; do
-          [[ "$b" == "$base" ]] && continue
-          git merge-base --is-ancestor "$b" "$base" 2>/dev/null && continue
-          absorb+=("$b")
-        done
-      fi
-      printf '    #%-4s base %-14s %s\n' "$t" "$base" "${TITLE[$t]}"
-      (( ${#absorb[@]} )) && printf '          absorbs: %s\n' "${absorb[*]}"
+      ticket_stack "$t"
+      printf '    #%-4s base %-14s %s\n' "$t" "$STACK_BASE" "${TITLE[$t]}"
+      (( ${#STACK_ABSORB[@]} )) && printf '          absorbs: %s\n' "${STACK_ABSORB[*]}"
       [[ "${VERIFY[$t]}" != "$VERIFY_CMD" ]] && printf '          Verify: %s\n' "${VERIFY[$t]}"
       [[ "${TMO[$t]}"    != "$TIMEOUT"    ]] && printf '          Timeout: %s\n' "${TMO[$t]}"
       [[ "${MDL[$t]}"    != "$MODEL"      ]] && printf '          Model: %s\n' "${MDL[$t]}"
