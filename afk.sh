@@ -707,13 +707,20 @@ open_pr_branch() {
 }
 
 plan_run() {
-  local t body deps ext b pb
+  local t body labels deps ext b pb
   for t in "${TICKETS[@]}"; do
-    body=$(gh issue view "$t" --json body -q .body 2>/dev/null) || { echo "✗ #${t} not found"; exit 1; }
-    TITLE[$t]=$(gh issue view "$t" --json title -q .title 2>/dev/null)
+    # One call for the three fields: title and labels fit on one line each, so the body
+    # is whatever follows. The "." line keeps $(...) from eating an empty body's newline,
+    # and sub() drops the body's own trailing newlines like $(...) did when it was alone.
+    body=$(gh issue view "$t" --json title,labels,body \
+        -q '.title, (.labels | map(.name) | join(" ")), (.body | sub("\n+$"; "")), "."' 2>/dev/null) ||
+      { echo "✗ #${t} not found"; exit 1; }
+    body=${body%$'\n.'}
+    TITLE[$t]=${body%%$'\n'*};  body=${body#*$'\n'}
+    labels=${body%%$'\n'*};     body=${body#*$'\n'}
     printf '%s' "$body"          > "$AFK_DIR/$t.body"
     printf '%s' "${TITLE[$t]}"   > "$AFK_DIR/$t.title"
-    gh issue view "$t" --json labels -q '.labels[].name' 2>/dev/null | tr '\n' ' ' > "$AFK_DIR/$t.labels"
+    printf '%s' "${labels:+$labels }" > "$AFK_DIR/$t.labels"   # trailing space, as tr did
 
     # The body goes to a bypassPermissions session and its Verify: line is run as-is:
     # on a public repo, anyone with a GitHub account could write both, and edit them

@@ -25,6 +25,11 @@ mkdir -p "$T/bin" "$T/fix" "$T/cfg/plugins/cache/mattpocock"
 # 8: blocked by 7                        → cascading freeze
 printf '## Blocked by\n\nNone\n' > "$T/fix/1.body"
 for n in 2 6 7; do cp "$T/fix/1.body" "$T/fix/$n.body"; done
+# Odd shapes the cache must keep as they were: leading blank lines (#2), no label at
+# all (#6), an empty body (#7).
+printf '\n\n## Blocked by\n\nNone\n' > "$T/fix/2.body"
+: > "$T/fix/6.labels"
+: > "$T/fix/7.body"
 printf '## Blocked by\n\n- #1\n'       > "$T/fix/3.body"
 printf '## Blocked by\n\n- #1\n- #3\n' > "$T/fix/4.body"
 printf '## Blocked by\n\n- #99\n'      > "$T/fix/5.body"
@@ -92,9 +97,14 @@ case "$1" in
          esac; exit 0 ;;
   issue) case "$2" in
            view) n="$3"
-             [[ "$*" == *"--json body"*   ]] && { cat "$FIX/$n.body" 2>/dev/null; exit 0; }
-             [[ "$*" == *"--json title"*  ]] && { echo "title of ticket $n"; exit 0; }
-             [[ "$*" == *"--json labels"* ]] && { cat "$FIX/$n.labels" 2>/dev/null || echo enhancement; exit 0; }
+             # What plan_run's one call prints (-q applied): title, labels on one line,
+             # the body without its trailing newlines, then the "." sentinel line.
+             [[ "$*" == *"--json title,labels,body"* ]] && {
+               echo "title of ticket $n"
+               l=$({ cat "$FIX/$n.labels" 2>/dev/null || echo enhancement; } | tr '\n' ' '); echo "${l% }"
+               b=$(cat "$FIX/$n.body" 2>/dev/null; echo x); b=${b%x}
+               while [[ $b == *$'\n' ]]; do b=${b%$'\n'}; done
+               printf '%s\n.\n' "$b"; exit 0; }
              # FAIL_STATE: the lookup breaks (network, rate limit) and prints nothing.
              [[ "$*" == *"--json state"*  ]] && { [[ -n "${FAIL_STATE:-}" ]] && exit 1; echo OPEN; exit 0; } ;;
            edit)    log "edit $*" ;;
@@ -298,6 +308,15 @@ grep -qE '\| 0m[0-9]{2}s / 0m[0-9]{2}s / 0m[0-9]{2}s \|' "$T/repo/.afk/summary.m
 grep -qE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \| project-[0-9a-f]{8} \| 8 \| 3 \| 0 \| 2 \| 1 \| 0 \| 2 \| 0 \| 3/6 \| sonnet-5 \| \$3\.50 \|' "$T/RUNS.md" &&
   echo "  ✓ the run is recorded in RUNS.md, project anonymised" ||
   { echo "  ✗ run missing from the log, or project not anonymised"; sed -n '$p' "$T/RUNS.md" 2>/dev/null; fail=1; }
+
+# The one-call read of title/labels/body caches the same bytes the three calls did:
+# leading blank lines kept (#2), no label -> empty file (#6), empty body (#7), one
+# label -> followed by a space (#1).
+printf '\n\n## Blocked by\n\nNone' | cmp -s - "$T/repo/.afk/2.body" &&
+  [[ ! -s "$T/repo/.afk/6.labels" && ! -s "$T/repo/.afk/7.body" ]] &&
+  [[ "$(cat "$T/repo/.afk/1.labels"; echo x)" == "enhancement x" && "$(cat "$T/repo/.afk/1.title")" == "title of ticket 1" ]] &&
+  echo "  ✓ title, labels and body cached byte for byte" ||
+  { echo "  ✗ cached title/labels/body differ from the three-call format"; fail=1; }
 
 # Defect 47: #2 wrote its journal to a relative .afk/, and it is the safety net that
 # committed. The branch must carry its work and nothing else — a stacked branch would
