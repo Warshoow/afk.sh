@@ -22,6 +22,8 @@ code concerned; the verdict on proposed ideas is in
 - **`/afk-preflight` refuses a `Verify:` line already green on the base** when it only runs
   test files the ticket creates: green there means it selects no test or the ticket is done.
   A line on a test file that already exists is left alone (#21).
+- **A second attempt writes down and tests the first one's assumption before fixing.** The
+  retry prompt asks for a journal line in phase `premise` and its command, run first (#23).
 
 ### Fixed
 

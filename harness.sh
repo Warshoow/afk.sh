@@ -289,6 +289,12 @@ grep -q 'mattpocock-skills:tdd' "$T/prompt-1.txt" 2>/dev/null &&
   grep -qE 'code-review with [0-9a-f]{40} as its' "$T/prompt-1.txt" &&
   echo "  ✓ the prompt names the plugin's skills and the review's fixed point" ||
   { echo "  ✗ prompt without the namespaced skills or the fixed point"; fail=1; }
+# #23: attempt 2 tests attempt 1's assumption before fixing again; attempt 1 has nothing to test.
+! grep -q 'phase "premise"' "$T/prompt-1.txt" 2>/dev/null &&
+  sed -n '/^--- RETRY (attempt 2)/,$p' "$T/prompt-7.txt" 2>/dev/null | grep -q 'phase "premise"' &&
+  ! sed '/^--- RETRY/,$d' "$T/prompt-7.txt" | grep -q 'phase "premise"' &&
+  echo "  ✓ only the retry asks for the premise line" ||
+  { echo "  ✗ premise line missing from the retry, or present on attempt 1"; fail=1; }
 [[ -f "$T/prompt-1.txt" ]] && ! grep -q 'INHERITED' "$T/prompt-1.txt" &&
   echo "  ✓ no blocker, nothing inherited" ||
   { echo "  ✗ inherited section on a ticket without a blocker"; fail=1; }

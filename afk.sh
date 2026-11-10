@@ -599,7 +599,9 @@ A previous attempt failed verification. Output of the failure:
 
 $(tail -n 60 "${AFK_DIR}/${ticket}-fail.txt" 2>/dev/null || echo "(unavailable)")
 
-Its code is already committed on the branch. Fix it.
+Its code is already committed on the branch. Before editing anything, write a journal
+line in phase "premise": what that attempt assumed, in one sentence that can be false,
+and the command that tests it. Run that command first, then fix.
 EOF
   fi
 }
