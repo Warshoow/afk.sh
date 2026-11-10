@@ -325,4 +325,55 @@ want=$'package.json: "left-pad": "^1.3.0"\npackage.json: "vitest": "^2.0.0"\napi
 [[ -z "$(printf -- '--- a/package.json\n+++ b/package.json\n   "scripts": {\n+    "build": "tsc"\n   }\n' | new_deps)" ]] ||
   { echo "FAIL new_deps script only"; exit 1; }
 
+# ─── weakened_bar ─────────────────────────────────────────────────────────────
+
+got=$(weakened_bar <<'EOF'
+diff --git a/src/a.test.ts b/src/a.test.ts
+--- a/src/a.test.ts
++++ b/src/a.test.ts
+@@ -1,4 +1,8 @@
++  it.skip('saves', () => {})
++  xit('loads', () => {})
++  xdescribe('list', () => {})
++  describe.skip('form', () => {})
+-  test.skip('was skipped before', () => {})
++  const fix = 1
+diff --git a/src/b.ts b/src/b.ts
+--- a/src/b.ts
++++ b/src/b.ts
+@@ -1,2 +1,5 @@
++// @ts-ignore
++// @ts-expect-error
++/* eslint-disable no-console */
+-// @ts-ignore
+diff --git a/app/c.py b/app/c.py
+--- a/app/c.py
++++ b/app/c.py
+@@ -1 +1,2 @@
++import os  # noqa: F401
++x = f()  # type: ignore
+diff --git a/tests/test_api.py b/tests/test_api.py
+deleted file mode 100644
+--- a/tests/test_api.py
++++ /dev/null
+@@ -1 +0,0 @@
+-def test_x(): pass
+diff --git a/src/exit.ts b/src/exit.ts
+deleted file mode 100644
+--- a/src/exit.ts
++++ /dev/null
+EOF
+)
+want="src/a.test.ts: it.skip('saves', () => {})
+src/a.test.ts: xit('loads', () => {})
+src/a.test.ts: xdescribe('list', () => {})
+src/a.test.ts: describe.skip('form', () => {})
+src/b.ts: // @ts-ignore
+src/b.ts: // @ts-expect-error
+src/b.ts: /* eslint-disable no-console */
+app/c.py: import os  # noqa: F401
+app/c.py: x = f()  # type: ignore
+tests/test_api.py: test file deleted"
+[[ "$got" == "$want" ]] || { echo "FAIL weakened_bar: $got"; exit 1; }
+
 echo "ok"

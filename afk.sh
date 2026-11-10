@@ -225,6 +225,22 @@ new_deps() {
        /^\+/ && blk ~ /([dD]ependencies|^require|^require-dev)$/ { sub(/^[ \t]+/, "", l); sub(/,$/, "", l); print f ": " l }'
 }
 
+# A gate made green by lowering the bar (#13): a test skipped, a check silenced, a test
+# file deleted. Every gate passes those, and with afk-app.sh nobody reads the PR before it
+# lands. A diff on stdin → `<file>: <added line>` or `<file>: test file deleted`. It flags,
+# it never blocks: a skip can be right. A removed assertion is not flagged — in defect 38
+# the sessions changed one on purpose, and were right.
+weakened_bar() {
+  awk '/^diff --git / { f = $NF; sub(/^b\//, "", f); next }
+       /^deleted file mode/ {
+         if (f ~ /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[A-Za-z]+$|(^|\/)test_[^\/]*\.py$/)
+           print f ": test file deleted"
+         next }
+       /^\+\+\+ / { next }
+       /^\+/ && /\.skip\(|(^|[^A-Za-z0-9_.])x(it|describe|test)\(|@ts-ignore|@ts-expect-error|eslint-disable|#[ \t]*noqa|#[ \t]*type:[ \t]*ignore/ {
+         l = substr($0, 2); sub(/^[ \t]+/, "", l); print f ": " l }'
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourced by check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
@@ -857,7 +873,7 @@ worker() {
   # sum.
   local s0 vrc t_setup=0 t_session=0 t_verify=0
   local -a copts
-  local suspect pr_url pr_num pr_body notes deps
+  local suspect pr_url pr_num pr_body notes deps bar
 
   st() { printf '%s\n' "$*" >> "$sf"; }
   : > "$sf"
@@ -1088,6 +1104,11 @@ worker() {
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ The agent did not commit by itself: the orchestrator caught up the working tree."
       deps=$(git diff -U9999 "$head0" HEAD -- '*package.json' '*composer.json' | new_deps)
       [[ -n "$deps" ]] && pr_body+=$'\n\n'"> ⚠ **Dependencies added or changed** — no gate reads what a package is:"$'\n\n```\n'"$deps"$'\n```'
+      bar=$(git diff "$head0" HEAD | weakened_bar)
+      if [[ -n "$bar" ]]; then
+        pr_body+=$'\n\n'"> ⚠ **The bar may have been lowered** — the gate passes these, it does not judge them:"$'\n\n```\n'"$bar"$'\n```'
+        st "bar=$(wc -l <<<"$bar")"
+      fi
       notes=$(journal_notes < "$AFK_DIR/$ticket-work.tsv" 2>/dev/null)
       [[ -n "$notes" ]] && pr_body+=$'\n\n'"### Noticed but not touched, and concerns (session journal)"$'\n\n'"$notes"
 
@@ -1605,6 +1626,11 @@ write_summary() {
         "$b" "${CONFLICT_FILES[$b]:-paths in the log}" "$b"
     done
     [[ -n "$INTEG_NOTES" ]] && printf -- '%s\n' "$INTEG_NOTES"
+    # Not in the Result column: /afk-merge lands on `ok` / `ok ⚠` there, and this flags only.
+    for t in "${TICKETS[@]}"; do
+      b=$(sget "$t" bar); [[ -n "$b" ]] &&
+        printf -- '- #%s: the bar may have been lowered — %s line(s) (skipped test, suppression, deleted test file) listed in its PR\n' "$t" "$b"
+    done
     (( BASE_RED )) && printf -- '- **the base (`%s`) was already red before the run** (`.afk/base-verify.txt`): a red ticket whose failure also appears there is not its own.\n' "$BASE_REF"
     printf -- '- gate: %s%s\n' "$VERIFY_CMD" \
       "$( [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] && echo " · integration: $INTEGRATION_VERIFY_CMD" )"

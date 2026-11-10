@@ -34,6 +34,9 @@ code concerned; the verdict on proposed ideas is in
   lines in phase `noticed` or `concern` are copied into a section of the PR (#17).
 - **The PR body flags the dependencies a session added or changed** in `package.json` or
   `composer.json`, in a ⚠ block; a `scripts` change is not listed (#18).
+- **A gate made green by lowering the bar is flagged.** Added skips (`.skip(`, `xit(`…),
+  suppressions (`@ts-ignore`, `eslint-disable`, `# noqa`…) and deleted test files are listed in
+  the PR body and in `summary.md`. It never blocks, and the Result column does not change (#13).
 
 ### Fixed
 

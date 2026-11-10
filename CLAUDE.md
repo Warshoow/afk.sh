@@ -79,7 +79,8 @@ integration phases). It found three bugs on its first execution.
 
 - **above**: the pure parsers (`label_for`, `blocked_refs`, `meta_line`, `deepest_branch`,
   `peak_context`, `clashing_numbers`, `jval`, `jmodels`, `jspawned`, `compose_name`,
-  `journal_notes`, `new_deps`). `check.sh` does
+  `journal_notes`, `new_deps`,
+  `weakened_bar`). `check.sh` does
   `AFK_LIB=1 source ./afk.sh` to test them alone. They must read no global and write
   nothing. The override validation patterns (`RE_TIMEOUT`, `RE_MODEL`, `RE_EFFORT`,
   `RE_VERIFY`) are there too, so `check.sh` tests the ones that actually serve rather than
@@ -110,7 +111,8 @@ information a worker surfaces goes through there.
 
 Keys: `result` (`ok` | `ko` | `absorbed` | `frozen`), `branch`, `base`, `base_ref`,
 `attempt`, `pr`, `draft`, `draft_why`, `reason`, `dur`, `session`, `resume`, `cost`, `model`,
-`subagents`. `draft` is a flag set on an `ok`, not a result.
+`subagents`, `bar`. `draft` is a flag set on an `ok`, not a result; `bar` (lines that may lower
+the bar) only flags too.
 
 The file is **append-only** and `sget` reads the last line. So the cautious value written at
 startup is called `result_initial`, not `result`: a human running `cat` or `grep result=` on

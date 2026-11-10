@@ -171,6 +171,9 @@ case "$n" in
       # And a dependency, next to a script that is not one (#18).
       printf '{\n  "scripts": {\n    "build": "tsc"\n  },\n  "dependencies": {\n    "left-pad": "^1.3.0"\n  }\n}\n' > package.json
       echo x > work-21.txt; git add -A; git commit -qm "feat(#21): ok"; res; exit 0 ;;
+  # Gets its gate green with a skipped test (#13).
+  22) mkdir -p src; printf "it.skip('saves', () => {})\n" > src/a.test.ts
+      git add -A; git commit -qm "feat(#22): ok"; res; exit 0 ;;
   18) echo "export const a = 1" > shared.ts
       mkdir -p docs; echo "the list: #19 is the one that will open it" > docs/stale.md
       git add -A; git commit -qm "feat(#18): ok"; res; exit 0 ;;
@@ -546,6 +549,11 @@ grep -qE 'green  \(1\): 21' <<<"$out7" &&
 echo
 out8=$(HANG_CI=1 CI_TIMEOUT=2 JOBS=1 bash "$AFK" 22 2>&1) || true
 printf '%s\n' "$out8" > "$T/run8.log"
+grep -qF "src/a.test.ts: it.skip('saves', () => {})" "$T/gh.log" &&
+  [[ $(grep -c 'The bar may have been lowered' "$T/gh.log") == 1 ]] &&
+  grep -q '^- #22: the bar may have been lowered — 1 line' "$T/repo/.afk/summary.md" &&
+  echo "  ✓ a skipped test is flagged in the PR body and summary.md; nothing to flag, no block" ||
+  { echo "  ✗ lowered bar not flagged"; fail=1; }
 grep -qE 'gate        : true   \(ticket Verify:\)' <<<"$out8" &&
   echo "  ✓ the gate is extracted from the span, not from the whole line" ||
   { echo "  ✗ the ticket's prose went to bash -c"; fail=1; }
