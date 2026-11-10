@@ -596,6 +596,22 @@ EOF
 
   inherited_note "$inherited"
 
+  # Defect 38: told nothing, six second attempts fixed the same red base test seven times.
+  # A ticket's own Verify: is not the command the base ran, so its tail would mislead (#24).
+  if (( BASE_RED )) && [[ "$verify" == "$VERIFY_CMD" ]]; then
+    cat <<EOF
+
+--- RED BASE ---
+Your "done" command was already red on the base, before any work. Its output there
+(tail of ${AFK_DIR}/base-verify.txt):
+
+$(tail -n 40 "${AFK_DIR}/base-verify.txt" 2>/dev/null || echo "(unavailable)")
+
+A failure that also appears above is not yours: do not fix it outside the ticket's
+scope, write a journal line naming it.
+EOF
+  fi
+
   if [[ "$attempt" -gt 1 ]]; then
     cat <<EOF
 

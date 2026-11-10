@@ -27,6 +27,9 @@ code concerned; the verdict on proposed ideas is in
 - **`AFK_MCP_CONFIG` limits the sessions to the MCP servers of one file.** Unset, nothing
   changes. The README also gives `ENABLE_CLAUDEAI_MCP_SERVERS=false` for the claude.ai
   connectors (#29).
+- **On a red base, the session is told what was already red.** When its gate is `VERIFY_CMD`,
+  the prompt carries the tail of `.afk/base-verify.txt`; a ticket with its own `Verify:` gets
+  none (#24).
 
 ### Fixed
 

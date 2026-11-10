@@ -70,6 +70,8 @@ printf 'Verify: true\n\n## Blocked by\n\nNone\n'      > "$T/fix/21.body"
 printf '**Verify:** `true`, plus one fresh test per point:\n\n## Blocked by\n\nNone\n' > "$T/fix/22.body"
 # 23: the base is red before the run → say it once, and do not blame the ticket
 printf '## Blocked by\n\nNone\n' > "$T/fix/23.body"
+# 36: same run, its own Verify: → the base's output is not its gate's, not in its prompt
+printf 'Verify: true\n\n## Blocked by\n\nNone\n' > "$T/fix/36.body"
 
 # ─── The tenth run's batch: AFK_BUILD_CMD ────────────────────────────────────
 # 30: the command commits, green          31: red gate, attempt 2 gets AFK_GATE_LOG, green
@@ -541,8 +543,12 @@ grep -qE 'green  \(0\): —' <<<"$out8" &&
 # Without this pass, the ticket carries the base's failure: `reason=verify`, an
 # `<n>-fail.txt` naming a test outside its scope, and a human round trip.
 echo
-out9=$(VERIFY_CMD='test -f NOPE' NO_CHECKS=1 JOBS=1 bash "$AFK" 23 2>&1) || true
+out9=$(VERIFY_CMD='echo base-red-mark; test -f NOPE' NO_CHECKS=1 JOBS=1 bash "$AFK" 23 36 2>&1) || true
 printf '%s\n' "$out9" > "$T/run9.log"
+grep -q 'RED BASE' "$T/prompt-23.txt" 2>/dev/null && grep -q 'base-red-mark' "$T/prompt-23.txt" &&
+  ! grep -q 'base-red-mark' "$T/prompt-36.txt" && [[ -f "$T/prompt-36.txt" ]] &&
+  echo "  ✓ the session on VERIFY_CMD gets the base's output, the one with its own Verify: does not" ||
+  { echo "  ✗ red base output missing from the prompt, or given to a ticket with its own gate"; fail=1; }
 grep -qE 'RED BEFORE THE RUN' <<<"$out9" &&
   echo "  ✓ red base: said before the first worktree (another gate: green.tree not reused)" ||
   { echo "  ✗ red base not detected"; fail=1; }
