@@ -19,8 +19,9 @@ code concerned; the verdict on proposed ideas is in
   the report counts them as `Out (conflict)` (#20).
 - **`/afk-setup` proves the gate can go red.** After `rc=0`, it breaks the code in a throwaway
   worktree and requires the gate to fail on that break (#14).
-- **`/afk-preflight` refuses a `Verify:` line already green on the base.** Before the work
-  exists it should fail; green means it selects no test or the ticket is done (#21).
+- **`/afk-preflight` refuses a `Verify:` line already green on the base** when it only runs
+  test files the ticket creates: green there means it selects no test or the ticket is done.
+  A line on a test file that already exists is left alone (#21).
 
 ### Fixed
 
