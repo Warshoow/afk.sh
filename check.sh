@@ -268,4 +268,11 @@ printf '0001-x.md\n0001-y.md\n' | clashing_numbers | grep -q 'in \./' ||
   { echo "FAIL clashing_numbers root"; exit 1; }
 [[ -z "$(printf '' | clashing_numbers)" ]] || { echo "FAIL clashing_numbers empty stdin"; exit 1; }
 
+# ─── compose_name ─────────────────────────────────────────────────────────────
+# An image `<project>-<service>` must be a valid Docker reference: no `-_` (defect 64).
+[[ "$(compose_name justdrop _base)" == "justdrop-base" ]] || { echo "FAIL compose_name _base"; exit 1; }
+[[ "$(compose_name justdrop _integration)" == "justdrop-integration" ]] || { echo "FAIL compose_name _integration"; exit 1; }
+[[ "$(compose_name afk.sh 12)" == "afksh-12" ]] || { echo "FAIL compose_name dot"; exit 1; }
+[[ "$(compose_name My_Repo- 4)" == "my_repo-4" ]] || { echo "FAIL compose_name case/separators"; exit 1; }
+
 echo "ok"

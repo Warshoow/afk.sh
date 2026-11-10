@@ -1025,29 +1025,6 @@ no longer sweeps it into the branch, and a stacked branch no longer ships its an
 journals. The harness has #2 write a relative journal and checks that `feat/2` carries
 none.
 
-## 48 — Each worktree leaves a Docker network behind, until the pool runs out and a healthy ticket burns an attempt — fixed
-
-*2026-10-11 · project-d1518ddc · #8*
-
-**What was seen.** #8's first attempt went red on `failed to create network 8_default: all
-predefined address pools have been fully subnetted`, before a single test ran. The second
-attempt went green with no change of approach: $4.86 and 16 minutes spent for nothing. After
-the run, `docker network ls` still lists `1_default`, `2_default`, `3_default`, `7_default`,
-`9_default`, `base_default`, `integration_default` — one per worktree of the last two runs.
-
-**The cause.** A gate that calls `docker compose run --rm` from `.afk/wt/<n>` gets a compose
-project named after the directory, so one new network per ticket, per base check, per
-integration. `--rm` removes the container, never the network, and afk never runs
-`docker compose down` when it is done with a worktree. Docker's default pools hold about
-thirty networks; on a machine with other compose projects, two runs are enough. Any repo
-whose gate goes through compose is exposed, and the trace blames the ticket.
-
-**What was done about it.** Every gate (ticket, base, integration) now goes through
-`gate()`, which runs it then `docker network prune` on the networks labelled with the
-worktree's compose project — only those no container still uses. Not done: classifying an
-"address pools" error as environment rather than `ko / verify`; with the leak gone it
-should not come back.
-
 ## 50 — Tickets landed on a landing branch that is not the default one stay open — fixed
 
 *2026-10-11 · project-d1518ddc · #7 #10 #14 #16*
@@ -1260,3 +1237,70 @@ under the old names (`integration-app`, `7-app`…) stay on disk until removed b
 harness checks the name the gate receives and the one pruned. Within one repo, `compose run`
 still reuses an image an earlier run built: `/afk-setup` and `/afk-spec` now write
 `docker compose run --rm --build`, which rebuilds from the layer cache.
+
+## 48 — Each worktree leaves a Docker network behind, until the pool runs out and a healthy ticket burns an attempt — fixed
+
+*2026-10-11 · project-d1518ddc · #8*
+
+**What was seen.** #8's first attempt went red on `failed to create network 8_default: all
+predefined address pools have been fully subnetted`, before a single test ran. The second
+attempt went green with no change of approach: $4.86 and 16 minutes spent for nothing. After
+the run, `docker network ls` still lists `1_default`, `2_default`, `3_default`, `7_default`,
+`9_default`, `base_default`, `integration_default` — one per worktree of the last two runs.
+
+**The cause.** A gate that calls `docker compose run --rm` from `.afk/wt/<n>` gets a compose
+project named after the directory, so one new network per ticket, per base check, per
+integration. `--rm` removes the container, never the network, and afk never runs
+`docker compose down` when it is done with a worktree. Docker's default pools hold about
+thirty networks; on a machine with other compose projects, two runs are enough. Any repo
+whose gate goes through compose is exposed, and the trace blames the ticket.
+
+**What was done about it.** Every gate (ticket, base, integration) now goes through
+`gate()`, which runs it then `docker network prune` on the networks labelled with the
+worktree's compose project — only those no container still uses. Not done: classifying an
+"address pools" error as environment rather than `ko / verify`; with the leak gone it
+should not come back.
+
+**Again (2026-11-10 · project-39dea6cd · #12 #13 #14).** All three tickets went red on their
+first attempt with `all predefined address pools have been fully subnetted`, before a single
+test ran, then green on the second with no code change: about $7.60 and 40 minutes for nothing.
+The gate's own networks were pruned as designed; the leak came from the sessions. Each session
+ran `docker compose run` itself to test its work, from `.afk/wt/<n>`, so under the compose
+project `12`, `13`, `14` — not the gate's `justdrop-12` — and nothing prunes those. #13's compose
+file also has a `depends_on` service (a proxy): `compose run --rm` leaves it running, so its
+networks are in use and `network prune` skips them even under the gate's name
+(`justdrop-13-proxy-1` was still up after the run, holding `justdrop-13_default` and a network
+with a fixed `name:`). The host had about 28 networks from other projects: two leaked ones were
+enough. The sessions diagnosed it correctly and removed only their own leftovers. 
+
+**What was done about it, the second time.** The worker exports the gate's
+`COMPOSE_PROJECT_NAME` before the session, so what the session starts belongs to the project the
+gate cleans. After each gate, `gate()` runs `docker compose down --remove-orphans --rmi local`
+under that name, then the prune: `down` stops the `depends_on` services `run --rm` left running,
+and removes the image compose built for the worktree (which no later run reuses). Not `-v`: a
+volume with a fixed `name:` may be the developer's data, so the worktrees' volumes still pile
+up. A network with a fixed `name:` is only removed when nothing uses it. Checked on the host:
+`down --rmi local` on a project that does not exist is a no-op.
+
+## 64 — `_base` and `_integration` give an invalid image name, so both gates are red on any compose repo with a `build:` — fixed
+
+*2026-11-10 · project-39dea6cd · base check and integration*
+
+**What was seen.** The summary said "the base (`origin/main`) was already red before the run".
+`.afk/base-verify.txt` holds one line: `unable to get image 'justdrop-_base-app': Error response
+from daemon: invalid reference format`. No test ran. The base was green (49/49 the same day, by
+hand). The integration was red too (on network creation, see 48); rerun by hand under
+`COMPOSE_PROJECT_NAME=justdrop-integration`, it was green, 57/57.
+
+**The cause.** Defect 63's fix names the project `<repo>-<worktree dir>`, and `gate()` only strips
+`_` and `-` at the start of the whole name. For `.afk/wt/_base` that gives `justdrop-_base`, a
+valid compose project name, but compose names the image `<project>-<service>` =
+`justdrop-_base-app`, and a Docker reference cannot have two separators in a row (`-_`). Any repo
+whose gate builds through compose gets a red base check and integration on every run; the trace
+blames the base.
+
+**What was done about it.** The name now comes from `compose_name`, a pure function above the
+`AFK_LIB` guard: any run of separators holding a `-` becomes one `-`, so `_base` gives
+`justdrop-base` and `_integration` `justdrop-integration`. `check.sh` covers those two, a repo
+name with a dot and one ending in `-`. The harness had asserted `repo-_base`, the invalid name:
+it now expects `repo-base`.

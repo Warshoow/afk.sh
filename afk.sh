@@ -194,6 +194,15 @@ clashing_numbers() {
     }' | sort
 }
 
+# The compose project of a gate run from directory $2 of repo $1. Prefixed with the repo
+# (defect 63); compose names the image `<project>-<service>` and a Docker reference refuses
+# `-_` in a row, so `afk-_base-app` was invalid and every base check went red (defect 64):
+# a run of separators holding a `-` becomes one `-`.
+compose_name() {
+  printf '%s-%s' "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' |
+    sed -E 's/^[_-]+//; s/[_-]*-[_-]*/-/g'
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourced by check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
@@ -422,13 +431,18 @@ locked() {
 # The project name is prefixed with the repo: named after the directory alone, it is `4`
 # or `integration` in every repo, so is the image `<project>-<service>`, and
 # `compose run` reuses another repo's image without building it (defect 63). A name the
-# gate's environment already sets is kept.
+# environment already sets is kept — the worker sets it for its session too.
+# `down` comes first: `run --rm` leaves the `depends_on` services running, and their
+# networks are in use, so the prune skipped them (defect 48, again). `--rmi local` removes
+# the image compose built for this worktree, which no later run reuses; never `-v`, a
+# volume with a fixed `name:` may be the developer's data.
 gate() {   # command; cwd = the worktree
-  local p="${COMPOSE_PROJECT_NAME:-$(basename "$REPO_ROOT")-$(basename "$PWD")}"
-  p=$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')
+  local p="${COMPOSE_PROJECT_NAME:-$(compose_name "${REPO_ROOT##*/}" "${PWD##*/}")}"
   COMPOSE_PROJECT_NAME="$p" locked verify bash -c "$1"; local rc=$?
-  command -v docker >/dev/null &&
+  if command -v docker >/dev/null; then
+    COMPOSE_PROJECT_NAME="$p" docker compose down --remove-orphans --rmi local >/dev/null 2>&1
     docker network prune -f --filter "label=com.docker.compose.project=$p" >/dev/null 2>&1
+  fi
   return $rc
 }
 
@@ -831,6 +845,9 @@ worker() {
   (( seeded )) && echo "  seeded      : ${seeded} ignored file(s) copied from the main tree"
 
   cd "$wt" || { echo "  ✗ worktree unreachable"; return; }
+  # The session runs `docker compose` too, to try its work: under the gate's project name,
+  # what it leaves behind is what the gate's `down` removes (defect 48, again).
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(compose_name "${REPO_ROOT##*/}" "${PWD##*/}")}"
 
   if [[ -n "$SETUP_CMD" ]]; then
     echo "  → dependencies (${SETUP_CMD})"

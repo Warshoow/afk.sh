@@ -13,6 +13,12 @@ code concerned; the verdict on proposed ideas is in
 - **A gate or a dependency install that hangs no longer stops the run.** Each is bounded by
   `GATE_TIMEOUT` (`30m`, `0` = no limit); past it the ticket is red and its log says
   `timed out`. Before, a hanging gate kept the gate lock and every other ticket waited (#22).
+- **The base check and the integration are no longer red on every compose repo.** The
+  compose project of `.afk/wt/_base` was `<repo>-_base`, which gives an invalid image name;
+  it is now `<repo>-base` (defect 64).
+- **The sessions' compose containers no longer exhaust Docker's networks.** The session runs
+  under the gate's compose project, and each gate ends with `docker compose down --rmi local`:
+  the `depends_on` services, their networks and the worktree's image go with it (defect 48).
 - **A compose gate no longer runs another repo's image.** afk gives each gate the compose
   project `<repo>-<worktree dir>` instead of the bare directory name (`4`, `integration`),
   which every repo shared: `compose run` picked up an image built elsewhere and the run

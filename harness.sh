@@ -125,6 +125,7 @@ p=""; for a in "$@"; do [[ ${prev:-} == -p ]] && p=$a; prev=$a; done
 n=$(grep -o '#[0-9]\+' <<<"$p" | head -1 | tr -d '#')
 printf '%s\n' "$p" >> "$HARNESS/prompt-$n.txt"   # the prompt is testable, like the rest
 printf '%s\n' "$*" >> "$HARNESS/args-$n.txt"     # so are the flags passed to claude
+printf '%s\n' "${COMPOSE_PROJECT_NAME:-}" > "$HARNESS/compose-$n.txt"   # and its compose project
 
 # The object of `claude -p --output-format json`, on stdout: afk reads the failure, the
 # cost, the model actually used and the session id from it. Empty or free-form output
@@ -236,8 +237,12 @@ grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-mo
   echo "  ✓ session launched in JSON, with fallback" || { echo "  ✗ session flags missing"; fail=1; }
 
 grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-1' "$T/docker.log" &&
-  grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-_base' "$T/docker.log" &&
+  grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-base' "$T/docker.log" &&
   echo "  ✓ compose networks pruned after the gate" || { echo "  ✗ compose networks left behind"; fail=1; }
+grep -qx 'compose down --remove-orphans --rmi local' "$T/docker.log" &&
+  echo "  ✓ the gate's compose project is brought down" || { echo "  ✗ no compose down after the gate"; fail=1; }
+grep -qx 'repo-1' "$T/compose-1.txt" &&
+  echo "  ✓ the session runs compose under the gate's project" || { echo "  ✗ session's compose project differs"; fail=1; }
 grep -qx 'repo-1' "$T/compose.log" &&
   echo "  ✓ the gate's compose project carries the repo" || { echo "  ✗ gate's compose project not set"; fail=1; }
 

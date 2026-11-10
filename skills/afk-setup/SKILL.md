@@ -46,7 +46,7 @@ one demanding a live Postgres, protects nothing: it fails healthy tickets.
 |---|---|---|
 | **`test` in watch mode** (`vitest`, `jest --watch`, `nodemon`) | the ticket dies on a 45-minute `TIMEOUT`, every time | take `test:run`, or add `--run` / `--watchAll=false` |
 | **No lockfile at the root** (monorepo in two halves, Python repo) | `SETUP_CMD="auto"` installs nothing, the fresh worktree has no dependencies | declare `SETUP_CMD` explicitly |
-| **Gate needing a service already running** (a Postgres, a Redis started by hand) | red in a throwaway worktree, for nothing | have the gate start it itself (`docker compose run --rm --build …` — without `--build`, an image built on an earlier run is reused even after a ticket changed the `Dockerfile` or the dependencies; afk runs one gate at a time, `VERIFY_LOCK`, and prunes its networks), or leave it out of the global gate and give the tickets concerned their own `Verify:` line |
+| **Gate needing a service already running** (a Postgres, a Redis started by hand) | red in a throwaway worktree, for nothing | have the gate start it itself (`docker compose run --rm --build …` — without `--build`, an image built on an earlier run is reused even after a ticket changed the `Dockerfile` or the dependencies; afk runs one gate at a time, `VERIFY_LOCK`, and brings the worktree's compose project down after it), or leave it out of the global gate and give the tickets concerned their own `Verify:` line |
 | **No tests in the repo** | "green" means nothing | offer at least a typecheck / a compile, and say so plainly |
 | **Indispensable gitignored files** (`.env` outside the known paths) | verification fails in the worktree for an off-topic reason | add the paths to `SEED_GLOBS` |
 
