@@ -195,7 +195,8 @@ git push -q origin feat/99 && git checkout -q master && git branch -qD feat/99
 # AFK_HOME redirected: without it, every harness run would append its lines to the real
 # repo's RUNS.md.
 export HARNESS="$T" PATH="$T/bin:$PATH" CLAUDE_CONFIG_DIR="$T/cfg" AFK_HOME="$T"
-export VERIFY_CMD='! test -f BROKEN' SETUP_CMD='' CI_TIMEOUT=1m CI_RETRY_WAIT=1
+# The gate records the compose project it was given (defect 63).
+export VERIFY_CMD='echo "$COMPOSE_PROJECT_NAME" >> "$HARNESS/compose.log"; ! test -f BROKEN' SETUP_CMD='' CI_TIMEOUT=1m CI_RETRY_WAIT=1
 out=$(JOBS=3 bash "$AFK" 1 2 3 4 5 6 7 8 2>&1) || true
 printf '%s\n' "$out" > "$T/run.log"
 
@@ -234,9 +235,11 @@ want "crashed session named, not a code"           'session ended abnormally \(e
 grep -qE -- '--output-format json' "$T/args-1.txt" && grep -qE -- '--fallback-model sonnet' "$T/args-1.txt" &&
   echo "  ✓ session launched in JSON, with fallback" || { echo "  ✗ session flags missing"; fail=1; }
 
-grep -qx 'network prune -f --filter label=com.docker.compose.project=1' "$T/docker.log" &&
-  grep -qx 'network prune -f --filter label=com.docker.compose.project=base' "$T/docker.log" &&
+grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-1' "$T/docker.log" &&
+  grep -qx 'network prune -f --filter label=com.docker.compose.project=repo-_base' "$T/docker.log" &&
   echo "  ✓ compose networks pruned after the gate" || { echo "  ✗ compose networks left behind"; fail=1; }
+grep -qx 'repo-1' "$T/compose.log" &&
+  echo "  ✓ the gate's compose project carries the repo" || { echo "  ✗ gate's compose project not set"; fail=1; }
 
 [[ "$(git check-attr merge CONTEXT.md)" == "CONTEXT.md: merge: union" ]] &&
   echo "  ✓ CONTEXT.md merges as a line union" || { echo "  ✗ CONTEXT.md has no union merge"; fail=1; }

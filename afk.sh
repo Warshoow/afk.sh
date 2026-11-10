@@ -412,12 +412,16 @@ locked() {
 # healthy ticket burned an attempt on "all predefined address pools have been fully
 # subnetted" (defect 48). Only networks no container uses are removed; compose
 # recreates them on the next call.
+# The project name is prefixed with the repo: named after the directory alone, it is `4`
+# or `integration` in every repo, so is the image `<project>-<service>`, and
+# `compose run` reuses another repo's image without building it (defect 63). A name the
+# gate's environment already sets is kept.
 gate() {   # command; cwd = the worktree
-  locked verify bash -c "$1"; local rc=$?
-  if command -v docker >/dev/null; then
-    local p; p=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')
+  local p="${COMPOSE_PROJECT_NAME:-$(basename "$REPO_ROOT")-$(basename "$PWD")}"
+  p=$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')
+  COMPOSE_PROJECT_NAME="$p" locked verify bash -c "$1"; local rc=$?
+  command -v docker >/dev/null &&
     docker network prune -f --filter "label=com.docker.compose.project=$p" >/dev/null 2>&1
-  fi
   return $rc
 }
 

@@ -1231,3 +1231,30 @@ branch of the run is an ancestor of this one and already has that path: it is th
 branch's creation. Two branches that each create the path without one containing the other
 are still flagged. Checked on this run's branches: the warning goes away, a control without
 the filter still prints both files; `check.sh` passes.
+
+## 63 — The compose project is named after the worktree directory, so a gate runs another repo's image — fixed
+
+*2026-11-10 · project-39dea6cd · #4–#10*
+
+**What was seen.** The run reported "the base was already red before the run" and "integration: red"
+while all seven tickets were green on their first attempt. Both gates failed before a single test:
+`Could not read package.json: /workspace/app/package.json`. The repo's image works in `/app`. Three
+sessions (#7, #8, #10) hit the same thing and fixed it outside their scope by running
+`docker compose build app`, which overwrote images belonging to another project (#10 tagged a
+backup first, #7 and #8 did not). Rerun with a compose project unique to the repo, the integration
+gate is green: 48/48.
+
+**The cause.** A gate that calls `docker compose run` from `.afk/wt/<n>` gets a compose project named
+after the directory: `4`, `10`, `base` (from `_base`), `integration` (from `_integration`). Compose
+names the image `<project>-<service>`, so `integration-app` and `7-app` are the same image name in
+every repo whose service is called `app`. `compose run` reuses an existing image without building
+it: whichever repo built it first wins, here a project-d1518ddc image from 2026-10-11. The trace
+blames the base and the integration, not the environment. Any repo with a compose `build:` and a
+common service name is hit.
+
+**What was done about it.** `gate()` passes `COMPOSE_PROJECT_NAME=<repo>-<worktree dir>`
+(lowercased, stripped to `a-z0-9_-`) to every gate, and the prune of defect 48 filters on that
+same name. A `COMPOSE_PROJECT_NAME` already in the environment is kept. A `VERIFY_CMD` passing
+its own `-p` escapes both: its networks are then its own to remove. The images already built
+under the old names (`integration-app`, `7-app`…) stay on disk until removed by hand. The
+harness checks the name the gate receives and the one pruned.

@@ -6,6 +6,15 @@ are enough. The reasoning behind a change stays in `afk.sh`'s comments, next to 
 code concerned; the verdict on proposed ideas is in
 [docs/proposals.md](docs/proposals.md).
 
+## 2026-11-10
+
+### Fixed
+
+- **A compose gate no longer runs another repo's image.** afk gives each gate the compose
+  project `<repo>-<worktree dir>` instead of the bare directory name (`4`, `integration`),
+  which every repo shared: `compose run` picked up an image built elsewhere and the run
+  blamed the base (defect 63).
+
 ## 2026-10-15
 
 ### Changed
