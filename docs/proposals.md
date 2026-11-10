@@ -314,3 +314,57 @@ The ADRs and `CONTEXT.md` are its durable trace, written by the agent that made 
 decision. Adding an LLM capture on top puts noise into a loop deliberately kept LLM-free —
 the orchestrator orders, launches, verifies, pushes, labels, and none of that requires
 judgement.
+
+## Ideas imported from other agent setups (#11–#29) — triage
+
+*2026-11-10*
+
+Nineteen tickets, mostly ideas taken from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)
+and [garrytan/gstack](https://github.com/garrytan/gstack). Each was checked against the runs: did
+the problem happen (`docs/defects*.md`, `RUNS.md`), was it already done or refused, does it break
+an invariant, what does it cost. Only #15 matches something seen for real (duplicate paths in 5
+runs, defects 25, 51, 62). #14 and #15 are kept as written; #13, #17, #18, #20, #21, #22, #23,
+#24 and #29 are kept smaller — their issue says what was dropped and why. #16 is folded into #15.
+The refusals:
+
+### Next milestone's tickets in the same wave (#11) — refused
+
+`/afk-wave` slices only the current milestone, because the next one cannot be sliced well before
+this one lands. The cap it wants lifted only applies to `JOBS=auto`; `-j N` is not capped. The run
+it cites was limited by two stacked tickets, not by the ticket count.
+
+### One review per wave instead of per ticket (#12) — refused
+
+The per-ticket review has real catches on record (defect 56: five tickets). Nothing times the
+review inside a session, so the saving is not measured, and the change costs a ticket field, a
+loop step, a gated review session and PRs landing unreviewed meanwhile. `Model:` / `Effort:`
+already make a simple ticket cheaper.
+
+### Reproduction test by a separate session for bug tickets (#19) — refused
+
+Never seen: no test shaped by its fix on record, and afk's tickets are mostly features. It is the
+costliest idea of the batch (second session type, a gate that must be red on the base, ticket-type
+detection). Same reasoning as the per-ticket `gauntlet-loop` critic above.
+
+### Rerun a red gate once before spending a session (#25) — refused
+
+No flaky test recorded, and a flaky test is the project's problem (`docs/defects.md`). A green
+rerun would pass a race the ticket introduced. Comes back if a debrief records a flaky test that
+burned an attempt.
+
+### Worktree audit that knows squash merges (#26) — refused
+
+Green and absorbed worktrees are already dropped, a relaunch reuses the same path
+(`make_worktree`), and `/afk-merge` never squashes. Nothing piles up.
+
+### Pre-wave checks: work already on the base, commands exist, UI defaults (#27) — refused
+
+`/afk-merge` §4 already checks the milestone's unchecked criteria on the base before the next
+wave. Fixing a command named in a criterion means rewriting the criterion, which the spec guard
+forbids. UI defaults: no occurrence, and scope no gate checks.
+
+### Flag commands and paths in CLAUDE.md/README the run removed (#28) — refused
+
+Never seen, and it needs a manifest parser per package manager in the pure part. If it shows up,
+the small version is one check next to `stale_refs`: deleted or renamed paths
+(`git diff --diff-filter=DR`) grepped in `CLAUDE.md`, `AGENTS.md`, `README.md`.
