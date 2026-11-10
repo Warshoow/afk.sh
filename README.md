@@ -274,7 +274,9 @@ nothing enforces it.
 It holds what the diff cannot show and what no trace contains: the hypothesis taken
 because nobody was there to decide, the option ruled out and what ruled it out, the red
 gate and what the session concluded from it, the premise that turned out false, anything
-done outside the ticket's scope. Not the mechanical steps.
+done outside the ticket's scope. Not the mechanical steps. The lines in phase `noticed`
+(seen, deliberately left alone) and `concern` are also copied into the PR body: the
+reviewer reads the PR, not `.afk/`.
 
 ```bash
 column -t -s $'\t' .afk/48-work.tsv      # one ticket
@@ -324,7 +326,8 @@ your tree, `-n` tells you before launching anything.
    Red, the whole batch is going to fail on the same test with nothing saying so: the gate
    only ever judges "base + ticket". The run continues anyway — you have gone — but the
    header, the summary and `summary.md` say the base was red, and `.afk/base-verify.txt`
-   keeps what it takes to compare with a ticket's `<n>-fail.txt`.
+   keeps what it takes to compare with a ticket's `<n>-fail.txt`. A session on the
+   repo's gate gets its tail in the prompt, marked as red before any work.
 1. **Boundary.** Reads the blockers (native GitHub dependencies, otherwise the
    `## Blocked by` section written by `/to-tickets`). Blocker still open and not handled
    in this run → ticket frozen, not launched — unless it has an open PR: its branch is
@@ -336,14 +339,18 @@ your tree, `-n` tells you before launching anything.
    merged; conflict → frozen.
 3. **Fresh session**: `claude -p "/implement GitHub ticket #N …"`, never `--resume`.
    Resuming a session that just failed means restarting from the context that failed.
-   The retry receives the last 60 lines of the failure, in a pristine session.
+   The retry receives the last 60 lines of the failure, in a pristine session, and first
+   writes down and tests what the first attempt assumed (journal phase `premise`).
    `--resume` stays on offer to a human on a red ticket, at the end of the summary.
 4. **External verification.** The script grades the work, not the agent.
    Zero commits produced → if the session says it was blocked, the ticket is **frozen**;
    otherwise the gate is run **on the base** to decide: red, it is a failure; green, the
    ticket is **absorbed** (see below).
 5. **Green** → push, PR `Closes #N` on the right base, ticket switched to `in-review`,
-   then waiting for CI. **Red** → `ready-for-human` + a comment with the failure output.
+   then waiting for CI. The PR body flags what no gate judges: dependencies added or
+   changed (`package.json`, `composer.json`), and skipped tests, suppressions
+   (`@ts-ignore`, `eslint-disable`, `# noqa`…) or deleted test files — those also get a
+   line in `summary.md`. It flags, it blocks nothing. **Red** → `ready-for-human` + a comment with the failure output.
    `/triage`'s state machine keeps turning while you sleep.
 6. **Worktree dropped** if green, **kept** if red: that is where we go to read what
    happened, with the `node_modules` already in place. Relaunching the ticket starts
@@ -624,6 +631,7 @@ through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`).
   chain: `-j 8` will not change that.
 - One `pnpm install` per worktree. Hard links from the store, so nearly free on disk, but a
   remote store or a non-hoisted `nodeLinker` would change the bill.
-- The integration pass detects the clashes, it does not resolve them.
+- The integration pass detects the clashes, it does not resolve them. `/afk-merge` does
+  not either: a PR conflicting on code goes to `ready-for-human` with its files listed.
 - `--permission-mode bypassPermissions`: run it in a container if the repo is not
   disposable.
