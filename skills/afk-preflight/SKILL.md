@@ -143,6 +143,15 @@ command in `code` followed by prose, where only the span counts. A value ending 
 is ignored and the ticket falls back on `VERIFY_CMD`; if the `-n` shows no `Verify:`
 line where the ticket writes one, that is why.
 
+Run it on the base, where the ticket's work does not exist yet: the proof you want is a
+clean failure. `rc=0` there means the line selects no test (a filter or a path that
+matches nothing, a runner that ignores a missing file) or the ticket is already done —
+either way the gate will be green whatever the session does. It is a fix, like `rc=124`:
+point the line at what the ticket builds, so that it fails on the base, or take the ticket
+out. In `apply` mode: fix it only if the corrected line fails cleanly on the base and
+runs the test file the criteria name; otherwise take the ticket out of the batch, with
+`preflight: Verify: is already green on the base` as the comment.
+
 ## 7 — Give the verdict
 
 A table, one ticket per line: **goes as is** / **to fix** / **to cut** /
