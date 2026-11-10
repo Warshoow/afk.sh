@@ -75,7 +75,8 @@ batch from three weeks ago. Nothing to cut is the normal case: a batch out of
 
 The signs, in order of reliability: the "Context" column of a previous run close to the
 window; the ticket crosses several apps of the monorepo while its gate only sees one;
-more than ~6 acceptance criteria; a title containing "and".
+more than ~6 acceptance criteria; more than ~8 files under `## Files likely touched`; a
+title containing "and".
 A longer `Timeout:` fixes nothing: the budget is not what is missing, the room is. A
 ticket cut in the middle burns `MAX_ATTEMPTS × TIMEOUT` and returns a half-written
 branch.
@@ -92,6 +93,8 @@ night and redoes the work of its own children.
 ```bash
 gh issue create -t "<piece title>" -l ready-for-agent -F - <<'EOF'
 ## What to build
+…
+## Files likely touched
 …
 ## Acceptance criteria
 - [ ] …
@@ -111,8 +114,9 @@ The fix is a `Blocked by` on whichever of the two can wait, not a merge: the sec
 then starts from the first one's branch and sees its work. We only merge them when
 neither verifies without the other.
 
-Read it off `./afk.sh -n` (who runs in the same wave) crossed with the bodies (which
-files each one announces it touches).
+Read it off `./afk.sh -n` (who runs in the same wave) crossed with each body's
+`## Files likely touched` section (`/afk-wave` writes it). A ticket without that section:
+read the files off its prose, as before.
 
 ### Handing out the numbers before the run
 

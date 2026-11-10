@@ -8,6 +8,13 @@ code concerned; the verdict on proposed ideas is in
 
 ## 2026-11-10
 
+### Added
+
+- **Wave tickets list the files they touch.** `/afk-wave` writes a `## Files likely touched`
+  section and, when the ticket adds one more of something the repo already has, a
+  `Pattern: <file>:<lines>` line to imitate. `/afk-preflight` reads overlaps from the section
+  and counts more than ~8 files as a ticket to cut (#15, #16).
+
 ### Fixed
 
 - **A gate or a dependency install that hangs no longer stops the run.** Each is bounded by

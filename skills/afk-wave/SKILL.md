@@ -89,6 +89,14 @@ gh issue create -t "<title>" -l ready-for-agent -m "<current milestone>" -F - <<
 
 <in one sentence, then what must not be touched>
 
+Pattern: src/routes/projects.ts:12-40
+
+## Files likely touched
+
+src/routes/tasks.ts (new)
+src/db/schema.ts
+tests/api/tasks.spec.ts (new)
+
 ## Acceptance criteria
 
 - [ ] **A3** — `POST /tasks` with a title returns 201 and the created id
@@ -104,6 +112,14 @@ EOF
 
 The criteria copied **word for word** from the spec, number included. That is what lets
 `/afk-merge` check them off mechanically, and lets you review without opening two files.
+
+`## Files likely touched`: one path per line, `(new)` after a file the ticket creates. You
+already have them from step 2. `/afk-preflight` reads its overlaps from there, and counts
+them: more than ~8 is a ticket to cut.
+
+`Pattern:` is optional: write it when the ticket adds one more of something the repo
+already has (a route, a form, a test), pointing at the closest existing one. It is an
+example to follow, not a file to change. No such thing on `$base` yet → no line.
 
 The `Verify:` line is the criterion's command. If the ticket carries several, chain the
 commands with `&&`. Prove it before writing it, by the rule of `/afk-setup` step 4
