@@ -1522,22 +1522,28 @@ integration_check() {
 
   # `_integration` as a ticket number: the pass replays the gate, so it migrates like a
   # worker and must isolate itself the same way (see `AFK_TICKET` in the worker).
-  [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_integration AFK_WORKTREE="$wt" \
-    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/integration-setup.log" 2>&1
+  local ok=0 install_ko=0
+  [[ -n "$SETUP_CMD" ]] && ! ( cd "$wt" && AFK_TICKET=_integration AFK_WORKTREE="$wt" \
+    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/integration-setup.log" 2>&1 && install_ko=1
 
-  echo "  → verifying the whole"
-  [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
-    echo "     integration gate: ${INTEGRATION_VERIFY_CMD}"
-  local ok=0
-  ( cd "$wt" && gate "$INTEGRATION_VERIFY_CMD" ) \
-    > "$AFK_DIR/integration-verify.txt" 2>&1 && ok=1
+  # Without dependencies the gate is red for that alone: "red at integration" would blame the merge.
+  if (( ! install_ko )); then
+    echo "  → verifying the whole"
+    [[ "$INTEGRATION_VERIFY_CMD" != "$VERIFY_CMD" ]] &&
+      echo "     integration gate: ${INTEGRATION_VERIFY_CMD}"
+    ( cd "$wt" && gate "$INTEGRATION_VERIFY_CMD" ) \
+      > "$AFK_DIR/integration-verify.txt" 2>&1 && ok=1
+  fi
 
   # The verdict CARRIES ITS SCOPE. "The whole compiles" after a branch was set aside at
   # merge reads in the summary as "all the branches combine", which is precisely the
   # question the pass exists to answer.
   local scope="" n=${#INTEG_MERGED[@]} m=${#OK[@]}
   (( ${#INTEG_CONFLICTS[@]} )) && scope=" — PARTIAL: ${n}/${m} branches, without ${INTEG_CONFLICTS[*]}"
-  if (( ok )); then
+  if (( install_ko )); then
+    INTEG_VERDICT="not verified: install failed"
+    echo "  ⚠  integration not verified: install failed — .afk/integration-setup.log"
+  elif (( ok )); then
     note_green "$wt" "$INTEGRATION_VERIFY_CMD"
     INTEG_VERDICT="green"; echo "  ✓ the whole compiles${scope}"
   else
@@ -1873,8 +1879,14 @@ base_check() {
   seed_worktree "$wt" >/dev/null
   # `_base` as a ticket number: the base migrates like a worker, it must isolate itself
   # the same way (see `AFK_TICKET` in the worker).
-  [[ -n "$SETUP_CMD" ]] && ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
-    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1
+  # A failed install leaves no dependencies: the gate would be red for that alone, and the
+  # sessions would be handed that output as a red base that is not one.
+  if [[ -n "$SETUP_CMD" ]] && ! ( cd "$wt" && AFK_TICKET=_base AFK_WORKTREE="$wt" \
+    locked install bash -c "$SETUP_CMD" ) > "$AFK_DIR/base-setup.log" 2>&1; then
+    echo "  ⚠  base not verified: install failed — .afk/base-setup.log"
+    git worktree remove --force "$wt" 2>/dev/null; git worktree prune; rm -rf "$wt"
+    return 0
+  fi
   if ( cd "$wt" && gate "$VERIFY_CMD" ) > "$AFK_DIR/base-verify.txt" 2>&1; then
     note_green "$wt" "$VERIFY_CMD"
     echo "  ✓ green — a red ticket will really be its own"

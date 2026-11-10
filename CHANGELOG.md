@@ -46,6 +46,10 @@ code concerned; the verdict on proposed ideas is in
 
 ### Fixed
 
+- **A failed dependency install is no longer reported as a red base.** The base check says
+  "base not verified: install failed" with the setup log and skips its gate, so no session
+  gets a `RED BASE` section for missing dependencies; the integration pass gives the same
+  verdict instead of "red at integration" (#38).
 - **A blocker dropped from the batch, or whose state is unreadable, is handled as a blocker
   outside the run.** A ticket blocked by one that is `in-review` (or not written by a
   collaborator) waited forever and ended "dependency cycle or undeliverable blocker". It

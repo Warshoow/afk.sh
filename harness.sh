@@ -738,6 +738,29 @@ grep -qE '#43 frozen — blockers open outside the run: 42' <<<"$out15n" &&
   echo "  ✓ plan: the same freezes as the run" ||
   { echo "  ✗ plan disagrees with the run"; printf '%s\n' "$out15n"; fail=1; }
 
+# ─── Sixteenth run: a failed install is not a red base (#38) ──────────────────────
+# 46, 47: the install fails on the base and at integration (which needs two green
+# branches), but not in a ticket's worktree. The gate would be red there for the missing
+# dependencies alone.
+printf '## Blocked by\n\nNone\n' | tee "$T/fix/46.body" > "$T/fix/47.body"
+rm -f "$T/prompt-46.txt"
+out16=$(SETUP_CMD='[[ $AFK_TICKET != _base && $AFK_TICKET != _integration ]] && touch deps-ok' VERIFY_CMD='test -f deps-ok' REUSE_GREEN=0 NO_CHECKS=1 JOBS=1 bash "$AFK" 46 47 2>&1) || true
+printf '%s\n' "$out16" > "$T/run16.log"
+want16() {
+  if grep -qE -- "$2" <<<"$out16"; then printf '  ✓ %s\n' "$1"
+  else printf '  ✗ %s\n     expected: /%s/\n' "$1" "$2"; fail=1; fi
+}
+want16 "base: a failed install says the base is not verified" 'base not verified: install failed — \.afk/base-setup\.log'
+grep -q 'RED BEFORE THE RUN' <<<"$out16" &&
+  { echo "  ✗ a failed install is reported as a red base"; fail=1; } ||
+  echo "  ✓ and the base is not called red"
+[[ -f "$T/prompt-46.txt" ]] && ! grep -q 'RED BASE' "$T/prompt-46.txt" &&
+  echo "  ✓ no RED BASE section in the prompt" || { echo "  ✗ RED BASE in the prompt, or no session ran"; fail=1; }
+want16 "integration: the verdict names the install"        'integration: not verified: install failed'
+grep -q 'red at integration' <<<"$out16" &&
+  { echo "  ✗ a failed install is reported as red at integration"; fail=1; } ||
+  echo "  ✓ and it is not \"red at integration\""
+
 echo
 (( fail )) && { echo "FAILED — trace: $T/run.log"; trap - EXIT; exit 1; }
 echo "ok"
