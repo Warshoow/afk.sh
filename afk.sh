@@ -211,6 +211,20 @@ journal_notes() {
     printf "- **%s** — %s%s\n", $2, $3, ($4 == "" ? "" : " (" $4 ")") }'
 }
 
+# Dependencies a session added or changed (#18): nobody reads the PR before it lands with
+# afk-app.sh, and no gate looks at what a package is. A full-context diff (`-U9999`) of the
+# manifests on stdin → `<file>: <added line>` for each `+` line inside a block whose key
+# names dependencies; a `scripts` block is not one. No JSON parsing: the key a line sits in
+# is the last `"key": {` seen, closed by the next `}`.
+new_deps() {
+  awk '/^\+\+\+ b\// { f = substr($0, 7); blk = ""; next }
+       /^(---|\+\+\+) / { next }
+       { l = substr($0, 2) }
+       l ~ /"[^"]+"[ \t]*:[ \t]*\{[ \t]*$/ { match(l, /"[^"]+"/); blk = substr(l, RSTART + 1, RLENGTH - 2); next }
+       l ~ /^[ \t]*\}/ { blk = ""; next }
+       /^\+/ && blk ~ /([dD]ependencies|^require|^require-dev)$/ { sub(/^[ \t]+/, "", l); sub(/,$/, "", l); print f ": " l }'
+}
+
 [[ -n "${AFK_LIB:-}" ]] && return 0   # sourced by check.sh
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
@@ -843,7 +857,7 @@ worker() {
   # sum.
   local s0 vrc t_setup=0 t_session=0 t_verify=0
   local -a copts
-  local suspect pr_url pr_num pr_body notes
+  local suspect pr_url pr_num pr_body notes deps
 
   st() { printf '%s\n' "$*" >> "$sf"; }
   : > "$sf"
@@ -1072,6 +1086,8 @@ worker() {
         pr_body+=$'\n\n'"> ⚠ **The agent session ended abnormally** (${why:-code ${rc}}). The work present passes verification, but nothing guarantees it is complete — hence the draft. Session: \`.afk/${ticket}-${attempt}.json\`."
       fi
       (( netted ))  && pr_body+=$'\n\n'"> ⚠ The agent did not commit by itself: the orchestrator caught up the working tree."
+      deps=$(git diff -U9999 "$head0" HEAD -- '*package.json' '*composer.json' | new_deps)
+      [[ -n "$deps" ]] && pr_body+=$'\n\n'"> ⚠ **Dependencies added or changed** — no gate reads what a package is:"$'\n\n```\n'"$deps"$'\n```'
       notes=$(journal_notes < "$AFK_DIR/$ticket-work.tsv" 2>/dev/null)
       [[ -n "$notes" ]] && pr_body+=$'\n\n'"### Noticed but not touched, and concerns (session journal)"$'\n\n'"$notes"
 

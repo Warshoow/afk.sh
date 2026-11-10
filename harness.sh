@@ -168,6 +168,8 @@ case "$n" in
   21) j=$(grep -o '/[^ ]*/21-work.tsv' <<<"$p" | head -1)
       printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' > "$j"
       printf '1\tseams\tseam-not-for-the-pr\t\t\t\n2\tnoticed\tleft-the-formatter-alone\tout of scope\t\t\n' >> "$j"
+      # And a dependency, next to a script that is not one (#18).
+      printf '{\n  "scripts": {\n    "build": "tsc"\n  },\n  "dependencies": {\n    "left-pad": "^1.3.0"\n  }\n}\n' > package.json
       echo x > work-21.txt; git add -A; git commit -qm "feat(#21): ok"; res; exit 0 ;;
   18) echo "export const a = 1" > shared.ts
       mkdir -p docs; echo "the list: #19 is the one that will open it" > docs/stale.md
@@ -516,6 +518,10 @@ grep -qE 'edit issue edit 17 .*ready-for-human' "$T/gh.log" &&
 echo
 out7=$(AFK_MCP_CONFIG="$T/mcp.json" NO_CHECKS=1 JOBS=1 bash "$AFK" 21 2>&1) || true
 printf '%s\n' "$out7" > "$T/run7.log"
+grep -qF 'package.json: "left-pad": "^1.3.0"' "$T/gh.log" && ! grep -qF 'package.json: "build"' "$T/gh.log" &&
+  [[ $(grep -c 'Dependencies added or changed' "$T/gh.log") == 1 ]] &&
+  echo "  ✓ an added dependency is flagged in the PR body; none, no block" ||
+  { echo "  ✗ dependency block in the PR body"; fail=1; }
 grep -q 'left-the-formatter-alone (out of scope)' "$T/gh.log" && ! grep -q 'seam-not-for-the-pr' "$T/gh.log" &&
   [[ $(grep -c 'Noticed but not touched' "$T/gh.log") == 1 ]] &&
   echo "  ✓ the journal's noticed line is in the PR body; no line, no section" ||

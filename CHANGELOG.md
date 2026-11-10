@@ -32,6 +32,8 @@ code concerned; the verdict on proposed ideas is in
   none (#24).
 - **The PR body carries what the session noticed and left alone, and its concerns.** Journal
   lines in phase `noticed` or `concern` are copied into a section of the PR (#17).
+- **The PR body flags the dependencies a session added or changed** in `package.json` or
+  `composer.json`, in a ⚠ block; a `scripts` change is not listed (#18).
 
 ### Fixed
 

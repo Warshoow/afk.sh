@@ -282,4 +282,47 @@ want=$'- **noticed** — duplicate formatter in utils (out of scope)\n- **concer
 [[ "$got" == "$want" ]] || { echo "FAIL journal_notes: $got"; exit 1; }
 [[ -z "$(printf 'ts\tphase\n' | journal_notes)" ]] || { echo "FAIL journal_notes empty"; exit 1; }
 
+# ─── new_deps ─────────────────────────────────────────────────────────────────
+
+got=$(new_deps <<'EOF'
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -1,12 +1,14 @@
+ {
+   "name": "x",
+   "scripts": {
+-    "test": "vitest run",
++    "test": "vitest run --coverage",
++    "postinstall": "node setup.js"
+   },
+   "dependencies": {
+     "react": "^18.3.1",
++    "left-pad": "^1.3.0"
+   },
+   "devDependencies": {
+-    "vitest": "^1.0.0"
++    "vitest": "^2.0.0"
+   }
+ }
+diff --git a/api/composer.json b/api/composer.json
+--- a/api/composer.json
++++ b/api/composer.json
+@@ -1,5 +1,6 @@
+ {
+   "require": {
++    "guzzlehttp/guzzle": "^7.8",
+     "php": "^8.2"
+   },
+   "autoload": {
++    "files": ["helpers.php"]
+   }
+ }
+EOF
+)
+want=$'package.json: "left-pad": "^1.3.0"\npackage.json: "vitest": "^2.0.0"\napi/composer.json: "guzzlehttp/guzzle": "^7.8"'
+[[ "$got" == "$want" ]] || { echo "FAIL new_deps: $got"; exit 1; }
+[[ -z "$(printf -- '--- a/package.json\n+++ b/package.json\n   "scripts": {\n+    "build": "tsc"\n   }\n' | new_deps)" ]] ||
+  { echo "FAIL new_deps script only"; exit 1; }
+
 echo "ok"
